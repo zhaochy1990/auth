@@ -1,0 +1,19 @@
+{
+  "title": "总览",
+  "apps": {
+    "title": "应用统计",
+    "total": "总应用数",
+    "active": "启用",
+    "inactive": "禁用"
+  },
+  "users": {
+    "title": "用户统计",
+    "total": "总用户数",
+    "recent": "近7天注册"
+  },
+  "quickActions": {
+    "title": "快捷操作",
+    "createApp": "创建应用",
+    "searchUser": "搜索用户"
+  }
+}

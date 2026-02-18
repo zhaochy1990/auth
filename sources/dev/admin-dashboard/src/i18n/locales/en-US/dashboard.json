@@ -1,0 +1,19 @@
+{
+  "title": "Dashboard",
+  "apps": {
+    "title": "Applications",
+    "total": "Total",
+    "active": "Active",
+    "inactive": "Inactive"
+  },
+  "users": {
+    "title": "Users",
+    "total": "Total",
+    "recent": "Last 7 days"
+  },
+  "quickActions": {
+    "title": "Quick Actions",
+    "createApp": "Create Application",
+    "searchUser": "Search Users"
+  }
+}

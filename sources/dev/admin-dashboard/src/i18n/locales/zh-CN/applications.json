@@ -1,0 +1,47 @@
+{
+  "title": "应用管理",
+  "createBtn": "创建应用",
+  "searchPlaceholder": "按名称搜索...",
+  "table": {
+    "name": "名称",
+    "clientId": "Client ID",
+    "status": "状态",
+    "scopes": "权限",
+    "createdAt": "创建时间"
+  },
+  "create": {
+    "title": "创建应用",
+    "name": "应用名称",
+    "namePlaceholder": "输入应用名称",
+    "redirectUris": "回调地址",
+    "redirectUrisPlaceholder": "输入回调地址后按回车",
+    "scopes": "允许的权限",
+    "scopesPlaceholder": "输入权限后按回车",
+    "submit": "创建",
+    "success": "应用创建成功"
+  },
+  "secret": {
+    "title": "请妥善保存密钥",
+    "message": "此密钥仅显示一次，请立即复制并安全保存。",
+    "clientId": "Client ID",
+    "clientSecret": "Client Secret",
+    "acknowledge": "我已复制并保存密钥"
+  },
+  "detail": {
+    "title": "应用详情",
+    "basicSettings": "基本设置",
+    "credentials": "凭证信息",
+    "providers": "认证方式",
+    "rotateSecret": "轮换密钥",
+    "rotateConfirm": "轮换密钥后旧密钥将立即失效，确定要继续吗？",
+    "addProvider": "添加认证方式",
+    "providerType": "类型",
+    "providerConfig": "配置",
+    "removeProvider": "移除",
+    "removeProviderConfirm": "确定要移除此认证方式吗？",
+    "saveSuccess": "保存成功",
+    "rotateSuccess": "密钥已轮换",
+    "providerAdded": "认证方式已添加",
+    "providerRemoved": "认证方式已移除"
+  }
+}

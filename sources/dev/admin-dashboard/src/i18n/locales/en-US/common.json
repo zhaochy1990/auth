@@ -1,0 +1,42 @@
+{
+  "appName": "Admin Dashboard",
+  "sidebar": {
+    "dashboard": "Dashboard",
+    "applications": "Applications",
+    "users": "Users"
+  },
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "create": "Create",
+    "edit": "Edit",
+    "confirm": "Confirm",
+    "copy": "Copy",
+    "copied": "Copied",
+    "back": "Back",
+    "search": "Search",
+    "refresh": "Refresh",
+    "enable": "Enable",
+    "disable": "Disable",
+    "logout": "Logout"
+  },
+  "status": {
+    "active": "Active",
+    "inactive": "Inactive",
+    "loading": "Loading...",
+    "empty": "No data",
+    "error": "Failed to load"
+  },
+  "confirm": {
+    "title": "Confirm",
+    "deleteMessage": "Are you sure? This action cannot be undone.",
+    "yes": "Yes",
+    "no": "Cancel"
+  },
+  "pagination": {
+    "total": "Total {{total}} items",
+    "prev": "Previous",
+    "next": "Next"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "title": "Users",
+  "searchPlaceholder": "Search by email or name...",
+  "table": {
+    "email": "Email",
+    "name": "Name",
+    "role": "Role",
+    "status": "Status",
+    "createdAt": "Created At"
+  },
+  "role": {
+    "user": "User",
+    "admin": "Admin"
+  },
+  "detail": {
+    "title": "User Detail",
+    "profile": "Profile",
+    "accounts": "Linked Accounts",
+    "email": "Email",
+    "name": "Name",
+    "role": "Role",
+    "status": "Status",
+    "emailVerified": "Email verified",
+    "emailNotVerified": "Email not verified",
+    "createdAt": "Created At",
+    "provider": "Provider",
+    "accountId": "Account ID",
+    "unlinkAccount": "Unlink",
+    "unlinkConfirm": "Unlink this account?",
+    "changeRole": "Change Role",
+    "toggleActive": "Toggle Active",
+    "updateSuccess": "Updated",
+    "unlinkSuccess": "Account unlinked"
+  }
+}

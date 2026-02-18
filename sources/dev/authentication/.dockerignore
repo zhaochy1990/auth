@@ -1,0 +1,8 @@
+target/
+.env
+*.db
+keys/
+.git/
+.gitignore
+CLAUDE.md
+tests/
