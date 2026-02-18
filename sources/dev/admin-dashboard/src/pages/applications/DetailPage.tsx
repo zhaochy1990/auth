@@ -59,7 +59,7 @@ export default function ApplicationDetailPage() {
   // Add provider dialog
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [newProviderId, setNewProviderId] = useState('password');
-  const [newProviderConfig, setNewProviderConfig] = useState('{}');
+  const [newProviderConfig, setNewProviderConfig] = useState<Record<string, string>>({});
 
   // Remove provider confirm
   const [removeProviderId, setRemoveProviderId] = useState<string | null>(null);
@@ -82,15 +82,12 @@ export default function ApplicationDetailPage() {
   });
 
   const addProviderMutation = useMutation({
-    mutationFn: () => {
-      const config = JSON.parse(newProviderConfig);
-      return addProvider(id!, { provider_id: newProviderId, config });
-    },
+    mutationFn: () => addProvider(id!, { provider_id: newProviderId, config: newProviderConfig }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['providers', id] });
       setShowAddProvider(false);
       setNewProviderId('password');
-      setNewProviderConfig('{}');
+      setNewProviderConfig({});
       toast.success(t('detail.providerAdded'));
     },
   });
@@ -257,26 +254,44 @@ export default function ApplicationDetailPage() {
                 <label className="block text-sm font-medium text-gray-700">{t('detail.providerType')}</label>
                 <select
                   value={newProviderId}
-                  onChange={(e) => setNewProviderId(e.target.value)}
+                  onChange={(e) => { setNewProviderId(e.target.value); setNewProviderConfig({}); }}
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                 >
                   <option value="password">password</option>
                   <option value="wechat">wechat</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">{t('detail.providerConfig')}</label>
-                <textarea
-                  value={newProviderConfig}
-                  onChange={(e) => setNewProviderConfig(e.target.value)}
-                  rows={4}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono"
-                />
-              </div>
+              {newProviderId === 'password' && (
+                <p className="text-sm text-gray-500">{t('detail.providerNoConfig')}</p>
+              )}
+              {newProviderId === 'wechat' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">{t('detail.wechatAppId')}</label>
+                    <input
+                      type="text"
+                      value={newProviderConfig.appid ?? ''}
+                      onChange={(e) => setNewProviderConfig({ ...newProviderConfig, appid: e.target.value })}
+                      placeholder={t('detail.wechatAppIdPlaceholder')}
+                      className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">{t('detail.wechatSecret')}</label>
+                    <input
+                      type="password"
+                      value={newProviderConfig.secret ?? ''}
+                      onChange={(e) => setNewProviderConfig({ ...newProviderConfig, secret: e.target.value })}
+                      placeholder={t('detail.wechatSecretPlaceholder')}
+                      className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button
-                onClick={() => setShowAddProvider(false)}
+                onClick={() => { setShowAddProvider(false); setNewProviderId('password'); setNewProviderConfig({}); }}
                 className="rounded-md px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
               >
                 {t('common:actions.cancel')}
