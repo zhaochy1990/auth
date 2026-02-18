@@ -1,7 +1,3 @@
-[workspace]
-members = [".", "migration", "entity"]
-resolver = "2"
-
 [package]
 name = "auth-service"
 version = "0.1.0"
@@ -14,8 +10,11 @@ tokio = { version = "1", features = ["full"] }
 tower = { version = "0.4", features = ["limit"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
-# Database
-sea-orm = { version = "1", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
+# Database (MSSQL via Tiberius)
+tiberius = { version = "0.12", default-features = false, features = ["tds73", "chrono", "rustls"] }
+bb8 = "0.8"
+bb8-tiberius = "0.15"
+tokio-util = { version = "0.7", features = ["compat"] }
 
 # Auth
 jsonwebtoken = "9"
@@ -41,13 +40,10 @@ async-trait = "0.1"
 base64 = "0.22"
 thiserror = "1"
 
-# Local crates
-migration = { path = "migration" }
-entity = { path = "entity" }
-
 [features]
 test-providers = []
 
 [dev-dependencies]
 tower = { version = "0.4", features = ["util"] }
 http-body-util = "0.1"
+serial_test = "3"

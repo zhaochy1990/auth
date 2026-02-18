@@ -1,12 +1,13 @@
 use axum::{extract::Path, extract::State, Json};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::middleware::{AuthenticatedUser, ClientApp};
 use crate::auth::oauth2 as oauth2_util;
-use crate::auth::password::{hash_password, verify_password};
+use crate::auth::password::{hash_password, validate_password, verify_password};
 use crate::auth::providers;
+use crate::db::models::{Account, User};
+use crate::db::queries;
 use crate::error::AppError;
 use crate::AppState;
 
@@ -64,11 +65,11 @@ pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, AppError> {
+    // Validate password complexity
+    validate_password(&req.password)?;
+
     // Check if user with this email already exists
-    let existing = entity::user::Entity::find()
-        .filter(entity::user::Column::Email.eq(&req.email))
-        .one(&state.db)
-        .await?;
+    let existing = queries::users::find_by_email(&state.db, &req.email).await?;
 
     if existing.is_some() {
         return Err(AppError::UserAlreadyExists);
@@ -78,36 +79,39 @@ pub async fn register(
     let user_id = Uuid::new_v4().to_string();
 
     // Create user
-    let user = entity::user::ActiveModel {
-        id: Set(user_id.clone()),
-        email: Set(Some(req.email.clone())),
-        name: Set(req.name),
-        avatar_url: Set(None),
-        email_verified: Set(false),
-        role: Set("user".to_string()),
-        is_active: Set(true),
-        created_at: Set(now),
-        updated_at: Set(now),
+    let user = User {
+        id: user_id.clone(),
+        email: Some(req.email.clone()),
+        name: req.name,
+        avatar_url: None,
+        email_verified: false,
+        role: "user".to_string(),
+        is_active: true,
+        created_at: now,
+        updated_at: now,
     };
-    user.insert(&state.db).await?;
+    queries::users::insert(&state.db, &user).await?;
 
     // Create password account
     let password_hash = hash_password(&req.password)?;
-    let account = entity::account::ActiveModel {
-        id: Set(Uuid::new_v4().to_string()),
-        user_id: Set(user_id.clone()),
-        provider_id: Set("password".to_string()),
-        provider_account_id: Set(Some(req.email)),
-        credential: Set(Some(password_hash)),
-        provider_metadata: Set("{}".to_string()),
-        created_at: Set(now),
-        updated_at: Set(now),
+    let account = Account {
+        id: Uuid::new_v4().to_string(),
+        user_id: user_id.clone(),
+        provider_id: "password".to_string(),
+        provider_account_id: Some(req.email),
+        credential: Some(password_hash),
+        provider_metadata: "{}".to_string(),
+        created_at: now,
+        updated_at: now,
     };
-    account.insert(&state.db).await?;
+    queries::accounts::insert(&state.db, &account).await?;
 
     // Issue tokens
     let scopes = client_app.allowed_scopes.clone();
-    let access_token = state.jwt.issue_access_token(&user_id, &client_app.client_id, scopes.clone(), "user")?;
+    let access_token =
+        state
+            .jwt
+            .issue_access_token(&user_id, &client_app.client_id, scopes.clone(), "user")?;
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(
@@ -136,9 +140,7 @@ pub async fn login(
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<TokenResponse>, AppError> {
     // Find user by email
-    let user = entity::user::Entity::find()
-        .filter(entity::user::Column::Email.eq(&req.email))
-        .one(&state.db)
+    let user = queries::users::find_by_email(&state.db, &req.email)
         .await?
         .ok_or(AppError::InvalidCredentials)?;
 
@@ -147,10 +149,7 @@ pub async fn login(
     }
 
     // Find password account
-    let account = entity::account::Entity::find()
-        .filter(entity::account::Column::UserId.eq(&user.id))
-        .filter(entity::account::Column::ProviderId.eq("password"))
-        .one(&state.db)
+    let account = queries::accounts::find_by_user_and_provider(&state.db, &user.id, "password")
         .await?
         .ok_or(AppError::InvalidCredentials)?;
 
@@ -162,7 +161,12 @@ pub async fn login(
 
     // Issue tokens
     let scopes = client_app.allowed_scopes.clone();
-    let access_token = state.jwt.issue_access_token(&user.id, &client_app.client_id, scopes.clone(), &user.role)?;
+    let access_token = state.jwt.issue_access_token(
+        &user.id,
+        &client_app.client_id,
+        scopes.clone(),
+        &user.role,
+    )?;
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(
@@ -191,19 +195,19 @@ pub async fn provider_login(
     Json(req): Json<ProviderLoginRequest>,
 ) -> Result<Json<TokenResponse>, AppError> {
     // Find provider config for this app
-    let app_provider = entity::app_provider::Entity::find()
-        .filter(entity::app_provider::Column::AppId.eq(&client_app.app_id))
-        .filter(entity::app_provider::Column::ProviderId.eq(&provider_id))
-        .one(&state.db)
-        .await?
-        .ok_or(AppError::ProviderNotConfigured)?;
+    let app_provider = queries::app_providers::find_by_app_and_provider(
+        &state.db,
+        &client_app.app_id,
+        &provider_id,
+    )
+    .await?
+    .ok_or(AppError::ProviderNotConfigured)?;
 
     if !app_provider.is_active {
         return Err(AppError::ProviderNotConfigured);
     }
 
-    let config: serde_json::Value =
-        serde_json::from_str(&app_provider.config).unwrap_or_default();
+    let config: serde_json::Value = serde_json::from_str(&app_provider.config).unwrap_or_default();
 
     // Create provider and authenticate
     let provider = providers::create_provider(&provider_id, &config)?;
@@ -213,26 +217,22 @@ pub async fn provider_login(
     let now = chrono::Utc::now().naive_utc();
 
     // Check if this provider account already exists
-    let existing_account = entity::account::Entity::find()
-        .filter(entity::account::Column::ProviderId.eq(&provider_id))
-        .filter(
-            entity::account::Column::ProviderAccountId
-                .eq(Some(provider_info.provider_account_id.clone())),
-        )
-        .one(&state.db)
-        .await?;
+    let existing_account = queries::accounts::find_by_provider_account(
+        &state.db,
+        &provider_id,
+        &provider_info.provider_account_id,
+    )
+    .await?;
 
-    let (user_id, user_role) = if let Some(account) = existing_account {
+    let (user_id, user_role) = if let Some(mut account) = existing_account {
         // Existing user — update metadata
-        let mut active: entity::account::ActiveModel = account.clone().into();
-        active.provider_metadata =
-            Set(serde_json::to_string(&provider_info.metadata).unwrap_or_default());
-        active.updated_at = Set(now);
-        active.update(&state.db).await?;
+        account.provider_metadata =
+            serde_json::to_string(&provider_info.metadata).unwrap_or_default();
+        account.updated_at = now;
+        queries::accounts::update(&state.db, &account).await?;
 
         // Look up user for role and is_active check
-        let user = entity::user::Entity::find_by_id(&account.user_id)
-            .one(&state.db)
+        let user = queries::users::find_by_id(&state.db, &account.user_id)
             .await?
             .ok_or(AppError::UserNotFound)?;
         if !user.is_active {
@@ -243,39 +243,42 @@ pub async fn provider_login(
         // New user
         let user_id = Uuid::new_v4().to_string();
 
-        let user = entity::user::ActiveModel {
-            id: Set(user_id.clone()),
-            email: Set(provider_info.email),
-            name: Set(provider_info.name),
-            avatar_url: Set(provider_info.avatar_url),
-            email_verified: Set(false),
-            role: Set("user".to_string()),
-            is_active: Set(true),
-            created_at: Set(now),
-            updated_at: Set(now),
+        let user = User {
+            id: user_id.clone(),
+            email: provider_info.email,
+            name: provider_info.name,
+            avatar_url: provider_info.avatar_url,
+            email_verified: false,
+            role: "user".to_string(),
+            is_active: true,
+            created_at: now,
+            updated_at: now,
         };
-        user.insert(&state.db).await?;
+        queries::users::insert(&state.db, &user).await?;
 
-        let account = entity::account::ActiveModel {
-            id: Set(Uuid::new_v4().to_string()),
-            user_id: Set(user_id.clone()),
-            provider_id: Set(provider_id),
-            provider_account_id: Set(Some(provider_info.provider_account_id)),
-            credential: Set(None),
-            provider_metadata: Set(
-                serde_json::to_string(&provider_info.metadata).unwrap_or_default(),
-            ),
-            created_at: Set(now),
-            updated_at: Set(now),
+        let account = Account {
+            id: Uuid::new_v4().to_string(),
+            user_id: user_id.clone(),
+            provider_id,
+            provider_account_id: Some(provider_info.provider_account_id),
+            credential: None,
+            provider_metadata: serde_json::to_string(&provider_info.metadata).unwrap_or_default(),
+            created_at: now,
+            updated_at: now,
         };
-        account.insert(&state.db).await?;
+        queries::accounts::insert(&state.db, &account).await?;
 
         (user_id, "user".to_string())
     };
 
     // Issue tokens
     let scopes = client_app.allowed_scopes.clone();
-    let access_token = state.jwt.issue_access_token(&user_id, &client_app.client_id, scopes.clone(), &user_role)?;
+    let access_token = state.jwt.issue_access_token(
+        &user_id,
+        &client_app.client_id,
+        scopes.clone(),
+        &user_role,
+    )?;
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(
@@ -311,8 +314,7 @@ pub async fn refresh(
     .await?;
 
     // Look up user for current role
-    let user = entity::user::Entity::find_by_id(&user_id)
-        .one(&state.db)
+    let user = queries::users::find_by_id(&state.db, &user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 

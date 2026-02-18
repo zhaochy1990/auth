@@ -7,11 +7,11 @@ use crate::error::AppError;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub: String,       // user ID
-    pub aud: String,       // client_id of the application
-    pub iss: String,       // issuer
-    pub exp: i64,          // expiration
-    pub iat: i64,          // issued at
+    pub sub: String, // user ID
+    pub aud: String, // client_id of the application
+    pub iss: String, // issuer
+    pub exp: i64,    // expiration
+    pub iat: i64,    // issued at
     pub scopes: Vec<String>,
     pub role: String,
 }

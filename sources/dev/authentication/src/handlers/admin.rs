@@ -2,15 +2,13 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    Set,
-};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::middleware::AdminAuth;
-use crate::auth::password::hash_password;
+use crate::auth::password::hash_client_secret;
+use crate::db::models::{AppProvider, Application};
+use crate::db::queries;
 use crate::error::AppError;
 use crate::AppState;
 
@@ -143,24 +141,24 @@ pub async fn create_application(
 ) -> Result<Json<CreateApplicationResponse>, AppError> {
     let client_id = generate_client_id();
     let client_secret = generate_client_secret();
-    let client_secret_hash = hash_password(&client_secret)?;
+    let client_secret_hash = hash_client_secret(&client_secret);
 
     let now = chrono::Utc::now().naive_utc();
     let id = Uuid::new_v4().to_string();
 
-    let model = entity::application::ActiveModel {
-        id: Set(id.clone()),
-        name: Set(req.name.clone()),
-        client_id: Set(client_id.clone()),
-        client_secret_hash: Set(client_secret_hash),
-        redirect_uris: Set(serde_json::to_string(&req.redirect_uris).unwrap()),
-        allowed_scopes: Set(serde_json::to_string(&req.allowed_scopes).unwrap()),
-        is_active: Set(true),
-        created_at: Set(now),
-        updated_at: Set(now),
+    let app = Application {
+        id: id.clone(),
+        name: req.name.clone(),
+        client_id: client_id.clone(),
+        client_secret_hash,
+        redirect_uris: serde_json::to_string(&req.redirect_uris).unwrap(),
+        allowed_scopes: serde_json::to_string(&req.allowed_scopes).unwrap(),
+        is_active: true,
+        created_at: now,
+        updated_at: now,
     };
 
-    model.insert(&state.db).await?;
+    queries::applications::insert(&state.db, &app).await?;
 
     Ok(Json(CreateApplicationResponse {
         id,
@@ -176,9 +174,7 @@ pub async fn list_applications(
     _admin: AdminAuth,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ApplicationResponse>>, AppError> {
-    let apps = entity::application::Entity::find()
-        .all(&state.db)
-        .await?;
+    let apps = queries::applications::find_all(&state.db).await?;
 
     let responses: Vec<ApplicationResponse> = apps
         .into_iter()
@@ -202,37 +198,34 @@ pub async fn update_application(
     Path(id): Path<String>,
     Json(req): Json<UpdateApplicationRequest>,
 ) -> Result<Json<ApplicationResponse>, AppError> {
-    let app = entity::application::Entity::find_by_id(&id)
-        .one(&state.db)
+    let mut app = queries::applications::find_by_id(&state.db, &id)
         .await?
         .ok_or(AppError::ApplicationNotFound)?;
 
-    let mut active: entity::application::ActiveModel = app.into();
-
     if let Some(name) = req.name {
-        active.name = Set(name);
+        app.name = name;
     }
     if let Some(redirect_uris) = req.redirect_uris {
-        active.redirect_uris = Set(serde_json::to_string(&redirect_uris).unwrap());
+        app.redirect_uris = serde_json::to_string(&redirect_uris).unwrap();
     }
     if let Some(allowed_scopes) = req.allowed_scopes {
-        active.allowed_scopes = Set(serde_json::to_string(&allowed_scopes).unwrap());
+        app.allowed_scopes = serde_json::to_string(&allowed_scopes).unwrap();
     }
     if let Some(is_active) = req.is_active {
-        active.is_active = Set(is_active);
+        app.is_active = is_active;
     }
-    active.updated_at = Set(chrono::Utc::now().naive_utc());
+    app.updated_at = chrono::Utc::now().naive_utc();
 
-    let updated = active.update(&state.db).await?;
+    queries::applications::update(&state.db, &app).await?;
 
     Ok(Json(ApplicationResponse {
-        id: updated.id,
-        name: updated.name,
-        client_id: updated.client_id,
-        redirect_uris: serde_json::from_str(&updated.redirect_uris).unwrap_or_default(),
-        allowed_scopes: serde_json::from_str(&updated.allowed_scopes).unwrap_or_default(),
-        is_active: updated.is_active,
-        created_at: updated.created_at.to_string(),
+        id: app.id,
+        name: app.name,
+        client_id: app.client_id,
+        redirect_uris: serde_json::from_str(&app.redirect_uris).unwrap_or_default(),
+        allowed_scopes: serde_json::from_str(&app.allowed_scopes).unwrap_or_default(),
+        is_active: app.is_active,
+        created_at: app.created_at.to_string(),
     }))
 }
 
@@ -243,17 +236,14 @@ pub async fn add_provider(
     Json(req): Json<AddProviderRequest>,
 ) -> Result<Json<ProviderResponse>, AppError> {
     // Verify application exists
-    entity::application::Entity::find_by_id(&app_id)
-        .one(&state.db)
+    queries::applications::find_by_id(&state.db, &app_id)
         .await?
         .ok_or(AppError::ApplicationNotFound)?;
 
     // Check if provider already exists for this app
-    let existing = entity::app_provider::Entity::find()
-        .filter(entity::app_provider::Column::AppId.eq(&app_id))
-        .filter(entity::app_provider::Column::ProviderId.eq(&req.provider_id))
-        .one(&state.db)
-        .await?;
+    let existing =
+        queries::app_providers::find_by_app_and_provider(&state.db, &app_id, &req.provider_id)
+            .await?;
 
     if existing.is_some() {
         return Err(AppError::BadRequest(
@@ -264,16 +254,16 @@ pub async fn add_provider(
     let now = chrono::Utc::now().naive_utc();
     let id = Uuid::new_v4().to_string();
 
-    let model = entity::app_provider::ActiveModel {
-        id: Set(id.clone()),
-        app_id: Set(app_id),
-        provider_id: Set(req.provider_id.clone()),
-        config: Set(serde_json::to_string(&req.config).unwrap()),
-        is_active: Set(true),
-        created_at: Set(now),
+    let ap = AppProvider {
+        id: id.clone(),
+        app_id,
+        provider_id: req.provider_id.clone(),
+        config: serde_json::to_string(&req.config).unwrap(),
+        is_active: true,
+        created_at: now,
     };
 
-    model.insert(&state.db).await?;
+    queries::app_providers::insert(&state.db, &ap).await?;
 
     Ok(Json(ProviderResponse {
         id,
@@ -288,16 +278,12 @@ pub async fn remove_provider(
     State(state): State<AppState>,
     Path((app_id, provider_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let provider = entity::app_provider::Entity::find()
-        .filter(entity::app_provider::Column::AppId.eq(&app_id))
-        .filter(entity::app_provider::Column::ProviderId.eq(&provider_id))
-        .one(&state.db)
-        .await?
-        .ok_or(AppError::ProviderNotConfigured)?;
+    let provider =
+        queries::app_providers::find_by_app_and_provider(&state.db, &app_id, &provider_id)
+            .await?
+            .ok_or(AppError::ProviderNotConfigured)?;
 
-    entity::app_provider::Entity::delete_by_id(&provider.id)
-        .exec(&state.db)
-        .await?;
+    queries::app_providers::delete_by_id(&state.db, &provider.id).await?;
 
     Ok(Json(serde_json::json!({"status": "deleted"})))
 }
@@ -307,21 +293,19 @@ pub async fn rotate_secret(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<RotateSecretResponse>, AppError> {
-    let app = entity::application::Entity::find_by_id(&id)
-        .one(&state.db)
+    let mut app = queries::applications::find_by_id(&state.db, &id)
         .await?
         .ok_or(AppError::ApplicationNotFound)?;
 
     let new_secret = generate_client_secret();
-    let new_hash = hash_password(&new_secret)?;
+    let new_hash = hash_client_secret(&new_secret);
 
-    let mut active: entity::application::ActiveModel = app.into();
-    active.client_secret_hash = Set(new_hash);
-    active.updated_at = Set(chrono::Utc::now().naive_utc());
-    let updated = active.update(&state.db).await?;
+    app.client_secret_hash = new_hash;
+    app.updated_at = chrono::Utc::now().naive_utc();
+    queries::applications::update(&state.db, &app).await?;
 
     Ok(Json(RotateSecretResponse {
-        client_id: updated.client_id,
+        client_id: app.client_id,
         client_secret: new_secret,
     }))
 }
@@ -332,15 +316,11 @@ pub async fn list_providers(
     Path(app_id): Path<String>,
 ) -> Result<Json<Vec<ProviderResponse>>, AppError> {
     // Verify application exists
-    entity::application::Entity::find_by_id(&app_id)
-        .one(&state.db)
+    queries::applications::find_by_id(&state.db, &app_id)
         .await?
         .ok_or(AppError::ApplicationNotFound)?;
 
-    let providers = entity::app_provider::Entity::find()
-        .filter(entity::app_provider::Column::AppId.eq(&app_id))
-        .all(&state.db)
-        .await?;
+    let providers = queries::app_providers::find_all_by_app(&state.db, &app_id).await?;
 
     let responses = providers
         .into_iter()
@@ -362,24 +342,11 @@ pub async fn list_users(
 ) -> Result<Json<UserListResponse>, AppError> {
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(20).min(100);
+    let offset = (page - 1) * per_page;
 
-    let mut find = entity::user::Entity::find();
-
-    if let Some(ref search) = query.search {
-        if !search.is_empty() {
-            find = find.filter(
-                Condition::any()
-                    .add(entity::user::Column::Email.contains(search))
-                    .add(entity::user::Column::Name.contains(search)),
-            );
-        }
-    }
-
-    let find = find.order_by_desc(entity::user::Column::CreatedAt);
-
-    let paginator = find.paginate(&state.db, per_page);
-    let total = paginator.num_items().await?;
-    let users = paginator.fetch_page(page - 1).await?;
+    let (users, total) =
+        queries::users::list_paginated(&state.db, query.search.as_deref(), offset, per_page)
+            .await?;
 
     let responses = users
         .into_iter()
@@ -409,8 +376,7 @@ pub async fn get_user(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<UserResponse>, AppError> {
-    let user = entity::user::Entity::find_by_id(&id)
-        .one(&state.db)
+    let user = queries::users::find_by_id(&state.db, &id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
@@ -433,15 +399,11 @@ pub async fn get_user_accounts(
     Path(user_id): Path<String>,
 ) -> Result<Json<Vec<UserAccountResponse>>, AppError> {
     // Verify user exists
-    entity::user::Entity::find_by_id(&user_id)
-        .one(&state.db)
+    queries::users::find_by_id(&state.db, &user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
-    let accounts = entity::account::Entity::find()
-        .filter(entity::account::Column::UserId.eq(&user_id))
-        .all(&state.db)
-        .await?;
+    let accounts = queries::accounts::find_all_by_user(&state.db, &user_id).await?;
 
     let responses = accounts
         .into_iter()
@@ -462,39 +424,38 @@ pub async fn update_user(
     Path(id): Path<String>,
     Json(req): Json<UpdateUserRequest>,
 ) -> Result<Json<UserResponse>, AppError> {
-    let user = entity::user::Entity::find_by_id(&id)
-        .one(&state.db)
+    let mut user = queries::users::find_by_id(&state.db, &id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
-    let mut active: entity::user::ActiveModel = user.into();
-
     if let Some(name) = req.name {
-        active.name = Set(Some(name));
+        user.name = Some(name);
     }
     if let Some(role) = req.role {
         if role != "user" && role != "admin" {
-            return Err(AppError::BadRequest("Role must be 'user' or 'admin'".to_string()));
+            return Err(AppError::BadRequest(
+                "Role must be 'user' or 'admin'".to_string(),
+            ));
         }
-        active.role = Set(role);
+        user.role = role;
     }
     if let Some(is_active) = req.is_active {
-        active.is_active = Set(is_active);
+        user.is_active = is_active;
     }
-    active.updated_at = Set(chrono::Utc::now().naive_utc());
+    user.updated_at = chrono::Utc::now().naive_utc();
 
-    let updated = active.update(&state.db).await?;
+    queries::users::update(&state.db, &user).await?;
 
     Ok(Json(UserResponse {
-        id: updated.id,
-        email: updated.email,
-        name: updated.name,
-        avatar_url: updated.avatar_url,
-        email_verified: updated.email_verified,
-        role: updated.role,
-        is_active: updated.is_active,
-        created_at: updated.created_at.to_string(),
-        updated_at: updated.updated_at.to_string(),
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatar_url: user.avatar_url,
+        email_verified: user.email_verified,
+        role: user.role,
+        is_active: user.is_active,
+        created_at: user.created_at.to_string(),
+        updated_at: user.updated_at.to_string(),
     }))
 }
 
@@ -504,31 +465,22 @@ pub async fn admin_unlink_account(
     Path((user_id, provider_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     // Verify user exists
-    entity::user::Entity::find_by_id(&user_id)
-        .one(&state.db)
+    queries::users::find_by_id(&state.db, &user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
-    let account = entity::account::Entity::find()
-        .filter(entity::account::Column::UserId.eq(&user_id))
-        .filter(entity::account::Column::ProviderId.eq(&provider_id))
-        .one(&state.db)
+    let account = queries::accounts::find_by_user_and_provider(&state.db, &user_id, &provider_id)
         .await?
         .ok_or(AppError::BadRequest("Account not linked".to_string()))?;
 
     // Don't allow unlinking the last account
-    let count = entity::account::Entity::find()
-        .filter(entity::account::Column::UserId.eq(&user_id))
-        .count(&state.db)
-        .await?;
+    let count = queries::accounts::count_by_user(&state.db, &user_id).await?;
 
     if count <= 1 {
         return Err(AppError::CannotUnlinkLastAccount);
     }
 
-    entity::account::Entity::delete_by_id(&account.id)
-        .exec(&state.db)
-        .await?;
+    queries::accounts::delete_by_id(&state.db, &account.id).await?;
 
     Ok(Json(serde_json::json!({"status": "unlinked"})))
 }
@@ -537,23 +489,14 @@ pub async fn stats(
     _admin: AdminAuth,
     State(state): State<AppState>,
 ) -> Result<Json<StatsResponse>, AppError> {
-    let total_apps = entity::application::Entity::find()
-        .count(&state.db)
-        .await?;
-    let active_apps = entity::application::Entity::find()
-        .filter(entity::application::Column::IsActive.eq(true))
-        .count(&state.db)
-        .await?;
+    let total_apps = queries::applications::count_all(&state.db).await?;
+    let active_apps = queries::applications::count_active(&state.db).await?;
 
-    let total_users = entity::user::Entity::find().count(&state.db).await?;
+    let total_users = queries::users::count_all(&state.db).await?;
 
     // Recent users: registered in last 7 days
-    let seven_days_ago =
-        (chrono::Utc::now() - chrono::Duration::days(7)).naive_utc();
-    let recent_users = entity::user::Entity::find()
-        .filter(entity::user::Column::CreatedAt.gte(seven_days_ago))
-        .count(&state.db)
-        .await?;
+    let seven_days_ago = (chrono::Utc::now() - chrono::Duration::days(7)).naive_utc();
+    let recent_users = queries::users::count_since(&state.db, seven_days_ago).await?;
 
     Ok(Json(StatsResponse {
         applications: AppStats {
@@ -571,7 +514,7 @@ pub async fn stats(
 // --- Helpers ---
 
 fn generate_client_id() -> String {
-    format!("app_{}", Uuid::new_v4().to_string().replace('-', "")[..24].to_string())
+    format!("app_{}", &Uuid::new_v4().to_string().replace('-', "")[..24])
 }
 
 fn generate_client_secret() -> String {

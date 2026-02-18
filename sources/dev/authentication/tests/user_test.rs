@@ -2,7 +2,8 @@ mod common;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use common::{TestApp, ADMIN_KEY};
+use common::TestApp;
+use serial_test::serial;
 
 /// Helper: create app, register user, return (CreatedApp, access_token, user_id).
 async fn setup(app: &TestApp) -> (common::CreatedApp, String, String) {
@@ -27,6 +28,7 @@ async fn setup(app: &TestApp) -> (common::CreatedApp, String, String) {
 
 // ─── Get Profile ─────────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn get_profile_success() {
     let app = TestApp::new().await;
@@ -46,6 +48,7 @@ async fn get_profile_success() {
     assert_eq!(json["email_verified"], false);
 }
 
+#[serial]
 #[tokio::test]
 async fn get_profile_unauthorized() {
     let app = TestApp::new().await;
@@ -60,6 +63,7 @@ async fn get_profile_unauthorized() {
     resp.assert_status(StatusCode::UNAUTHORIZED);
 }
 
+#[serial]
 #[tokio::test]
 async fn get_profile_invalid_token() {
     let app = TestApp::new().await;
@@ -77,6 +81,7 @@ async fn get_profile_invalid_token() {
 
 // ─── Update Profile ──────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn update_profile_name() {
     let app = TestApp::new().await;
@@ -97,6 +102,7 @@ async fn update_profile_name() {
     assert_eq!(json["name"], "Alice");
 }
 
+#[serial]
 #[tokio::test]
 async fn update_profile_avatar() {
     let app = TestApp::new().await;
@@ -119,6 +125,7 @@ async fn update_profile_avatar() {
 
 // ─── List Accounts ───────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn list_accounts_after_register() {
     let app = TestApp::new().await;
@@ -140,6 +147,7 @@ async fn list_accounts_after_register() {
 
 // ─── Unlink Account ──────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn unlink_last_account_rejected() {
     let app = TestApp::new().await;
@@ -161,6 +169,7 @@ async fn unlink_last_account_rejected() {
 // ─── Link + Unlink (test provider) ──────────────────────────────────────────
 
 #[cfg(feature = "test-providers")]
+#[serial]
 #[tokio::test]
 async fn link_and_unlink_account() {
     let app = TestApp::new().await;
@@ -175,7 +184,7 @@ async fn link_and_unlink_account() {
         .method("POST")
         .uri(format!("/admin/applications/{}/providers", created.id))
         .header("Content-Type", "application/json")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
     app.request(req).await.assert_status(StatusCode::OK);

@@ -2,8 +2,10 @@ import axios from 'axios';
 import type { JwtPayload } from './types';
 
 const CLIENT_ID = import.meta.env.VITE_API_CLIENT_ID || '';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 const client = axios.create({
+  baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -48,7 +50,7 @@ async function refreshAccessToken(): Promise<string> {
       if (!refreshToken) throw new Error('No refresh token');
 
       const res = await axios.post(
-        '/api/auth/refresh',
+        `${BASE_URL}/api/auth/refresh`,
         { refresh_token: refreshToken },
         { headers: { 'X-Client-Id': CLIENT_ID } },
       );

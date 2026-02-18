@@ -3,9 +3,11 @@ mod common;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use common::TestApp;
+use serial_test::serial;
 
 // ─── Register ────────────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn register_success() {
     let app = TestApp::new().await;
@@ -25,6 +27,7 @@ async fn register_success() {
     assert_eq!(json["token_type"], "Bearer");
 }
 
+#[serial]
 #[tokio::test]
 async fn register_duplicate_email() {
     let app = TestApp::new().await;
@@ -42,6 +45,7 @@ async fn register_duplicate_email() {
     resp.assert_status(StatusCode::CONFLICT);
 }
 
+#[serial]
 #[tokio::test]
 async fn register_missing_client_id() {
     let app = TestApp::new().await;
@@ -62,6 +66,7 @@ async fn register_missing_client_id() {
     resp.assert_status(StatusCode::BAD_REQUEST);
 }
 
+#[serial]
 #[tokio::test]
 async fn register_invalid_client_id() {
     let app = TestApp::new().await;
@@ -72,6 +77,7 @@ async fn register_invalid_client_id() {
     resp.assert_status(StatusCode::NOT_FOUND);
 }
 
+#[serial]
 #[tokio::test]
 async fn register_inactive_app() {
     let app = TestApp::new().await;
@@ -85,7 +91,7 @@ async fn register_inactive_app() {
         .method("PATCH")
         .uri(format!("/admin/applications/{}", created.id))
         .header("Content-Type", "application/json")
-        .header("X-Admin-Key", common::ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
     app.request(req).await.assert_status(StatusCode::OK);
@@ -98,6 +104,7 @@ async fn register_inactive_app() {
 
 // ─── Login ───────────────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn login_success() {
     let app = TestApp::new().await;
@@ -120,6 +127,7 @@ async fn login_success() {
     assert_eq!(json["token_type"], "Bearer");
 }
 
+#[serial]
 #[tokio::test]
 async fn login_wrong_password() {
     let app = TestApp::new().await;
@@ -137,6 +145,7 @@ async fn login_wrong_password() {
     resp.assert_status(StatusCode::UNAUTHORIZED);
 }
 
+#[serial]
 #[tokio::test]
 async fn login_nonexistent_email() {
     let app = TestApp::new().await;
@@ -150,6 +159,7 @@ async fn login_nonexistent_email() {
     resp.assert_status(StatusCode::UNAUTHORIZED);
 }
 
+#[serial]
 #[tokio::test]
 async fn login_access_token_valid_jwt() {
     let app = TestApp::new().await;
@@ -185,6 +195,7 @@ async fn login_access_token_valid_jwt() {
 
 // ─── Refresh ─────────────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn refresh_success() {
     let app = TestApp::new().await;
@@ -216,6 +227,7 @@ async fn refresh_success() {
     assert!(!json["refresh_token"].as_str().unwrap().is_empty());
 }
 
+#[serial]
 #[tokio::test]
 async fn refresh_token_rotation() {
     let app = TestApp::new().await;
@@ -261,6 +273,7 @@ async fn refresh_token_rotation() {
     resp.assert_status(StatusCode::UNAUTHORIZED);
 }
 
+#[serial]
 #[tokio::test]
 async fn refresh_invalid_token() {
     let app = TestApp::new().await;
@@ -283,6 +296,7 @@ async fn refresh_invalid_token() {
 
 // ─── Logout ──────────────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn logout_success() {
     let app = TestApp::new().await;
@@ -310,6 +324,7 @@ async fn logout_success() {
     resp.assert_status(StatusCode::OK);
 }
 
+#[serial]
 #[tokio::test]
 async fn logout_requires_auth() {
     let app = TestApp::new().await;

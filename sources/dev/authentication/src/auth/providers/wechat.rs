@@ -54,8 +54,11 @@ impl AuthProvider for WeChatProvider {
         &self,
         credential: &serde_json::Value,
     ) -> Result<ProviderUserInfo, AppError> {
-        let cred: WeChatCredential = serde_json::from_value(credential.clone())
-            .map_err(|_| AppError::BadRequest("Invalid WeChat credential: expected {\"code\": \"...\"}".to_string()))?;
+        let cred: WeChatCredential = serde_json::from_value(credential.clone()).map_err(|_| {
+            AppError::BadRequest(
+                "Invalid WeChat credential: expected {\"code\": \"...\"}".to_string(),
+            )
+        })?;
 
         // Build URL with properly encoded query parameters
         let url = reqwest::Url::parse_with_params(
@@ -69,13 +72,7 @@ impl AuthProvider for WeChatProvider {
         )
         .map_err(|e| AppError::Internal(format!("Failed to build WeChat URL: {e}")))?;
 
-        let resp: JsCode2SessionResponse = self
-            .http_client
-            .get(url)
-            .send()
-            .await?
-            .json()
-            .await?;
+        let resp: JsCode2SessionResponse = self.http_client.get(url).send().await?.json().await?;
 
         // Check for errors
         if let Some(errcode) = resp.errcode {

@@ -1,8 +1,10 @@
 use chrono::{Duration, Utc};
 use rand::Rng;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use sha2::{Digest, Sha256};
 
+use crate::db::models::{AuthorizationCode, RefreshToken};
+use crate::db::pool::Db;
+use crate::db::queries;
 use crate::error::AppError;
 
 /// Generate a cryptographically random authorization code.
@@ -27,20 +29,14 @@ pub fn hash_token(token: &str) -> String {
 }
 
 /// Verify a PKCE code_verifier against a code_challenge.
-pub fn verify_pkce(
-    code_verifier: &str,
-    code_challenge: &str,
-    code_challenge_method: &str,
-) -> bool {
+pub fn verify_pkce(code_verifier: &str, code_challenge: &str, code_challenge_method: &str) -> bool {
     match code_challenge_method {
         "S256" => {
             let mut hasher = Sha256::new();
             hasher.update(code_verifier.as_bytes());
             let hash = hasher.finalize();
-            let computed = base64::Engine::encode(
-                &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-                hash,
-            );
+            let computed =
+                base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, hash);
             computed == code_challenge
         }
         "plain" => code_verifier == code_challenge,
@@ -49,8 +45,9 @@ pub fn verify_pkce(
 }
 
 /// Store an authorization code in the database.
+#[allow(clippy::too_many_arguments)]
 pub async fn store_auth_code(
-    db: &sea_orm::DatabaseConnection,
+    db: &Db,
     code: &str,
     app_id: &str,
     user_id: &str,
@@ -62,33 +59,32 @@ pub async fn store_auth_code(
     let now = Utc::now().naive_utc();
     let expires_at = (Utc::now() + Duration::minutes(10)).naive_utc();
 
-    let model = entity::authorization_code::ActiveModel {
-        code: Set(code.to_string()),
-        app_id: Set(app_id.to_string()),
-        user_id: Set(user_id.to_string()),
-        redirect_uri: Set(redirect_uri.to_string()),
-        scopes: Set(serde_json::to_string(scopes).unwrap_or_default()),
-        code_challenge: Set(code_challenge),
-        code_challenge_method: Set(code_challenge_method),
-        expires_at: Set(expires_at),
-        used: Set(false),
-        created_at: Set(now),
+    let ac = AuthorizationCode {
+        code: code.to_string(),
+        app_id: app_id.to_string(),
+        user_id: user_id.to_string(),
+        redirect_uri: redirect_uri.to_string(),
+        scopes: serde_json::to_string(scopes).unwrap_or_default(),
+        code_challenge,
+        code_challenge_method,
+        expires_at,
+        used: false,
+        created_at: now,
     };
 
-    model.insert(db).await?;
+    queries::auth_codes::insert(db, &ac).await?;
     Ok(())
 }
 
 /// Exchange an authorization code for user info. Validates and marks as used.
 pub async fn exchange_auth_code(
-    db: &sea_orm::DatabaseConnection,
+    db: &Db,
     code: &str,
     app_id: &str,
     redirect_uri: &str,
     code_verifier: Option<&str>,
 ) -> Result<(String, Vec<String>), AppError> {
-    let auth_code = entity::authorization_code::Entity::find_by_id(code)
-        .one(db)
+    let auth_code = queries::auth_codes::find_by_code(db, code)
         .await?
         .ok_or(AppError::InvalidAuthorizationCode)?;
 
@@ -122,19 +118,16 @@ pub async fn exchange_auth_code(
     }
 
     // Mark as used
-    let mut active: entity::authorization_code::ActiveModel = auth_code.clone().into();
-    active.used = Set(true);
-    active.update(db).await?;
+    queries::auth_codes::mark_used(db, code).await?;
 
-    let scopes: Vec<String> =
-        serde_json::from_str(&auth_code.scopes).unwrap_or_default();
+    let scopes: Vec<String> = serde_json::from_str(&auth_code.scopes).unwrap_or_default();
 
     Ok((auth_code.user_id, scopes))
 }
 
 /// Store a refresh token in the database.
 pub async fn store_refresh_token(
-    db: &sea_orm::DatabaseConnection,
+    db: &Db,
     user_id: &str,
     app_id: &str,
     token: &str,
@@ -145,34 +138,32 @@ pub async fn store_refresh_token(
     let now = Utc::now().naive_utc();
     let expires_at = (Utc::now() + Duration::days(expiry_days)).naive_utc();
 
-    let model = entity::refresh_token::ActiveModel {
-        id: Set(uuid::Uuid::new_v4().to_string()),
-        user_id: Set(user_id.to_string()),
-        app_id: Set(app_id.to_string()),
-        token_hash: Set(hash_token(token)),
-        scopes: Set(serde_json::to_string(scopes).unwrap_or_default()),
-        device_id: Set(device_id),
-        expires_at: Set(expires_at),
-        revoked: Set(false),
-        created_at: Set(now),
+    let rt = RefreshToken {
+        id: uuid::Uuid::new_v4().to_string(),
+        user_id: user_id.to_string(),
+        app_id: app_id.to_string(),
+        token_hash: hash_token(token),
+        scopes: serde_json::to_string(scopes).unwrap_or_default(),
+        device_id,
+        expires_at,
+        revoked: false,
+        created_at: now,
     };
 
-    model.insert(db).await?;
+    queries::refresh_tokens::insert(db, &rt).await?;
     Ok(())
 }
 
 /// Validate and rotate a refresh token.
 pub async fn rotate_refresh_token(
-    db: &sea_orm::DatabaseConnection,
+    db: &Db,
     token: &str,
     app_id: &str,
     expiry_days: i64,
 ) -> Result<(String, String, Vec<String>), AppError> {
     let token_hash = hash_token(token);
 
-    let stored = entity::refresh_token::Entity::find()
-        .filter(entity::refresh_token::Column::TokenHash.eq(&token_hash))
-        .one(db)
+    let stored = queries::refresh_tokens::find_by_token_hash(db, &token_hash)
         .await?
         .ok_or(AppError::InvalidToken)?;
 
@@ -190,14 +181,11 @@ pub async fn rotate_refresh_token(
     }
 
     // Revoke old token
-    let mut active: entity::refresh_token::ActiveModel = stored.clone().into();
-    active.revoked = Set(true);
-    active.update(db).await?;
+    queries::refresh_tokens::revoke(db, &stored.id).await?;
 
     // Issue new refresh token
     let new_token = generate_refresh_token();
-    let scopes: Vec<String> =
-        serde_json::from_str(&stored.scopes).unwrap_or_default();
+    let scopes: Vec<String> = serde_json::from_str(&stored.scopes).unwrap_or_default();
 
     store_refresh_token(
         db,
@@ -214,21 +202,14 @@ pub async fn rotate_refresh_token(
 }
 
 /// Revoke a refresh token by its raw value.
-pub async fn revoke_refresh_token(
-    db: &sea_orm::DatabaseConnection,
-    token: &str,
-) -> Result<(), AppError> {
+pub async fn revoke_refresh_token(db: &Db, token: &str) -> Result<(), AppError> {
     let token_hash = hash_token(token);
 
-    let stored = entity::refresh_token::Entity::find()
-        .filter(entity::refresh_token::Column::TokenHash.eq(&token_hash))
-        .one(db)
+    let stored = queries::refresh_tokens::find_by_token_hash(db, &token_hash)
         .await?
         .ok_or(AppError::InvalidToken)?;
 
-    let mut active: entity::refresh_token::ActiveModel = stored.into();
-    active.revoked = Set(true);
-    active.update(db).await?;
+    queries::refresh_tokens::revoke(db, &stored.id).await?;
 
     Ok(())
 }

@@ -4,11 +4,10 @@ use auth_service::auth::oauth2 as oauth2_util;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use common::TestApp;
+use serial_test::serial;
 
 /// Helper: create an app, register a user, and return everything needed for OAuth2 tests.
-async fn setup_app_and_user(
-    app: &TestApp,
-) -> (common::CreatedApp, String, String, String) {
+async fn setup_app_and_user(app: &TestApp) -> (common::CreatedApp, String, String, String) {
     let created = app
         .admin_create_app(
             "OAuth App",
@@ -25,11 +24,17 @@ async fn setup_app_and_user(
     let user_id = json["user_id"].as_str().unwrap().to_string();
     let refresh_token = json["refresh_token"].as_str().unwrap().to_string();
 
-    (created, user_id, "oauth@test.com".to_string(), refresh_token)
+    (
+        created,
+        user_id,
+        "oauth@test.com".to_string(),
+        refresh_token,
+    )
 }
 
 // ─── Client Credentials ─────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn client_credentials_grant() {
     let app = TestApp::new().await;
@@ -56,6 +61,7 @@ async fn client_credentials_grant() {
     assert_eq!(json["token_type"], "Bearer");
 }
 
+#[serial]
 #[tokio::test]
 async fn client_credentials_invalid_secret() {
     let app = TestApp::new().await;
@@ -80,6 +86,7 @@ async fn client_credentials_invalid_secret() {
 
 // ─── Password Grant ──────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn password_grant_success() {
     let app = TestApp::new().await;
@@ -107,6 +114,7 @@ async fn password_grant_success() {
     assert!(json["refresh_token"].as_str().is_some());
 }
 
+#[serial]
 #[tokio::test]
 async fn password_grant_wrong_password() {
     let app = TestApp::new().await;
@@ -131,6 +139,7 @@ async fn password_grant_wrong_password() {
     resp.assert_status(StatusCode::UNAUTHORIZED);
 }
 
+#[serial]
 #[tokio::test]
 async fn password_grant_scope_filtering() {
     let app = TestApp::new().await;
@@ -163,6 +172,7 @@ async fn password_grant_scope_filtering() {
 
 // ─── Refresh Token Grant ─────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn refresh_token_grant() {
     let app = TestApp::new().await;
@@ -190,6 +200,7 @@ async fn refresh_token_grant() {
     assert_ne!(new_refresh, refresh_token);
 }
 
+#[serial]
 #[tokio::test]
 async fn refresh_token_revoked() {
     let app = TestApp::new().await;
@@ -228,6 +239,7 @@ async fn refresh_token_revoked() {
     resp.assert_status(StatusCode::UNAUTHORIZED);
 }
 
+#[serial]
 #[tokio::test]
 async fn refresh_token_wrong_app() {
     let app = TestApp::new().await;
@@ -258,6 +270,7 @@ async fn refresh_token_wrong_app() {
 
 // ─── Authorization Code Grant ────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn authorization_code_grant() {
     let app = TestApp::new().await;
@@ -300,6 +313,7 @@ async fn authorization_code_grant() {
     assert!(json["refresh_token"].as_str().is_some());
 }
 
+#[serial]
 #[tokio::test]
 async fn authorization_code_with_pkce() {
     let app = TestApp::new().await;
@@ -346,6 +360,7 @@ async fn authorization_code_with_pkce() {
     resp.assert_status(StatusCode::OK);
 }
 
+#[serial]
 #[tokio::test]
 async fn authorization_code_pkce_mismatch() {
     let app = TestApp::new().await;
@@ -385,6 +400,7 @@ async fn authorization_code_pkce_mismatch() {
     resp.assert_status(StatusCode::BAD_REQUEST);
 }
 
+#[serial]
 #[tokio::test]
 async fn authorization_code_already_used() {
     let app = TestApp::new().await;
@@ -433,6 +449,7 @@ async fn authorization_code_already_used() {
     resp.assert_status(StatusCode::BAD_REQUEST);
 }
 
+#[serial]
 #[tokio::test]
 async fn authorization_code_wrong_redirect_uri() {
     let app = TestApp::new().await;
@@ -473,6 +490,7 @@ async fn authorization_code_wrong_redirect_uri() {
 
 // ─── Unsupported Grant Type ──────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn unsupported_grant_type() {
     let app = TestApp::new().await;
@@ -497,6 +515,7 @@ async fn unsupported_grant_type() {
 
 // ─── Revoke ──────────────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn revoke_token() {
     let app = TestApp::new().await;
@@ -533,6 +552,7 @@ async fn revoke_token() {
     resp.assert_status(StatusCode::UNAUTHORIZED);
 }
 
+#[serial]
 #[tokio::test]
 async fn revoke_invalid_token_still_200() {
     let app = TestApp::new().await;
@@ -558,6 +578,7 @@ async fn revoke_invalid_token_still_200() {
 
 // ─── Introspect ──────────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn introspect_valid() {
     let app = TestApp::new().await;
@@ -589,6 +610,7 @@ async fn introspect_valid() {
     assert!(json["aud"].as_str().is_some());
 }
 
+#[serial]
 #[tokio::test]
 async fn introspect_invalid() {
     let app = TestApp::new().await;
@@ -613,6 +635,7 @@ async fn introspect_invalid() {
     assert_eq!(json["active"], false);
 }
 
+#[serial]
 #[tokio::test]
 async fn introspect_requires_auth() {
     let app = TestApp::new().await;

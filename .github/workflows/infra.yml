@@ -1,0 +1,50 @@
+name: Infrastructure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-infra:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Bicep
+        run: az bicep build --file infra/main.bicep
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy infrastructure
+        run: |
+          az deployment sub create \
+            --location southeastasia \
+            --template-file infra/main.bicep \
+            --parameters infra/main.bicepparam \
+            --parameters sqlAdminLogin='${{ secrets.SQL_ADMIN_LOGIN }}' \
+            --parameters sqlAdminPassword='${{ secrets.SQL_ADMIN_PASSWORD }}' \
+            --parameters ghcrPassword='${{ secrets.GHCR_PAT }}'
+
+      - name: Extract outputs
+        run: |
+          OUTPUTS=$(az deployment sub show \
+            --name main \
+            --query properties.outputs -o json)
+          echo "## Infrastructure Deployment Outputs" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$OUTPUTS" | jq . >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
