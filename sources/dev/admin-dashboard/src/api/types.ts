@@ -53,6 +53,7 @@ export interface RotateSecretResponse {
 export interface Provider {
   id: string;
   provider_id: string;
+  config: Record<string, unknown>;
   is_active: boolean;
   created_at: string;
 }
