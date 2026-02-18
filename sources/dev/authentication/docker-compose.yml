@@ -1,0 +1,13 @@
+services:
+  auth:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./keys:/app/keys:ro
+    environment:
+      DATABASE_URL: "sqlite:./data/auth.db?mode=rwc"
+      ADMIN_API_KEY: "${ADMIN_API_KEY:-changeme}"
+      JWT_PRIVATE_KEY_PATH: "./keys/private.pem"
+      JWT_PUBLIC_KEY_PATH: "./keys/public.pem"

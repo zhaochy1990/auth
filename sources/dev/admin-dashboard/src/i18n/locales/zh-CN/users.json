@@ -1,0 +1,35 @@
+{
+  "title": "用户管理",
+  "searchPlaceholder": "按邮箱或姓名搜索...",
+  "table": {
+    "email": "邮箱",
+    "name": "姓名",
+    "role": "角色",
+    "status": "状态",
+    "createdAt": "注册时间"
+  },
+  "role": {
+    "user": "普通用户",
+    "admin": "管理员"
+  },
+  "detail": {
+    "title": "用户详情",
+    "profile": "基本信息",
+    "accounts": "关联账号",
+    "email": "邮箱",
+    "name": "姓名",
+    "role": "角色",
+    "status": "状态",
+    "emailVerified": "邮箱已验证",
+    "emailNotVerified": "邮箱未验证",
+    "createdAt": "注册时间",
+    "provider": "认证方式",
+    "accountId": "账号ID",
+    "unlinkAccount": "解除绑定",
+    "unlinkConfirm": "确定要解除此账号绑定吗？",
+    "changeRole": "修改角色",
+    "toggleActive": "切换状态",
+    "updateSuccess": "更新成功",
+    "unlinkSuccess": "解除绑定成功"
+  }
+}

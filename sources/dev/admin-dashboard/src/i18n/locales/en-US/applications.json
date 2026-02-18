@@ -1,0 +1,47 @@
+{
+  "title": "Applications",
+  "createBtn": "Create Application",
+  "searchPlaceholder": "Search by name...",
+  "table": {
+    "name": "Name",
+    "clientId": "Client ID",
+    "status": "Status",
+    "scopes": "Scopes",
+    "createdAt": "Created At"
+  },
+  "create": {
+    "title": "Create Application",
+    "name": "Application Name",
+    "namePlaceholder": "Enter application name",
+    "redirectUris": "Redirect URIs",
+    "redirectUrisPlaceholder": "Type a URI and press Enter",
+    "scopes": "Allowed Scopes",
+    "scopesPlaceholder": "Type a scope and press Enter",
+    "submit": "Create",
+    "success": "Application created"
+  },
+  "secret": {
+    "title": "Save Your Credentials",
+    "message": "The client secret is shown only once. Copy and store it securely now.",
+    "clientId": "Client ID",
+    "clientSecret": "Client Secret",
+    "acknowledge": "I have copied and saved the secret"
+  },
+  "detail": {
+    "title": "Application Detail",
+    "basicSettings": "Basic Settings",
+    "credentials": "Credentials",
+    "providers": "Auth Providers",
+    "rotateSecret": "Rotate Secret",
+    "rotateConfirm": "Rotating the secret will immediately invalidate the old one. Continue?",
+    "addProvider": "Add Provider",
+    "providerType": "Type",
+    "providerConfig": "Configuration",
+    "removeProvider": "Remove",
+    "removeProviderConfirm": "Remove this auth provider?",
+    "saveSuccess": "Saved",
+    "rotateSuccess": "Secret rotated",
+    "providerAdded": "Provider added",
+    "providerRemoved": "Provider removed"
+  }
+}

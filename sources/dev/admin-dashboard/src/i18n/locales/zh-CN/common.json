@@ -1,0 +1,42 @@
+{
+  "appName": "管理后台",
+  "sidebar": {
+    "dashboard": "总览",
+    "applications": "应用管理",
+    "users": "用户管理"
+  },
+  "actions": {
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "create": "创建",
+    "edit": "编辑",
+    "confirm": "确认",
+    "copy": "复制",
+    "copied": "已复制",
+    "back": "返回",
+    "search": "搜索",
+    "refresh": "刷新",
+    "enable": "启用",
+    "disable": "禁用",
+    "logout": "退出登录"
+  },
+  "status": {
+    "active": "启用",
+    "inactive": "禁用",
+    "loading": "加载中...",
+    "empty": "暂无数据",
+    "error": "加载失败"
+  },
+  "confirm": {
+    "title": "确认操作",
+    "deleteMessage": "确定要删除吗？此操作不可撤销。",
+    "yes": "确定",
+    "no": "取消"
+  },
+  "pagination": {
+    "total": "共 {{total}} 条",
+    "prev": "上一页",
+    "next": "下一页"
+  }
+}

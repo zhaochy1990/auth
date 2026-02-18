@@ -1,0 +1,13 @@
+{
+  "title": "Admin Login",
+  "email": "Email",
+  "password": "Password",
+  "submit": "Sign in",
+  "loggingIn": "Signing in...",
+  "error": {
+    "invalidCredentials": "Invalid email or password",
+    "insufficientPermissions": "Insufficient permissions. Admin access required.",
+    "userDisabled": "Account has been disabled",
+    "generic": "Login failed. Please try again."
+  }
+}
