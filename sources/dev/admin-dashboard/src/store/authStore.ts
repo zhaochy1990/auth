@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import axios from 'axios';
-import { decodeJwt, getClientId, scheduleTokenRefresh } from '../api/client';
+import client, { decodeJwt, getClientId, scheduleTokenRefresh } from '../api/client';
 
 interface AuthState {
   accessToken: string | null;
@@ -22,7 +21,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
 
   login: async (email: string, password: string) => {
-    const res = await axios.post(
+    const res = await client.post(
       '/api/auth/login',
       { email, password },
       { headers: { 'X-Client-Id': getClientId() } },
