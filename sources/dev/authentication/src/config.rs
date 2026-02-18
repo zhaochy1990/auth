@@ -10,7 +10,7 @@ pub struct Config {
     pub jwt_refresh_token_expiry_days: i64,
     pub server_host: String,
     pub server_port: u16,
-    pub admin_api_key: String,
+    pub cors_allowed_origins: String,
 }
 
 impl Config {
@@ -35,7 +35,8 @@ impl Config {
                 .unwrap_or_else(|_| "3000".to_string())
                 .parse()
                 .unwrap_or(3000),
-            admin_api_key: env::var("ADMIN_API_KEY")?,
+            cors_allowed_origins: env::var("CORS_ALLOWED_ORIGINS")
+                .unwrap_or_else(|_| "http://localhost:5173,http://localhost:3000".to_string()),
         })
     }
 }

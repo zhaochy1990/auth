@@ -99,3 +99,62 @@ pub async fn rate_limit_middleware(
 
     next.run(req).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn allows_requests_under_limit() {
+        let limiter = RateLimiter::new(3, Duration::from_secs(60));
+        assert!(limiter.check("ip1").await);
+        assert!(limiter.check("ip1").await);
+        assert!(limiter.check("ip1").await);
+    }
+
+    #[tokio::test]
+    async fn blocks_requests_over_limit() {
+        let limiter = RateLimiter::new(2, Duration::from_secs(60));
+        assert!(limiter.check("ip1").await);
+        assert!(limiter.check("ip1").await);
+        assert!(!limiter.check("ip1").await);
+    }
+
+    #[tokio::test]
+    async fn separate_keys_have_separate_limits() {
+        let limiter = RateLimiter::new(1, Duration::from_secs(60));
+        assert!(limiter.check("ip1").await);
+        assert!(limiter.check("ip2").await);
+        assert!(!limiter.check("ip1").await);
+        assert!(!limiter.check("ip2").await);
+    }
+
+    #[tokio::test]
+    async fn window_expiry_resets_count() {
+        let limiter = RateLimiter::new(1, Duration::from_millis(50));
+        assert!(limiter.check("ip1").await);
+        assert!(!limiter.check("ip1").await);
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert!(limiter.check("ip1").await);
+    }
+
+    #[tokio::test]
+    async fn cleanup_removes_expired_buckets() {
+        let limiter = RateLimiter::new(10, Duration::from_millis(10));
+        limiter.check("expired-key").await;
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // Force cleanup by setting last_cleanup far in the past
+        {
+            let mut inner = limiter.state.lock().await;
+            inner.last_cleanup = Instant::now() - Duration::from_secs(120);
+        }
+
+        // Trigger cleanup via a check
+        limiter.check("new-key").await;
+
+        let inner = limiter.state.lock().await;
+        assert!(!inner.buckets.contains_key("expired-key"));
+    }
+}

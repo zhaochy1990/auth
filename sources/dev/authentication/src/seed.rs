@@ -1,5 +1,6 @@
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
-
+use crate::db::models::{Account, AppProvider, Application, User};
+use crate::db::pool::Db;
+use crate::db::queries;
 use crate::error::AppError;
 
 /// Result of a bootstrap/seed operation.
@@ -18,15 +19,12 @@ pub struct SeedResult {
 /// - Creates or promotes the admin user.
 /// - `admin_password` is required when the user doesn't exist yet.
 pub async fn bootstrap(
-    db: &DatabaseConnection,
+    db: &Db,
     admin_email: &str,
     admin_password: Option<&str>,
 ) -> Result<SeedResult, Box<dyn std::error::Error>> {
     // 1. Create or find Admin Dashboard application
-    let existing_app = entity::application::Entity::find()
-        .filter(entity::application::Column::Name.eq("Admin Dashboard"))
-        .one(db)
-        .await?;
+    let existing_app = queries::applications::find_by_name(db, "Admin Dashboard").await?;
 
     let (app_client_id, app_client_secret) = if let Some(app) = existing_app {
         (app.client_id, None)
@@ -45,51 +43,48 @@ pub async fn bootstrap(
             let bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
             hex::encode(bytes)
         };
-        let client_secret_hash = crate::auth::password::hash_password(&client_secret)?;
+        let client_secret_hash = crate::auth::password::hash_client_secret(&client_secret);
 
         let now = chrono::Utc::now().naive_utc();
         let app_id = uuid::Uuid::new_v4().to_string();
-        let app = entity::application::ActiveModel {
-            id: Set(app_id.clone()),
-            name: Set("Admin Dashboard".to_string()),
-            client_id: Set(client_id.clone()),
-            client_secret_hash: Set(client_secret_hash),
-            redirect_uris: Set(serde_json::to_string(&["http://localhost:5173"]).unwrap()),
-            allowed_scopes: Set(serde_json::to_string(&["admin"]).unwrap()),
-            is_active: Set(true),
-            created_at: Set(now),
-            updated_at: Set(now),
+
+        let app = Application {
+            id: app_id.clone(),
+            name: "Admin Dashboard".to_string(),
+            client_id: client_id.clone(),
+            client_secret_hash,
+            redirect_uris: serde_json::to_string(&["http://localhost:5173"]).unwrap(),
+            allowed_scopes: serde_json::to_string(&["admin"]).unwrap(),
+            is_active: true,
+            created_at: now,
+            updated_at: now,
         };
-        app.insert(db).await?;
+        queries::applications::insert(db, &app).await?;
 
         // Add password provider to the app
-        let provider = entity::app_provider::ActiveModel {
-            id: Set(uuid::Uuid::new_v4().to_string()),
-            app_id: Set(app_id),
-            provider_id: Set("password".to_string()),
-            config: Set("{}".to_string()),
-            is_active: Set(true),
-            created_at: Set(now),
+        let provider = AppProvider {
+            id: uuid::Uuid::new_v4().to_string(),
+            app_id,
+            provider_id: "password".to_string(),
+            config: "{}".to_string(),
+            is_active: true,
+            created_at: now,
         };
-        provider.insert(db).await?;
+        queries::app_providers::insert(db, &provider).await?;
 
         (client_id, Some(client_secret))
     };
 
     // 2. Create or promote admin user
-    let existing_user = entity::user::Entity::find()
-        .filter(entity::user::Column::Email.eq(admin_email))
-        .one(db)
-        .await?;
+    let existing_user = queries::users::find_by_email(db, admin_email).await?;
 
-    let user_action = if let Some(user) = existing_user {
+    let user_action = if let Some(mut user) = existing_user {
         if user.role == "admin" {
             "already_admin".to_string()
         } else {
-            let mut active: entity::user::ActiveModel = user.into();
-            active.role = Set("admin".to_string());
-            active.updated_at = Set(chrono::Utc::now().naive_utc());
-            active.update(db).await?;
+            user.role = "admin".to_string();
+            user.updated_at = chrono::Utc::now().naive_utc();
+            queries::users::update(db, &user).await?;
             "promoted".to_string()
         }
     } else {
@@ -104,30 +99,30 @@ pub async fn bootstrap(
         let now = chrono::Utc::now().naive_utc();
         let user_id = uuid::Uuid::new_v4().to_string();
 
-        let user = entity::user::ActiveModel {
-            id: Set(user_id.clone()),
-            email: Set(Some(admin_email.to_string())),
-            name: Set(Some("Admin".to_string())),
-            avatar_url: Set(None),
-            email_verified: Set(true),
-            role: Set("admin".to_string()),
-            is_active: Set(true),
-            created_at: Set(now),
-            updated_at: Set(now),
+        let user = User {
+            id: user_id.clone(),
+            email: Some(admin_email.to_string()),
+            name: Some("Admin".to_string()),
+            avatar_url: None,
+            email_verified: true,
+            role: "admin".to_string(),
+            is_active: true,
+            created_at: now,
+            updated_at: now,
         };
-        user.insert(db).await?;
+        queries::users::insert(db, &user).await?;
 
-        let account = entity::account::ActiveModel {
-            id: Set(uuid::Uuid::new_v4().to_string()),
-            user_id: Set(user_id),
-            provider_id: Set("password".to_string()),
-            provider_account_id: Set(Some(admin_email.to_string())),
-            credential: Set(Some(password_hash)),
-            provider_metadata: Set("{}".to_string()),
-            created_at: Set(now),
-            updated_at: Set(now),
+        let account = Account {
+            id: uuid::Uuid::new_v4().to_string(),
+            user_id,
+            provider_id: "password".to_string(),
+            provider_account_id: Some(admin_email.to_string()),
+            credential: Some(password_hash),
+            provider_metadata: "{}".to_string(),
+            created_at: now,
+            updated_at: now,
         };
-        account.insert(db).await?;
+        queries::accounts::insert(db, &account).await?;
 
         "created".to_string()
     };

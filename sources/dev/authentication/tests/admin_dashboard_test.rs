@@ -2,8 +2,8 @@ mod common;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use common::{TestApp, ADMIN_KEY};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use common::TestApp;
+use serial_test::serial;
 
 // ─── Helper: create admin user and get Bearer token ────────────────────────
 
@@ -14,17 +14,17 @@ async fn create_admin_user_and_login(app: &TestApp, client_id: &str) -> String {
         .await;
     resp.assert_status(StatusCode::OK);
 
-    // Promote to admin via DB
-    let user = entity::user::Entity::find()
-        .filter(entity::user::Column::Email.eq("admin@test.com"))
-        .one(&app.state.db)
+    // Promote to admin via db queries
+    let mut user = auth_service::db::queries::users::find_by_email(&app.state.db, "admin@test.com")
         .await
         .unwrap()
         .unwrap();
 
-    let mut active: entity::user::ActiveModel = user.into();
-    active.role = Set("admin".to_string());
-    active.update(&app.state.db).await.unwrap();
+    user.role = "admin".to_string();
+    user.updated_at = chrono::Utc::now().naive_utc();
+    auth_service::db::queries::users::update(&app.state.db, &user)
+        .await
+        .unwrap();
 
     // Login again to get a token with admin role
     let resp = app
@@ -37,6 +37,7 @@ async fn create_admin_user_and_login(app: &TestApp, client_id: &str) -> String {
 
 // ─── JWT role claim ─────────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn login_jwt_contains_role_claim() {
     let app = TestApp::new().await;
@@ -61,6 +62,7 @@ async fn login_jwt_contains_role_claim() {
     assert_eq!(claims.role, "user");
 }
 
+#[serial]
 #[tokio::test]
 async fn admin_user_jwt_has_admin_role() {
     let app = TestApp::new().await;
@@ -73,8 +75,9 @@ async fn admin_user_jwt_has_admin_role() {
     assert_eq!(claims.role, "admin");
 }
 
-// ─── AdminAuth dual-mode: Bearer token with admin role ──────────────────────
+// ─── AdminAuth: Bearer token with admin role ────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn admin_api_with_bearer_token_admin_role() {
     let app = TestApp::new().await;
@@ -95,9 +98,10 @@ async fn admin_api_with_bearer_token_admin_role() {
     let resp = app.request(req).await;
     resp.assert_status(StatusCode::OK);
     let list: Vec<serde_json::Value> = resp.json();
-    assert_eq!(list.len(), 1); // The app we created
+    assert_eq!(list.len(), 2); // seed app + the one we created
 }
 
+#[serial]
 #[tokio::test]
 async fn admin_api_with_bearer_token_non_admin_rejected() {
     let app = TestApp::new().await;
@@ -129,24 +133,24 @@ async fn admin_api_with_bearer_token_non_admin_rejected() {
     resp.assert_status(StatusCode::FORBIDDEN);
 }
 
+#[serial]
 #[tokio::test]
-async fn admin_api_x_admin_key_still_works() {
+async fn admin_api_no_auth_rejected() {
     let app = TestApp::new().await;
 
-    // Original X-Admin-Key still works
     let req = Request::builder()
         .method("GET")
         .uri("/admin/applications")
-        .header("X-Admin-Key", ADMIN_KEY)
         .body(Body::empty())
         .unwrap();
 
     let resp = app.request(req).await;
-    resp.assert_status(StatusCode::OK);
+    resp.assert_status(StatusCode::UNAUTHORIZED);
 }
 
 // ─── User is_active check ───────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn disabled_user_cannot_login() {
     let app = TestApp::new().await;
@@ -158,17 +162,18 @@ async fn disabled_user_cannot_login() {
         .await
         .assert_status(StatusCode::OK);
 
-    // Disable user via admin API
-    let user = entity::user::Entity::find()
-        .filter(entity::user::Column::Email.eq("disabled@test.com"))
-        .one(&app.state.db)
-        .await
-        .unwrap()
-        .unwrap();
+    // Disable user via db queries
+    let mut user =
+        auth_service::db::queries::users::find_by_email(&app.state.db, "disabled@test.com")
+            .await
+            .unwrap()
+            .unwrap();
 
-    let mut active: entity::user::ActiveModel = user.into();
-    active.is_active = Set(false);
-    active.update(&app.state.db).await.unwrap();
+    user.is_active = false;
+    user.updated_at = chrono::Utc::now().naive_utc();
+    auth_service::db::queries::users::update(&app.state.db, &user)
+        .await
+        .unwrap();
 
     // Login should fail
     let resp = app
@@ -182,6 +187,7 @@ async fn disabled_user_cannot_login() {
 
 // ─── GET /admin/stats ───────────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn stats_endpoint() {
     let app = TestApp::new().await;
@@ -202,7 +208,7 @@ async fn stats_endpoint() {
     let req = Request::builder()
         .method("GET")
         .uri("/admin/stats")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -210,15 +216,18 @@ async fn stats_endpoint() {
     resp.assert_status(StatusCode::OK);
 
     let json: serde_json::Value = resp.json();
-    assert_eq!(json["applications"]["total"], 2);
-    assert_eq!(json["applications"]["active"], 2);
+    // 3 apps: 1 seed + 2 created
+    assert_eq!(json["applications"]["total"], 3);
+    assert_eq!(json["applications"]["active"], 3);
     assert_eq!(json["applications"]["inactive"], 0);
-    assert_eq!(json["users"]["total"], 2);
-    assert_eq!(json["users"]["recent"], 2); // both registered just now
+    // 3 users: 1 seed admin + 2 registered
+    assert_eq!(json["users"]["total"], 3);
+    assert_eq!(json["users"]["recent"], 3);
 }
 
 // ─── GET /admin/users (paginated) ───────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn list_users_paginated() {
     let app = TestApp::new().await;
@@ -226,7 +235,7 @@ async fn list_users_paginated() {
         .admin_create_app("App", &["https://a.com/cb"], &["openid"])
         .await;
 
-    // Create 3 users
+    // Create 3 users (+ 1 seed admin = 4 total)
     for i in 1..=3 {
         app.register_user(
             &created.client_id,
@@ -241,7 +250,7 @@ async fn list_users_paginated() {
     let req = Request::builder()
         .method("GET")
         .uri("/admin/users?page=1&per_page=2")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -249,7 +258,7 @@ async fn list_users_paginated() {
     resp.assert_status(StatusCode::OK);
 
     let json: serde_json::Value = resp.json();
-    assert_eq!(json["total"], 3);
+    assert_eq!(json["total"], 4); // 1 seed + 3 created
     assert_eq!(json["page"], 1);
     assert_eq!(json["per_page"], 2);
     assert_eq!(json["users"].as_array().unwrap().len(), 2);
@@ -258,7 +267,7 @@ async fn list_users_paginated() {
     let req = Request::builder()
         .method("GET")
         .uri("/admin/users?page=2&per_page=2")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -266,10 +275,11 @@ async fn list_users_paginated() {
     resp.assert_status(StatusCode::OK);
 
     let json: serde_json::Value = resp.json();
-    assert_eq!(json["total"], 3);
-    assert_eq!(json["users"].as_array().unwrap().len(), 1);
+    assert_eq!(json["total"], 4);
+    assert_eq!(json["users"].as_array().unwrap().len(), 2);
 }
 
+#[serial]
 #[tokio::test]
 async fn list_users_search() {
     let app = TestApp::new().await;
@@ -288,7 +298,7 @@ async fn list_users_search() {
     let req = Request::builder()
         .method("GET")
         .uri("/admin/users?search=alice")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -300,6 +310,7 @@ async fn list_users_search() {
     assert_eq!(json["users"][0]["email"], "alice@test.com");
 }
 
+#[serial]
 #[tokio::test]
 async fn list_users_response_has_role_and_is_active() {
     let app = TestApp::new().await;
@@ -313,8 +324,8 @@ async fn list_users_response_has_role_and_is_active() {
 
     let req = Request::builder()
         .method("GET")
-        .uri("/admin/users")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .uri("/admin/users?search=fields")
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -331,6 +342,7 @@ async fn list_users_response_has_role_and_is_active() {
 
 // ─── GET /admin/users/:id ───────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn get_user_detail() {
     let app = TestApp::new().await;
@@ -348,7 +360,7 @@ async fn get_user_detail() {
     let req = Request::builder()
         .method("GET")
         .uri(format!("/admin/users/{user_id}"))
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -362,6 +374,7 @@ async fn get_user_detail() {
     assert_eq!(json["is_active"], true);
 }
 
+#[serial]
 #[tokio::test]
 async fn get_user_not_found() {
     let app = TestApp::new().await;
@@ -369,7 +382,7 @@ async fn get_user_not_found() {
     let req = Request::builder()
         .method("GET")
         .uri("/admin/users/nonexistent-id")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -379,6 +392,7 @@ async fn get_user_not_found() {
 
 // ─── PATCH /admin/users/:id ─────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn update_user_role() {
     let app = TestApp::new().await;
@@ -398,7 +412,7 @@ async fn update_user_role() {
         .method("PATCH")
         .uri(format!("/admin/users/{user_id}"))
         .header("Content-Type", "application/json")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
 
@@ -418,6 +432,7 @@ async fn update_user_role() {
     assert_eq!(claims.role, "admin");
 }
 
+#[serial]
 #[tokio::test]
 async fn update_user_disable() {
     let app = TestApp::new().await;
@@ -437,7 +452,7 @@ async fn update_user_disable() {
         .method("PATCH")
         .uri(format!("/admin/users/{user_id}"))
         .header("Content-Type", "application/json")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
 
@@ -453,6 +468,7 @@ async fn update_user_disable() {
     resp.assert_status(StatusCode::FORBIDDEN);
 }
 
+#[serial]
 #[tokio::test]
 async fn update_user_invalid_role_rejected() {
     let app = TestApp::new().await;
@@ -471,7 +487,7 @@ async fn update_user_invalid_role_rejected() {
         .method("PATCH")
         .uri(format!("/admin/users/{user_id}"))
         .header("Content-Type", "application/json")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
 
@@ -481,6 +497,7 @@ async fn update_user_invalid_role_rejected() {
 
 // ─── GET /admin/users/:id/accounts ──────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn get_user_accounts() {
     let app = TestApp::new().await;
@@ -497,7 +514,7 @@ async fn get_user_accounts() {
     let req = Request::builder()
         .method("GET")
         .uri(format!("/admin/users/{user_id}/accounts"))
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -510,6 +527,7 @@ async fn get_user_accounts() {
     assert_eq!(accounts[0]["provider_account_id"], "accts@test.com");
 }
 
+#[serial]
 #[tokio::test]
 async fn get_user_accounts_user_not_found() {
     let app = TestApp::new().await;
@@ -517,7 +535,7 @@ async fn get_user_accounts_user_not_found() {
     let req = Request::builder()
         .method("GET")
         .uri("/admin/users/nonexistent-id/accounts")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -527,6 +545,7 @@ async fn get_user_accounts_user_not_found() {
 
 // ─── DELETE /admin/users/:id/accounts/:provider_id ──────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn admin_unlink_account() {
     let app = TestApp::new().await;
@@ -543,7 +562,7 @@ async fn admin_unlink_account() {
         .method("POST")
         .uri(format!("/admin/applications/{}/providers", created.id))
         .header("Content-Type", "application/json")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
     app.request(req).await.assert_status(StatusCode::OK);
@@ -571,7 +590,7 @@ async fn admin_unlink_account() {
     let req = Request::builder()
         .method("DELETE")
         .uri(format!("/admin/users/{user_id}/accounts/test"))
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -584,7 +603,7 @@ async fn admin_unlink_account() {
     let req = Request::builder()
         .method("GET")
         .uri(format!("/admin/users/{user_id}/accounts"))
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -595,6 +614,7 @@ async fn admin_unlink_account() {
     assert_eq!(accounts[0]["provider_id"], "password");
 }
 
+#[serial]
 #[tokio::test]
 async fn admin_unlink_last_account_rejected() {
     let app = TestApp::new().await;
@@ -612,7 +632,7 @@ async fn admin_unlink_last_account_rejected() {
     let req = Request::builder()
         .method("DELETE")
         .uri(format!("/admin/users/{user_id}/accounts/password"))
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -622,6 +642,7 @@ async fn admin_unlink_last_account_rejected() {
 
 // ─── GET /admin/applications/:id/providers ──────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn list_providers_for_app() {
     let app = TestApp::new().await;
@@ -638,7 +659,7 @@ async fn list_providers_for_app() {
         .method("POST")
         .uri(format!("/admin/applications/{}/providers", created.id))
         .header("Content-Type", "application/json")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
     app.request(req).await.assert_status(StatusCode::OK);
@@ -647,7 +668,7 @@ async fn list_providers_for_app() {
     let req = Request::builder()
         .method("GET")
         .uri(format!("/admin/applications/{}/providers", created.id))
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -659,6 +680,7 @@ async fn list_providers_for_app() {
     assert_eq!(providers[0]["provider_id"], "wechat");
 }
 
+#[serial]
 #[tokio::test]
 async fn list_providers_empty() {
     let app = TestApp::new().await;
@@ -669,7 +691,7 @@ async fn list_providers_empty() {
     let req = Request::builder()
         .method("GET")
         .uri(format!("/admin/applications/{}/providers", created.id))
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -680,6 +702,7 @@ async fn list_providers_empty() {
     assert!(providers.is_empty());
 }
 
+#[serial]
 #[tokio::test]
 async fn list_providers_app_not_found() {
     let app = TestApp::new().await;
@@ -687,7 +710,7 @@ async fn list_providers_app_not_found() {
     let req = Request::builder()
         .method("GET")
         .uri("/admin/applications/nonexistent-id/providers")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -695,8 +718,9 @@ async fn list_providers_app_not_found() {
     resp.assert_status(StatusCode::NOT_FOUND);
 }
 
-// ─── Bearer token auth for all new admin endpoints ──────────────────────────
+// ─── Bearer token auth for all admin endpoints ──────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn bearer_token_works_for_all_new_admin_endpoints() {
     let app = TestApp::new().await;
@@ -751,6 +775,7 @@ async fn bearer_token_works_for_all_new_admin_endpoints() {
 
 // ─── Refresh disabled user ──────────────────────────────────────────────────
 
+#[serial]
 #[tokio::test]
 async fn refresh_token_fails_for_disabled_user() {
     let app = TestApp::new().await;
@@ -771,7 +796,7 @@ async fn refresh_token_fails_for_disabled_user() {
         .method("PATCH")
         .uri(format!("/admin/users/{user_id}"))
         .header("Content-Type", "application/json")
-        .header("X-Admin-Key", ADMIN_KEY)
+        .header("Authorization", format!("Bearer {}", app.admin_token))
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
     app.request(req).await.assert_status(StatusCode::OK);

@@ -4,9 +4,9 @@ use axum::{
     http::{header, request::Parts},
 };
 use base64::Engine;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 use crate::auth::jwt::Claims;
+use crate::db::queries;
 use crate::error::AppError;
 
 /// Extracts the authenticated user from a Bearer token.
@@ -72,9 +72,7 @@ where
             .ok_or(AppError::MissingClientId)?
             .to_string();
 
-        let app = entity::application::Entity::find()
-            .filter(entity::application::Column::ClientId.eq(&client_id))
-            .one(&app_state.db)
+        let app = queries::applications::find_by_client_id(&app_state.db, &client_id)
             .await?
             .ok_or(AppError::ApplicationNotFound)?;
 
@@ -140,9 +138,7 @@ where
             return Err(AppError::InvalidCredentials);
         };
 
-        let app = entity::application::Entity::find()
-            .filter(entity::application::Column::ClientId.eq(&client_id))
-            .one(&app_state.db)
+        let app = queries::applications::find_by_client_id(&app_state.db, &client_id)
             .await?
             .ok_or(AppError::ApplicationNotFound)?;
 
@@ -150,8 +146,8 @@ where
             return Err(AppError::ApplicationNotActive);
         }
 
-        // Verify client secret
-        if !crate::auth::password::verify_password(&client_secret, &app.client_secret_hash)? {
+        // Verify client secret (supports SHA-256 and legacy Argon2)
+        if !crate::auth::password::verify_client_secret(&client_secret, &app.client_secret_hash)? {
             return Err(AppError::InvalidCredentials);
         }
 
@@ -162,7 +158,7 @@ where
     }
 }
 
-/// Admin auth — checks for a valid admin API key OR a Bearer token with admin role.
+/// Admin auth — requires a Bearer token with admin role.
 pub struct AdminAuth;
 
 #[async_trait]
@@ -175,28 +171,21 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let app_state: &crate::AppState = state.as_ref();
 
-        // Try X-Admin-Key header first
-        if let Some(api_key) = parts.headers.get("X-Admin-Key").and_then(|v| v.to_str().ok()) {
-            if api_key == app_state.config.admin_api_key {
-                return Ok(AdminAuth);
-            }
-        }
-
-        // Try Bearer token with admin role
-        if let Some(auth_header) = parts
+        let auth_header = parts
             .headers
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
-        {
-            if let Some(token) = auth_header.strip_prefix("Bearer ") {
-                let claims = app_state.jwt.verify_access_token(token)?;
-                if claims.role == "admin" {
-                    return Ok(AdminAuth);
-                }
-                return Err(AppError::Forbidden);
-            }
+            .ok_or(AppError::Unauthorized)?;
+
+        let token = auth_header
+            .strip_prefix("Bearer ")
+            .ok_or(AppError::Unauthorized)?;
+
+        let claims = app_state.jwt.verify_access_token(token)?;
+        if claims.role != "admin" {
+            return Err(AppError::Forbidden);
         }
 
-        Err(AppError::Forbidden)
+        Ok(AdminAuth)
     }
 }

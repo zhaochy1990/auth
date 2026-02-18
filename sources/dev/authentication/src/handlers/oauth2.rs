@@ -1,10 +1,10 @@
 use axum::{extract::State, Json};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::middleware::AuthenticatedApp;
 use crate::auth::oauth2 as oauth2_util;
 use crate::auth::password::verify_password;
+use crate::db::queries;
 use crate::error::AppError;
 use crate::AppState;
 
@@ -84,9 +84,10 @@ async fn handle_authorization_code(
     auth_app: &AuthenticatedApp,
     req: &TokenRequest,
 ) -> Result<Json<OAuthTokenResponse>, AppError> {
-    let code = req.code.as_deref().ok_or(AppError::BadRequest(
-        "Missing 'code' parameter".to_string(),
-    ))?;
+    let code = req
+        .code
+        .as_deref()
+        .ok_or(AppError::BadRequest("Missing 'code' parameter".to_string()))?;
     let redirect_uri = req.redirect_uri.as_deref().ok_or(AppError::BadRequest(
         "Missing 'redirect_uri' parameter".to_string(),
     ))?;
@@ -101,8 +102,7 @@ async fn handle_authorization_code(
     .await?;
 
     // Look up user for role
-    let user = entity::user::Entity::find_by_id(&user_id)
-        .one(&state.db)
+    let user = queries::users::find_by_id(&state.db, &user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
@@ -110,7 +110,10 @@ async fn handle_authorization_code(
         return Err(AppError::Forbidden);
     }
 
-    let access_token = state.jwt.issue_access_token(&user_id, &auth_app.client_id, scopes.clone(), &user.role)?;
+    let access_token =
+        state
+            .jwt
+            .issue_access_token(&user_id, &auth_app.client_id, scopes.clone(), &user.role)?;
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(
@@ -166,8 +169,7 @@ async fn handle_refresh_token(
     .await?;
 
     // Look up user for role
-    let user = entity::user::Entity::find_by_id(&user_id)
-        .one(&state.db)
+    let user = queries::users::find_by_id(&state.db, &user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
@@ -175,7 +177,10 @@ async fn handle_refresh_token(
         return Err(AppError::Forbidden);
     }
 
-    let access_token = state.jwt.issue_access_token(&user_id, &auth_app.client_id, scopes.clone(), &user.role)?;
+    let access_token =
+        state
+            .jwt
+            .issue_access_token(&user_id, &auth_app.client_id, scopes.clone(), &user.role)?;
 
     Ok(Json(OAuthTokenResponse {
         access_token,
@@ -199,17 +204,12 @@ async fn handle_password_grant(
     ))?;
 
     // Find user by email
-    let user = entity::user::Entity::find()
-        .filter(entity::user::Column::Email.eq(username))
-        .one(&state.db)
+    let user = queries::users::find_by_email(&state.db, username)
         .await?
         .ok_or(AppError::InvalidCredentials)?;
 
     // Find password account
-    let account = entity::account::Entity::find()
-        .filter(entity::account::Column::UserId.eq(&user.id))
-        .filter(entity::account::Column::ProviderId.eq("password"))
-        .one(&state.db)
+    let account = queries::accounts::find_by_user_and_provider(&state.db, &user.id, "password")
         .await?
         .ok_or(AppError::InvalidCredentials)?;
 
@@ -219,13 +219,11 @@ async fn handle_password_grant(
     }
 
     // Determine scopes
-    let app = entity::application::Entity::find_by_id(&auth_app.app_id)
-        .one(&state.db)
+    let app = queries::applications::find_by_id(&state.db, &auth_app.app_id)
         .await?
         .ok_or(AppError::ApplicationNotFound)?;
 
-    let allowed_scopes: Vec<String> =
-        serde_json::from_str(&app.allowed_scopes).unwrap_or_default();
+    let allowed_scopes: Vec<String> = serde_json::from_str(&app.allowed_scopes).unwrap_or_default();
 
     let scopes = if let Some(ref scope_str) = req.scope {
         let requested: Vec<String> = scope_str.split(' ').map(|s| s.to_string()).collect();
@@ -242,7 +240,10 @@ async fn handle_password_grant(
         return Err(AppError::Forbidden);
     }
 
-    let access_token = state.jwt.issue_access_token(&user.id, &auth_app.client_id, scopes.clone(), &user.role)?;
+    let access_token =
+        state
+            .jwt
+            .issue_access_token(&user.id, &auth_app.client_id, scopes.clone(), &user.role)?;
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(

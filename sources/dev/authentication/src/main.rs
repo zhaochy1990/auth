@@ -2,7 +2,6 @@ use std::net::SocketAddr;
 
 use auth_service::config::Config;
 use auth_service::AppState;
-use sea_orm::Database;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,18 +20,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env().expect("Failed to load configuration");
 
     // Connect to database
-    let db = Database::connect(&config.database_url).await?;
+    let db = auth_service::db::pool::connect(&config.database_url).await?;
     tracing::info!("Connected to database");
 
     // Run migrations
-    use migration::MigratorTrait;
-    migration::Migrator::up(&db, None).await?;
+    auth_service::db::migration::run(&db).await?;
     tracing::info!("Migrations applied");
 
     // Check for seed subcommand: cargo run -- seed <email> <password>
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 && args[1] == "seed" {
-        let email = args.get(2).map(|s| s.as_str()).unwrap_or("admin@example.com");
+        let email = args
+            .get(2)
+            .map(|s| s.as_str())
+            .unwrap_or("admin@example.com");
         let password = args.get(3).map(|s| s.as_str());
 
         println!("=== Auth Service Bootstrap ===\n");

@@ -2,6 +2,7 @@
 
 use auth_service::auth::jwt::JwtManager;
 use auth_service::config::Config;
+use auth_service::db::queries;
 use auth_service::routes::create_router;
 use auth_service::AppState;
 use axum::body::Body;
@@ -9,11 +10,7 @@ use axum::http::{Request, StatusCode};
 use axum::Router;
 use base64::Engine;
 use http_body_util::BodyExt;
-use migration::MigratorTrait;
-use sea_orm::Database;
 use tower::ServiceExt;
-
-pub const ADMIN_KEY: &str = "test-admin-key-12345";
 
 // ─── TestResponse ────────────────────────────────────────────────────────────
 
@@ -39,7 +36,8 @@ impl TestResponse {
 
     pub fn assert_status(&self, expected: StatusCode) {
         assert_eq!(
-            self.status, expected,
+            self.status,
+            expected,
             "Expected status {expected}, got {}. Body: {}",
             self.status,
             self.text()
@@ -61,12 +59,17 @@ pub struct CreatedApp {
 pub struct TestApp {
     router: Router,
     pub state: AppState,
+    /// Bearer token for an admin user (bootstrapped via seed).
+    pub admin_token: String,
 }
 
 impl TestApp {
     pub async fn new() -> Self {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must be set for integration tests");
+
         let config = Config {
-            database_url: "sqlite::memory:".to_string(),
+            database_url: database_url.clone(),
             jwt_private_key_path: "keys/private.pem".to_string(),
             jwt_public_key_path: "keys/public.pem".to_string(),
             jwt_issuer: "auth-service-test".to_string(),
@@ -74,28 +77,65 @@ impl TestApp {
             jwt_refresh_token_expiry_days: 30,
             server_host: "127.0.0.1".to_string(),
             server_port: 0,
-            admin_api_key: ADMIN_KEY.to_string(),
+            cors_allowed_origins: "*".to_string(),
         };
 
-        let db = Database::connect(&config.database_url)
+        let db = auth_service::db::pool::connect(&config.database_url)
             .await
-            .expect("Failed to connect to in-memory SQLite");
+            .expect("Failed to connect to MSSQL test database");
 
-        migration::Migrator::up(&db, None)
+        // Run migrations
+        auth_service::db::migration::run(&db)
             .await
             .expect("Failed to run migrations");
 
+        // Truncate all tables (in FK dependency order)
+        {
+            let mut conn = db
+                .get()
+                .await
+                .expect("Failed to get connection for truncation");
+            // Delete in reverse FK order
+            conn.execute("DELETE FROM refresh_tokens", &[]).await.ok();
+            conn.execute("DELETE FROM authorization_codes", &[])
+                .await
+                .ok();
+            conn.execute("DELETE FROM accounts", &[]).await.ok();
+            conn.execute("DELETE FROM app_providers", &[]).await.ok();
+            conn.execute("DELETE FROM users", &[]).await.ok();
+            conn.execute("DELETE FROM applications", &[]).await.ok();
+        }
+
         let jwt = JwtManager::new(&config).expect("Failed to init JwtManager");
 
-        let state = AppState {
-            db,
-            jwt,
-            config,
-        };
+        // Bootstrap admin app + admin user via seed
+        auth_service::seed::bootstrap(&db, "test-admin@internal", Some("TestAdmin1!"))
+            .await
+            .expect("Failed to bootstrap admin");
 
+        // Get admin user to issue a token
+        let admin_user = queries::users::find_by_email(&db, "test-admin@internal")
+            .await
+            .unwrap()
+            .expect("Admin user not found");
+
+        let admin_token = jwt
+            .issue_access_token(
+                &admin_user.id,
+                "test-internal",
+                vec!["admin".to_string()],
+                "admin",
+            )
+            .expect("Failed to issue admin token");
+
+        let state = AppState { db, jwt, config };
         let router = create_router(state.clone());
 
-        Self { router, state }
+        Self {
+            router,
+            state,
+            admin_token,
+        }
     }
 
     pub async fn request(&self, req: Request<Body>) -> TestResponse {
@@ -120,12 +160,7 @@ impl TestApp {
 
     // ── Admin helpers ────────────────────────────────────────────────────
 
-    pub async fn admin_create_app(
-        &self,
-        name: &str,
-        uris: &[&str],
-        scopes: &[&str],
-    ) -> CreatedApp {
+    pub async fn admin_create_app(&self, name: &str, uris: &[&str], scopes: &[&str]) -> CreatedApp {
         let body = serde_json::json!({
             "name": name,
             "redirect_uris": uris,
@@ -136,7 +171,7 @@ impl TestApp {
             .method("POST")
             .uri("/admin/applications")
             .header("Content-Type", "application/json")
-            .header("X-Admin-Key", ADMIN_KEY)
+            .header("Authorization", format!("Bearer {}", self.admin_token))
             .body(Body::from(serde_json::to_vec(&body).unwrap()))
             .unwrap();
 
@@ -175,12 +210,7 @@ impl TestApp {
         self.request(req).await
     }
 
-    pub async fn login_user(
-        &self,
-        client_id: &str,
-        email: &str,
-        password: &str,
-    ) -> TestResponse {
+    pub async fn login_user(&self, client_id: &str, email: &str, password: &str) -> TestResponse {
         let body = serde_json::json!({
             "email": email,
             "password": password,
