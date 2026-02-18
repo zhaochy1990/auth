@@ -7,7 +7,6 @@ import { listApplications, updateApplication } from '../../api/admin';
 import StatusBadge from '../../components/shared/StatusBadge';
 import Badge from '../../components/ui/Badge';
 import Spinner from '../../components/ui/Spinner';
-import toast from 'react-hot-toast';
 
 export default function ApplicationListPage() {
   const { t } = useTranslation('applications');

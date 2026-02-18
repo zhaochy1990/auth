@@ -24,12 +24,13 @@ export default function LoginPage() {
     try {
       await login(email, password);
       navigate('/', { replace: true });
-    } catch (err: any) {
-      if (err.message === 'INSUFFICIENT_PERMISSIONS') {
+    } catch (err: unknown) {
+      const e = err as { message?: string; response?: { status?: number; data?: { error?: string } } };
+      if (e.message === 'INSUFFICIENT_PERMISSIONS') {
         setError(t('error.insufficientPermissions'));
-      } else if (err.response?.data?.error === 'user_disabled') {
+      } else if (e.response?.data?.error === 'user_disabled') {
         setError(t('error.userDisabled'));
-      } else if (err.response?.status === 401) {
+      } else if (e.response?.status === 401) {
         setError(t('error.invalidCredentials'));
       } else {
         setError(t('error.generic'));
