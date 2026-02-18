@@ -16,14 +16,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
+    tracing::info!("auth-service starting up");
+
     // Load config
     let config = Config::from_env().expect("Failed to load configuration");
+    tracing::info!(
+        host = %config.server_host,
+        port = %config.server_port,
+        jwt_private_key = %config.jwt_private_key_path,
+        jwt_public_key = %config.jwt_public_key_path,
+        "Configuration loaded"
+    );
 
     // Connect to database
+    tracing::info!("Connecting to database...");
     let db = auth_service::db::pool::connect(&config.database_url).await?;
     tracing::info!("Connected to database");
 
     // Run migrations
+    tracing::info!("Running migrations...");
     auth_service::db::migration::run(&db).await?;
     tracing::info!("Migrations applied");
 

@@ -17,8 +17,9 @@ RUN mkdir -p src \
 COPY src/ src/
 COPY sql/ sql/
 
-# Build the release binary
-RUN cargo build --release
+# Build the release binary (touch ensures cargo detects source changes
+# despite Docker COPY preserving old timestamps)
+RUN touch src/main.rs src/lib.rs && cargo build --release
 
 # === Runtime stage ===
 FROM debian:bookworm-slim
