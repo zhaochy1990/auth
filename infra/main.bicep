@@ -75,15 +75,9 @@ module auth 'modules/auth.bicep' = {
   }
 }
 
-// --- Subscription-level Contributor (for infra.yml to create/manage RGs) ---
-resource subscriptionContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, 'id-github-actions', 'Contributor')
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
-    principalId: auth.outputs.managedIdentityPrincipalId
-    principalType: 'ServicePrincipal'
-  }
-}
+// NOTE: Subscription-level Contributor role for the UAMI is created during
+// bootstrap (requires Owner). Not included here as infra.yml runs as the UAMI
+// which lacks Microsoft.Authorization/roleAssignments/write permission.
 
 // --- Outputs ---
 output commonResourceGroupName string = commonRg.name
