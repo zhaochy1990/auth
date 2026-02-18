@@ -56,16 +56,8 @@ resource federatedCredentialEnv 'Microsoft.ManagedIdentity/userAssignedIdentitie
   }
 }
 
-// --- Role Assignments ---
-// Contributor on the resource group
-resource contributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, managedIdentity.id, 'Contributor')
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
-    principalId: managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
+// NOTE: RG-level and subscription-level Contributor roles for the UAMI are
+// created during bootstrap (requires Owner). Not managed here.
 
 // --- Container Apps Environment ---
 resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
