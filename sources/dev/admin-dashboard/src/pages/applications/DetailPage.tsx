@@ -227,14 +227,26 @@ export default function ApplicationDetailPage() {
         ) : (
           <div className="mt-4 divide-y divide-gray-100">
             {(providers || []).map((p) => (
-              <div key={p.id} className="flex items-center justify-between py-2">
-                <div>
-                  <span className="text-sm font-medium">{p.provider_id}</span>
-                  <span className="ml-2 text-xs text-gray-500">{new Date(p.created_at).toLocaleDateString()}</span>
+              <div key={p.id} className="flex items-center justify-between py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{p.provider_id}</span>
+                    <span className="text-xs text-gray-500">{new Date(p.created_at).toLocaleDateString()}</span>
+                  </div>
+                  {p.config && Object.keys(p.config).length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+                      {Object.entries(p.config).map(([key, value]) => (
+                        <span key={key} className="text-xs text-gray-500">
+                          <span className="font-medium text-gray-600">{key}:</span>{' '}
+                          <span className="font-mono">{String(value)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => setRemoveProviderId(p.provider_id)}
-                  className="text-red-500 hover:text-red-700"
+                  className="ml-2 shrink-0 text-red-500 hover:text-red-700"
                 >
                   <Trash2 size={16} />
                 </button>

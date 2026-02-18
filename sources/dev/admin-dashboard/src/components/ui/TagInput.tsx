@@ -10,14 +10,18 @@ interface Props {
 export default function TagInput({ value, onChange, placeholder }: Props) {
   const [input, setInput] = useState('');
 
+  const commitInput = () => {
+    const trimmed = input.trim();
+    if (trimmed && !value.includes(trimmed)) {
+      onChange([...value, trimmed]);
+    }
+    setInput('');
+  };
+
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const trimmed = input.trim();
-      if (trimmed && !value.includes(trimmed)) {
-        onChange([...value, trimmed]);
-      }
-      setInput('');
+      commitInput();
     }
     if (e.key === 'Backspace' && !input && value.length > 0) {
       onChange(value.slice(0, -1));
@@ -44,6 +48,7 @@ export default function TagInput({ value, onChange, placeholder }: Props) {
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
+        onBlur={commitInput}
         placeholder={value.length === 0 ? placeholder : ''}
       />
     </div>
