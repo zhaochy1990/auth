@@ -46,10 +46,15 @@ info "Deploying infrastructure (this may take several minutes)..."
 DEPLOY_OUTPUT=$(az deployment sub create \
   --location southeastasia \
   --template-file infra/main.bicep \
-  --parameters infra/main.bicepparam \
-  --parameters sqlAdminLogin="$SQL_ADMIN_LOGIN" \
-  --parameters sqlAdminPassword="$SQL_ADMIN_PASSWORD" \
-  --parameters ghcrPassword="$GHCR_PAT" \
+  --parameters \
+    location='southeastasia' \
+    envName='prod' \
+    githubRepo='zhaochy1990/auth' \
+    githubBranch='main' \
+    storageName='authstorage2026' \
+    sqlAdminLogin="$SQL_ADMIN_LOGIN" \
+    sqlAdminPassword="$SQL_ADMIN_PASSWORD" \
+    ghcrPassword="$GHCR_PAT" \
   --query properties.outputs -o json)
 
 # --- Extract outputs ---
