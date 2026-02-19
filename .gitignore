@@ -1,2 +1,9 @@
 # Root-level commitlint dependencies
 /node_modules/
+
+# Claude Code
+.claude/
+
+# Generated files
+code-review-report.md
+infra/main.json
