@@ -89,6 +89,13 @@ export interface UpdateUserRequest {
   is_active?: boolean;
 }
 
+export interface CreateUserRequest {
+  email: string;
+  password: string;
+  name?: string;
+  role?: string;
+}
+
 export interface UserAccount {
   id: string;
   provider_id: string;

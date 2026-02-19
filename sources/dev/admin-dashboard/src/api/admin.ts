@@ -9,6 +9,7 @@ import type {
   AddProviderRequest,
   UserListResponse,
   User,
+  CreateUserRequest,
   UpdateUserRequest,
   UserAccount,
   Stats,
@@ -40,6 +41,9 @@ export const removeProvider = (appId: string, providerId: string) =>
 // Users
 export const listUsers = (params: { page?: number; per_page?: number; search?: string }) =>
   client.get<UserListResponse>('/admin/users', { params }).then((r) => r.data);
+
+export const createUser = (data: CreateUserRequest) =>
+  client.post<User>('/admin/users', data).then((r) => r.data);
 
 export const getUser = (id: string) =>
   client.get<User>(`/admin/users/${id}`).then((r) => r.data);

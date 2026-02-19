@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router';
-import { ArrowLeft, Shield, ShieldOff, Unlink } from 'lucide-react';
+import { ArrowLeft, Check, Pencil, Shield, ShieldOff, Unlink, X } from 'lucide-react';
 import { getUser, getUserAccounts, updateUser, adminUnlinkAccount } from '../../api/admin';
 import StatusBadge from '../../components/shared/StatusBadge';
 import Badge from '../../components/ui/Badge';
@@ -17,6 +17,8 @@ export default function UserDetailPage() {
   const queryClient = useQueryClient();
 
   const [unlinkProvider, setUnlinkProvider] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
 
   const { data: user, isLoading } = useQuery({
     queryKey: ['user', id],
@@ -44,6 +46,16 @@ export default function UserDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user', id] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success(t('detail.updateSuccess'));
+    },
+  });
+
+  const nameMutation = useMutation({
+    mutationFn: (name: string) => updateUser(id!, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user', id] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setEditingName(false);
       toast.success(t('detail.updateSuccess'));
     },
   });
@@ -94,7 +106,48 @@ export default function UserDetailPage() {
           </div>
           <div>
             <dt className="text-xs font-medium text-gray-500">{t('detail.name')}</dt>
-            <dd className="mt-1 text-sm text-gray-900">{user.name || '-'}</dd>
+            <dd className="mt-1">
+              {editingName ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') nameMutation.mutate(nameInput);
+                      if (e.key === 'Escape') setEditingName(false);
+                    }}
+                    placeholder={t('detail.namePlaceholder')}
+                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => nameMutation.mutate(nameInput)}
+                    disabled={nameMutation.isPending}
+                    className="text-green-600 hover:text-green-800 disabled:opacity-50"
+                  >
+                    <Check size={16} />
+                  </button>
+                  <button
+                    onClick={() => setEditingName(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <span className="text-sm text-gray-900">{user.name || '-'}</span>
+                  <button
+                    onClick={() => { setNameInput(user.name || ''); setEditingName(true); }}
+                    className="text-gray-400 hover:text-gray-600"
+                    title={t('detail.editName')}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                </div>
+              )}
+            </dd>
           </div>
           <div>
             <dt className="text-xs font-medium text-gray-500">{t('detail.role')}</dt>
