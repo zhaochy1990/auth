@@ -124,7 +124,7 @@ jobs:
     name: Backend Docker Build
     runs-on: ubuntu-latest
     needs: [changes, backend-check, backend-test]
-    if: needs.changes.outputs.backend == 'true'
+    if: needs.changes.outputs.backend == 'true' && github.event_name == 'push'
     defaults:
       run:
         working-directory: sources/dev/authentication
