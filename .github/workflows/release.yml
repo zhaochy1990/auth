@@ -103,8 +103,9 @@ jobs:
       - name: Create tag and push
         if: steps.check.outputs.should_release == 'true'
         run: |
-          git tag "${{ steps.version.outputs.tag }}"
-          git push origin main --follow-tags
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin main
+          git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Create GitHub Release
         if: steps.check.outputs.should_release == 'true'
