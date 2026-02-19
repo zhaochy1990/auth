@@ -138,6 +138,10 @@ pub fn create_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn health_check() -> &'static str {
-    "ok"
+async fn health_check() -> axum::Json<serde_json::Value> {
+    let version = std::env::var("APP_VERSION").unwrap_or_else(|_| "dev".to_string());
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "version": version
+    }))
 }

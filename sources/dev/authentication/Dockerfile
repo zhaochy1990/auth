@@ -30,6 +30,9 @@ WORKDIR /app
 
 COPY --from=builder /app/target/release/auth-service ./
 
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
 # Bind to all interfaces so the container is reachable
 ENV SERVER_HOST=0.0.0.0
 
