@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::middleware::AdminAuth;
-use crate::auth::password::hash_client_secret;
-use crate::db::models::{AppProvider, Application};
+use crate::auth::password::{hash_client_secret, hash_password, validate_password};
+use crate::db::models::{Account, AppProvider, Application, User};
 use crate::db::queries;
 use crate::error::AppError;
 use crate::AppState;
@@ -103,6 +103,14 @@ pub struct UpdateUserRequest {
     pub name: Option<String>,
     pub role: Option<String>,
     pub is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateUserRequest {
+    pub email: String,
+    pub password: String,
+    pub name: Option<String>,
+    pub role: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -416,6 +424,67 @@ pub async fn get_user_accounts(
         .collect();
 
     Ok(Json(responses))
+}
+
+pub async fn create_user(
+    _admin: AdminAuth,
+    State(state): State<AppState>,
+    Json(req): Json<CreateUserRequest>,
+) -> Result<Json<UserResponse>, AppError> {
+    validate_password(&req.password)?;
+
+    let role = req.role.unwrap_or_else(|| "user".to_string());
+    if role != "user" && role != "admin" {
+        return Err(AppError::BadRequest(
+            "Role must be 'user' or 'admin'".to_string(),
+        ));
+    }
+
+    let existing = queries::users::find_by_email(&state.db, &req.email).await?;
+    if existing.is_some() {
+        return Err(AppError::UserAlreadyExists);
+    }
+
+    let now = chrono::Utc::now().naive_utc();
+    let user_id = Uuid::new_v4().to_string();
+
+    let user = User {
+        id: user_id.clone(),
+        email: Some(req.email.clone()),
+        name: req.name,
+        avatar_url: None,
+        email_verified: false,
+        role,
+        is_active: true,
+        created_at: now,
+        updated_at: now,
+    };
+    queries::users::insert(&state.db, &user).await?;
+
+    let password_hash = hash_password(&req.password)?;
+    let account = Account {
+        id: Uuid::new_v4().to_string(),
+        user_id: user_id.clone(),
+        provider_id: "password".to_string(),
+        provider_account_id: Some(req.email),
+        credential: Some(password_hash),
+        provider_metadata: "{}".to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+    queries::accounts::insert(&state.db, &account).await?;
+
+    Ok(Json(UserResponse {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatar_url: user.avatar_url,
+        email_verified: user.email_verified,
+        role: user.role,
+        is_active: user.is_active,
+        created_at: user.created_at.to_string(),
+        updated_at: user.updated_at.to_string(),
+    }))
 }
 
 pub async fn update_user(

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Link, useNavigate } from 'react-router';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { listUsers, updateUser } from '../../api/admin';
 import StatusBadge from '../../components/shared/StatusBadge';
 import Badge from '../../components/ui/Badge';
@@ -11,6 +11,7 @@ import Spinner from '../../components/ui/Spinner';
 export default function UserListPage() {
   const { t } = useTranslation('users');
   const { t: tc } = useTranslation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [page, setPage] = useState(1);
@@ -48,7 +49,16 @@ export default function UserListPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-gray-900">{t('title')}</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-gray-900">{t('title')}</h1>
+        <button
+          onClick={() => navigate('/users/new')}
+          className="flex items-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
+        >
+          <Plus size={16} />
+          {t('createBtn')}
+        </button>
+      </div>
 
       <div className="mt-4 flex gap-2">
         <input

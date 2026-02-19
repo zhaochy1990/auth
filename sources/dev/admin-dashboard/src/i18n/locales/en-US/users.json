@@ -1,6 +1,7 @@
 {
   "title": "Users",
   "searchPlaceholder": "Search by email or name...",
+  "createBtn": "Create User",
   "table": {
     "email": "Email",
     "name": "Name",
@@ -11,6 +12,18 @@
   "role": {
     "user": "User",
     "admin": "Admin"
+  },
+  "create": {
+    "title": "Create User",
+    "email": "Email",
+    "emailPlaceholder": "user@example.com",
+    "password": "Password",
+    "passwordPlaceholder": "Enter password",
+    "name": "Name",
+    "namePlaceholder": "Optional display name",
+    "role": "Role",
+    "submit": "Create",
+    "success": "User created"
   },
   "detail": {
     "title": "User Detail",
@@ -30,6 +43,8 @@
     "changeRole": "Change Role",
     "toggleActive": "Toggle Active",
     "updateSuccess": "Updated",
-    "unlinkSuccess": "Account unlinked"
+    "unlinkSuccess": "Account unlinked",
+    "editName": "Edit name",
+    "namePlaceholder": "Enter name"
   }
 }

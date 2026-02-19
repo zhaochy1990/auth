@@ -108,7 +108,10 @@ pub fn create_router(state: AppState) -> Router {
             "/applications/:id/rotate-secret",
             post(handlers::admin::rotate_secret),
         )
-        .route("/users", get(handlers::admin::list_users))
+        .route(
+            "/users",
+            get(handlers::admin::list_users).post(handlers::admin::create_user),
+        )
         .route(
             "/users/:id",
             get(handlers::admin::get_user).patch(handlers::admin::update_user),
