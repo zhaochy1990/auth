@@ -1,0 +1,123 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch tags
+        run: git fetch --tags
+
+      - name: Calculate next version
+        id: version
+        run: |
+          YEAR=$(date +%Y)
+          MONTH=$(date +%-m)
+
+          # Find latest tag
+          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -n1)
+
+          if [ -z "$LATEST_TAG" ]; then
+            # No tags yet — first release
+            MICRO=1
+          else
+            # Extract year, month, micro from latest tag (vYYYY.M.MICRO)
+            TAG_VERSION="${LATEST_TAG#v}"
+            TAG_YEAR=$(echo "$TAG_VERSION" | cut -d. -f1)
+            TAG_MONTH=$(echo "$TAG_VERSION" | cut -d. -f2)
+            TAG_MICRO=$(echo "$TAG_VERSION" | cut -d. -f3)
+
+            if [ "$TAG_YEAR" = "$YEAR" ] && [ "$TAG_MONTH" = "$MONTH" ]; then
+              MICRO=$((TAG_MICRO + 1))
+            else
+              MICRO=1
+            fi
+          fi
+
+          VERSION="${YEAR}.${MONTH}.${MICRO}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Next version: $VERSION"
+
+      - name: Check for releasable commits
+        id: check
+        run: |
+          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -n1)
+
+          if [ -z "$LATEST_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${LATEST_TAG}..HEAD"
+          fi
+
+          # Look for conventional commit prefixes that warrant a release
+          RELEASABLE=$(git log "$RANGE" --pretty=format:"%s" | grep -cE "^(feat|fix|refactor|perf|build|ci|docs|style|test|chore)(\(.+\))?!?:" || true)
+
+          if [ "$RELEASABLE" -eq 0 ]; then
+            echo "No releasable commits found"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Found $RELEASABLE releasable commit(s)"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update version in Cargo.toml
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          sed -i "s/^version = \".*\"/version = \"${{ steps.version.outputs.version }}\"/" sources/dev/authentication/Cargo.toml
+
+      - name: Update version in package.json files
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          # Root package.json
+          sed -i 's/"version": *"[^"]*"/"version": "${{ steps.version.outputs.version }}"/' package.json || true
+          # Frontend package.json
+          cd sources/dev/admin-dashboard
+          sed -i 's/"version": *"[^"]*"/"version": "${{ steps.version.outputs.version }}"/' package.json
+
+      - name: Commit version bump
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sources/dev/authentication/Cargo.toml package.json sources/dev/admin-dashboard/package.json
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }}" || echo "No changes to commit"
+
+      - name: Create tag and push
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin main --follow-tags
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes
+
+      - name: Trigger deploy workflow
+        if: steps.check.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run deploy.yml --ref "${{ steps.version.outputs.tag }}"
