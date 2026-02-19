@@ -59,7 +59,7 @@ export default function ApplicationDetailPage() {
   // Add provider dialog
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [newProviderId, setNewProviderId] = useState('password');
-  const [newProviderConfig, setNewProviderConfig] = useState('{}');
+  const [newProviderConfig, setNewProviderConfig] = useState<Record<string, string>>({});
 
   // Remove provider confirm
   const [removeProviderId, setRemoveProviderId] = useState<string | null>(null);
@@ -82,15 +82,12 @@ export default function ApplicationDetailPage() {
   });
 
   const addProviderMutation = useMutation({
-    mutationFn: () => {
-      const config = JSON.parse(newProviderConfig);
-      return addProvider(id!, { provider_id: newProviderId, config });
-    },
+    mutationFn: () => addProvider(id!, { provider_id: newProviderId, config: newProviderConfig }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['providers', id] });
       setShowAddProvider(false);
       setNewProviderId('password');
-      setNewProviderConfig('{}');
+      setNewProviderConfig({});
       toast.success(t('detail.providerAdded'));
     },
   });
@@ -230,14 +227,26 @@ export default function ApplicationDetailPage() {
         ) : (
           <div className="mt-4 divide-y divide-gray-100">
             {(providers || []).map((p) => (
-              <div key={p.id} className="flex items-center justify-between py-2">
-                <div>
-                  <span className="text-sm font-medium">{p.provider_id}</span>
-                  <span className="ml-2 text-xs text-gray-500">{new Date(p.created_at).toLocaleDateString()}</span>
+              <div key={p.id} className="flex items-center justify-between py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{p.provider_id}</span>
+                    <span className="text-xs text-gray-500">{new Date(p.created_at).toLocaleDateString()}</span>
+                  </div>
+                  {p.config && Object.keys(p.config).length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+                      {Object.entries(p.config).map(([key, value]) => (
+                        <span key={key} className="text-xs text-gray-500">
+                          <span className="font-medium text-gray-600">{key}:</span>{' '}
+                          <span className="font-mono">{String(value)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => setRemoveProviderId(p.provider_id)}
-                  className="text-red-500 hover:text-red-700"
+                  className="ml-2 shrink-0 text-red-500 hover:text-red-700"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -257,26 +266,44 @@ export default function ApplicationDetailPage() {
                 <label className="block text-sm font-medium text-gray-700">{t('detail.providerType')}</label>
                 <select
                   value={newProviderId}
-                  onChange={(e) => setNewProviderId(e.target.value)}
+                  onChange={(e) => { setNewProviderId(e.target.value); setNewProviderConfig({}); }}
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                 >
                   <option value="password">password</option>
                   <option value="wechat">wechat</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">{t('detail.providerConfig')}</label>
-                <textarea
-                  value={newProviderConfig}
-                  onChange={(e) => setNewProviderConfig(e.target.value)}
-                  rows={4}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono"
-                />
-              </div>
+              {newProviderId === 'password' && (
+                <p className="text-sm text-gray-500">{t('detail.providerNoConfig')}</p>
+              )}
+              {newProviderId === 'wechat' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">{t('detail.wechatAppId')}</label>
+                    <input
+                      type="text"
+                      value={newProviderConfig.appid ?? ''}
+                      onChange={(e) => setNewProviderConfig({ ...newProviderConfig, appid: e.target.value })}
+                      placeholder={t('detail.wechatAppIdPlaceholder')}
+                      className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">{t('detail.wechatSecret')}</label>
+                    <input
+                      type="password"
+                      value={newProviderConfig.secret ?? ''}
+                      onChange={(e) => setNewProviderConfig({ ...newProviderConfig, secret: e.target.value })}
+                      placeholder={t('detail.wechatSecretPlaceholder')}
+                      className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button
-                onClick={() => setShowAddProvider(false)}
+                onClick={() => { setShowAddProvider(false); setNewProviderId('password'); setNewProviderConfig({}); }}
                 className="rounded-md px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
               >
                 {t('common:actions.cancel')}

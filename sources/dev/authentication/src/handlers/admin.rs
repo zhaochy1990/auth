@@ -60,6 +60,7 @@ pub struct AddProviderRequest {
 pub struct ProviderResponse {
     pub id: String,
     pub provider_id: String,
+    pub config: serde_json::Value,
     pub is_active: bool,
     pub created_at: String,
 }
@@ -276,6 +277,7 @@ pub async fn add_provider(
     Ok(Json(ProviderResponse {
         id,
         provider_id: req.provider_id,
+        config: req.config,
         is_active: true,
         created_at: now.to_string(),
     }))
@@ -335,6 +337,7 @@ pub async fn list_providers(
         .map(|p| ProviderResponse {
             id: p.id,
             provider_id: p.provider_id,
+            config: serde_json::from_str(&p.config).unwrap_or_default(),
             is_active: p.is_active,
             created_at: p.created_at.to_string(),
         })

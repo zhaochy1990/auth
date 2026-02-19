@@ -42,6 +42,11 @@
     "saveSuccess": "保存成功",
     "rotateSuccess": "密钥已轮换",
     "providerAdded": "认证方式已添加",
-    "providerRemoved": "认证方式已移除"
+    "providerRemoved": "认证方式已移除",
+    "providerNoConfig": "无需配置",
+    "wechatAppId": "微信 AppID",
+    "wechatAppIdPlaceholder": "例如 wx1234567890abcdef",
+    "wechatSecret": "微信 AppSecret",
+    "wechatSecretPlaceholder": "输入微信 AppSecret"
   }
 }

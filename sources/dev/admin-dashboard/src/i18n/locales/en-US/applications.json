@@ -42,6 +42,11 @@
     "saveSuccess": "Saved",
     "rotateSuccess": "Secret rotated",
     "providerAdded": "Provider added",
-    "providerRemoved": "Provider removed"
+    "providerRemoved": "Provider removed",
+    "providerNoConfig": "No configuration required",
+    "wechatAppId": "WeChat AppID",
+    "wechatAppIdPlaceholder": "e.g. wx1234567890abcdef",
+    "wechatSecret": "WeChat AppSecret",
+    "wechatSecretPlaceholder": "Enter WeChat AppSecret"
   }
 }
