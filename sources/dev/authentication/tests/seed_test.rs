@@ -10,9 +10,13 @@ use serial_test::serial;
 async fn seed_creates_app_and_user() {
     let app = common::TestApp::new().await;
 
-    let result = bootstrap(app.state.repo.as_ref(), "admin@seed-test.com", Some("StrongPass1!"))
-        .await
-        .expect("seed failed");
+    let result = bootstrap(
+        app.state.repo.as_ref(),
+        "admin@seed-test.com",
+        Some("StrongPass1!"),
+    )
+    .await
+    .expect("seed failed");
 
     // App already existed (created by TestApp::new bootstrap), so no new secret
     // But the user should be "created"

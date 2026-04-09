@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use azure_core::StatusCode;
 use azure_data_tables::operations::InsertEntityResponse;
+use azure_data_tables::clients::TableServiceClientBuilder;
 use azure_data_tables::prelude::*;
-use azure_storage::ConnectionString;
+use azure_storage::{CloudLocation, ConnectionString};
 use chrono::NaiveDateTime;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -58,7 +59,10 @@ fn db_err(e: impl std::fmt::Display) -> AppError {
 
 // ─── Generic table helpers ──────────────────────────────────────────────────
 
-async fn insert_entity<E: Serialize>(table: &TableClient, entity: &E) -> Result<(), azure_core::Error> {
+async fn insert_entity<E: Serialize>(
+    table: &TableClient,
+    entity: &E,
+) -> Result<(), azure_core::Error> {
     let _: InsertEntityResponse<serde_json::Value> = table.insert(entity)?.await?;
     Ok(())
 }
@@ -68,7 +72,12 @@ async fn get_entity<T: serde::de::DeserializeOwned + Send>(
     pk: &str,
     rk: &str,
 ) -> Result<Option<T>, AppError> {
-    match table.partition_key_client(pk).entity_client(rk).get::<T>().await {
+    match table
+        .partition_key_client(pk)
+        .entity_client(rk)
+        .get::<T>()
+        .await
+    {
         Ok(resp) => Ok(Some(resp.entity)),
         Err(e) if is_not_found(&e) => Ok(None),
         Err(e) => Err(db_err(e)),
@@ -89,7 +98,12 @@ async fn query_entities<T: serde::de::DeserializeOwned + Send + Sync>(
 }
 
 async fn delete_entity(table: &TableClient, pk: &str, rk: &str) -> Result<(), AppError> {
-    match table.partition_key_client(pk).entity_client(rk).delete().await {
+    match table
+        .partition_key_client(pk)
+        .entity_client(rk)
+        .delete()
+        .await
+    {
         Ok(_) => Ok(()),
         Err(e) if is_not_found(&e) => Ok(()),
         Err(e) => Err(db_err(e)),
@@ -457,9 +471,30 @@ pub struct AzureTableRepository {
 impl AzureTableRepository {
     pub fn new(connection_string: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let cs = ConnectionString::new(connection_string)?;
-        let account = cs.account_name.ok_or("Missing AccountName in connection string")?;
+        let account = cs
+            .account_name
+            .ok_or("Missing AccountName in connection string")?;
         let creds = cs.storage_credentials()?;
-        let svc = TableServiceClient::new(account, creds);
+
+        // Detect emulator/custom endpoint from TableEndpoint in connection string
+        let svc = if let Some(table_endpoint) = cs.table_endpoint {
+            // Custom endpoint (Azurite or other non-standard)
+            let location = if account == "devstoreaccount1" {
+                // Parse host:port from the endpoint URL for Azurite
+                let url = azure_core::Url::parse(table_endpoint)?;
+                let address = url.host_str().unwrap_or("127.0.0.1").to_string();
+                let port = url.port().unwrap_or(10002);
+                CloudLocation::Emulator { address, port }
+            } else {
+                CloudLocation::Custom {
+                    account: account.to_string(),
+                    uri: table_endpoint.to_string(),
+                }
+            };
+            TableServiceClientBuilder::with_location(location, creds).build()
+        } else {
+            TableServiceClient::new(account, creds)
+        };
         Ok(Self {
             applications: svc.table_client(TABLE_APPLICATIONS),
             users: svc.table_client(TABLE_USERS),
@@ -504,12 +539,24 @@ impl AzureTableRepository {
 // ─── Repository trait ───────────────────────────────────────────────────────
 
 impl Repository for AzureTableRepository {
-    fn users(&self) -> &dyn UserRepository { self }
-    fn applications(&self) -> &dyn ApplicationRepository { self }
-    fn accounts(&self) -> &dyn AccountRepository { self }
-    fn app_providers(&self) -> &dyn AppProviderRepository { self }
-    fn auth_codes(&self) -> &dyn AuthCodeRepository { self }
-    fn refresh_tokens(&self) -> &dyn RefreshTokenRepository { self }
+    fn users(&self) -> &dyn UserRepository {
+        self
+    }
+    fn applications(&self) -> &dyn ApplicationRepository {
+        self
+    }
+    fn accounts(&self) -> &dyn AccountRepository {
+        self
+    }
+    fn app_providers(&self) -> &dyn AppProviderRepository {
+        self
+    }
+    fn auth_codes(&self) -> &dyn AuthCodeRepository {
+        self
+    }
+    fn refresh_tokens(&self) -> &dyn RefreshTokenRepository {
+        self
+    }
 }
 
 // ─── UserRepository ─────────────────────────────────────────────────────────
@@ -588,7 +635,10 @@ impl UserRepository for AzureTableRepository {
         let entities: Vec<UserEntity> =
             query_entities(&self.users, "PartitionKey eq 'user'").await?;
         let since_str = fmt_dt(&since);
-        Ok(entities.iter().filter(|e| e.created_at >= since_str).count() as u64)
+        Ok(entities
+            .iter()
+            .filter(|e| e.created_at >= since_str)
+            .count() as u64)
     }
 
     async fn list_paginated(
@@ -653,8 +703,7 @@ impl ApplicationRepository for AzureTableRepository {
     }
 
     async fn find_by_name(&self, name: &str) -> Result<Option<Application>, AppError> {
-        let idx: Option<IndexEntity> =
-            get_entity(&self.applications, "idx_name", name).await?;
+        let idx: Option<IndexEntity> = get_entity(&self.applications, "idx_name", name).await?;
         match idx {
             Some(idx) => ApplicationRepository::find_by_id(self, &idx.target_id).await,
             None => Ok(None),
@@ -674,13 +723,15 @@ impl ApplicationRepository for AzureTableRepository {
             row_key: app.client_id.clone(),
             target_id: app.id.clone(),
         };
-        insert_entity(&self.applications, &cid_idx).await.map_err(|e| {
-            if is_conflict(&e) {
-                AppError::Database("Client ID already exists".into())
-            } else {
-                db_err(e)
-            }
-        })?;
+        insert_entity(&self.applications, &cid_idx)
+            .await
+            .map_err(|e| {
+                if is_conflict(&e) {
+                    AppError::Database("Client ID already exists".into())
+                } else {
+                    db_err(e)
+                }
+            })?;
 
         // Insert name index
         let name_idx = IndexEntity {
@@ -692,7 +743,9 @@ impl ApplicationRepository for AzureTableRepository {
 
         // Insert primary entity
         let entity = AppEntity::from_model(app);
-        insert_entity(&self.applications, &entity).await.map_err(db_err)?;
+        insert_entity(&self.applications, &entity)
+            .await
+            .map_err(db_err)?;
         Ok(())
     }
 
@@ -814,13 +867,11 @@ impl AccountRepository for AzureTableRepository {
 
     async fn delete_by_id(&self, id: &str) -> Result<(), AppError> {
         // Look up composite key from ID index
-        let idx: Option<CompositeIndexEntity> =
-            get_entity(&self.accounts, "idx_id", id).await?;
+        let idx: Option<CompositeIndexEntity> = get_entity(&self.accounts, "idx_id", id).await?;
         let Some(idx) = idx else { return Ok(()) };
 
         // Get full entity for provider_account_id cleanup
-        let entity: Option<AccountEntity> =
-            get_entity(&self.accounts, &idx.pk, &idx.rk).await?;
+        let entity: Option<AccountEntity> = get_entity(&self.accounts, &idx.pk, &idx.rk).await?;
 
         // Delete provider-account index if exists
         if let Some(ref entity) = entity {
@@ -853,8 +904,7 @@ impl AppProviderRepository for AzureTableRepository {
 
     async fn find_all_by_app(&self, app_id: &str) -> Result<Vec<AppProvider>, AppError> {
         let filter = format!("PartitionKey eq '{app_id}'");
-        let entities: Vec<AppProviderEntity> =
-            query_entities(&self.app_providers, &filter).await?;
+        let entities: Vec<AppProviderEntity> = query_entities(&self.app_providers, &filter).await?;
         Ok(entities.iter().map(|e| e.to_model()).collect())
     }
 
@@ -870,13 +920,15 @@ impl AppProviderRepository for AzureTableRepository {
 
         // Insert primary entity
         let entity = AppProviderEntity::from_model(ap);
-        insert_entity(&self.app_providers, &entity).await.map_err(|e| {
-            if is_conflict(&e) {
-                AppError::Database("Provider already configured".into())
-            } else {
-                db_err(e)
-            }
-        })?;
+        insert_entity(&self.app_providers, &entity)
+            .await
+            .map_err(|e| {
+                if is_conflict(&e) {
+                    AppError::Database("Provider already configured".into())
+                } else {
+                    db_err(e)
+                }
+            })?;
         Ok(())
     }
 
@@ -923,8 +975,7 @@ impl AuthCodeRepository for AzureTableRepository {
 #[async_trait]
 impl RefreshTokenRepository for AzureTableRepository {
     async fn find_by_token_hash(&self, hash: &str) -> Result<Option<RefreshToken>, AppError> {
-        let idx: Option<IndexEntity> =
-            get_entity(&self.refresh_tokens, "idx_hash", hash).await?;
+        let idx: Option<IndexEntity> = get_entity(&self.refresh_tokens, "idx_hash", hash).await?;
         match idx {
             Some(idx) => {
                 let entity: Option<RefreshTokenEntity> =
@@ -953,8 +1004,7 @@ impl RefreshTokenRepository for AzureTableRepository {
     }
 
     async fn revoke(&self, id: &str) -> Result<(), AppError> {
-        let entity: Option<RefreshTokenEntity> =
-            get_entity(&self.refresh_tokens, "rt", id).await?;
+        let entity: Option<RefreshTokenEntity> = get_entity(&self.refresh_tokens, "rt", id).await?;
         if let Some(mut entity) = entity {
             entity.revoked = true;
             upsert_entity(&self.refresh_tokens, "rt", id, &entity).await?;

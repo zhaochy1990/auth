@@ -85,8 +85,8 @@ impl TestApp {
             cors_allowed_origins: "*".to_string(),
         };
 
-        let table_repo = AzureTableRepository::new(&conn_str)
-            .expect("Failed to create AzureTableRepository");
+        let table_repo =
+            AzureTableRepository::new(&conn_str).expect("Failed to create AzureTableRepository");
 
         // Clear and recreate all tables for test isolation
         table_repo
