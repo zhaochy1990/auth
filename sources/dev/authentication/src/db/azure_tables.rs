@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use azure_core::StatusCode;
-use azure_data_tables::operations::InsertEntityResponse;
 use azure_data_tables::clients::TableServiceClientBuilder;
+use azure_data_tables::operations::InsertEntityResponse;
 use azure_data_tables::prelude::*;
 use azure_storage::{CloudLocation, ConnectionString};
 use chrono::NaiveDateTime;
