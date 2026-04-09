@@ -1,6 +1,8 @@
 # === Builder stage ===
 FROM rust:1.88-slim-bookworm AS builder
 
+RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Copy manifest first for better layer caching
