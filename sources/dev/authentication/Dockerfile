@@ -15,7 +15,6 @@ RUN mkdir -p src \
 
 # Copy real source code
 COPY src/ src/
-COPY sql/ sql/
 
 # Build the release binary (touch ensures cargo detects source changes
 # despite Docker COPY preserving old timestamps)
