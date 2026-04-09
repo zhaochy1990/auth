@@ -6,7 +6,6 @@ use axum::{
 use base64::Engine;
 
 use crate::auth::jwt::Claims;
-use crate::db::queries;
 use crate::error::AppError;
 
 /// Extracts the authenticated user from a Bearer token.
@@ -72,7 +71,10 @@ where
             .ok_or(AppError::MissingClientId)?
             .to_string();
 
-        let app = queries::applications::find_by_client_id(&app_state.db, &client_id)
+        let app = app_state
+            .repo
+            .applications()
+            .find_by_client_id(&client_id)
             .await?
             .ok_or(AppError::ApplicationNotFound)?;
 
@@ -138,7 +140,10 @@ where
             return Err(AppError::InvalidCredentials);
         };
 
-        let app = queries::applications::find_by_client_id(&app_state.db, &client_id)
+        let app = app_state
+            .repo
+            .applications()
+            .find_by_client_id(&client_id)
             .await?
             .ok_or(AppError::ApplicationNotFound)?;
 

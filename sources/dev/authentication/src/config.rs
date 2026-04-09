@@ -2,7 +2,7 @@ use std::env;
 
 #[derive(Clone, Debug)]
 pub struct Config {
-    pub database_url: String,
+    pub azure_storage_connection_string: String,
     pub jwt_private_key_path: String,
     pub jwt_public_key_path: String,
     pub jwt_issuer: String,
@@ -16,7 +16,7 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Result<Self, env::VarError> {
         Ok(Self {
-            database_url: env::var("DATABASE_URL")?,
+            azure_storage_connection_string: env::var("AZURE_STORAGE_CONNECTION_STRING")?,
             jwt_private_key_path: env::var("JWT_PRIVATE_KEY_PATH")
                 .unwrap_or_else(|_| "keys/private.pem".to_string()),
             jwt_public_key_path: env::var("JWT_PUBLIC_KEY_PATH")

@@ -3,8 +3,7 @@ use rand::Rng;
 use sha2::{Digest, Sha256};
 
 use crate::db::models::{AuthorizationCode, RefreshToken};
-use crate::db::pool::Db;
-use crate::db::queries;
+use crate::db::repository::Repository;
 use crate::error::AppError;
 
 /// Generate a cryptographically random authorization code.
@@ -47,7 +46,7 @@ pub fn verify_pkce(code_verifier: &str, code_challenge: &str, code_challenge_met
 /// Store an authorization code in the database.
 #[allow(clippy::too_many_arguments)]
 pub async fn store_auth_code(
-    db: &Db,
+    repo: &dyn Repository,
     code: &str,
     app_id: &str,
     user_id: &str,
@@ -72,19 +71,21 @@ pub async fn store_auth_code(
         created_at: now,
     };
 
-    queries::auth_codes::insert(db, &ac).await?;
+    repo.auth_codes().insert(&ac).await?;
     Ok(())
 }
 
 /// Exchange an authorization code for user info. Validates and marks as used.
 pub async fn exchange_auth_code(
-    db: &Db,
+    repo: &dyn Repository,
     code: &str,
     app_id: &str,
     redirect_uri: &str,
     code_verifier: Option<&str>,
 ) -> Result<(String, Vec<String>), AppError> {
-    let auth_code = queries::auth_codes::find_by_code(db, code)
+    let auth_code = repo
+        .auth_codes()
+        .find_by_code(code)
         .await?
         .ok_or(AppError::InvalidAuthorizationCode)?;
 
@@ -118,7 +119,7 @@ pub async fn exchange_auth_code(
     }
 
     // Mark as used
-    queries::auth_codes::mark_used(db, code).await?;
+    repo.auth_codes().mark_used(code).await?;
 
     let scopes: Vec<String> = serde_json::from_str(&auth_code.scopes).unwrap_or_default();
 
@@ -127,7 +128,7 @@ pub async fn exchange_auth_code(
 
 /// Store a refresh token in the database.
 pub async fn store_refresh_token(
-    db: &Db,
+    repo: &dyn Repository,
     user_id: &str,
     app_id: &str,
     token: &str,
@@ -150,20 +151,22 @@ pub async fn store_refresh_token(
         created_at: now,
     };
 
-    queries::refresh_tokens::insert(db, &rt).await?;
+    repo.refresh_tokens().insert(&rt).await?;
     Ok(())
 }
 
 /// Validate and rotate a refresh token.
 pub async fn rotate_refresh_token(
-    db: &Db,
+    repo: &dyn Repository,
     token: &str,
     app_id: &str,
     expiry_days: i64,
 ) -> Result<(String, String, Vec<String>), AppError> {
     let token_hash = hash_token(token);
 
-    let stored = queries::refresh_tokens::find_by_token_hash(db, &token_hash)
+    let stored = repo
+        .refresh_tokens()
+        .find_by_token_hash(&token_hash)
         .await?
         .ok_or(AppError::InvalidToken)?;
 
@@ -181,14 +184,14 @@ pub async fn rotate_refresh_token(
     }
 
     // Revoke old token
-    queries::refresh_tokens::revoke(db, &stored.id).await?;
+    repo.refresh_tokens().revoke(&stored.id).await?;
 
     // Issue new refresh token
     let new_token = generate_refresh_token();
     let scopes: Vec<String> = serde_json::from_str(&stored.scopes).unwrap_or_default();
 
     store_refresh_token(
-        db,
+        repo,
         &stored.user_id,
         app_id,
         &new_token,
@@ -202,14 +205,16 @@ pub async fn rotate_refresh_token(
 }
 
 /// Revoke a refresh token by its raw value.
-pub async fn revoke_refresh_token(db: &Db, token: &str) -> Result<(), AppError> {
+pub async fn revoke_refresh_token(repo: &dyn Repository, token: &str) -> Result<(), AppError> {
     let token_hash = hash_token(token);
 
-    let stored = queries::refresh_tokens::find_by_token_hash(db, &token_hash)
+    let stored = repo
+        .refresh_tokens()
+        .find_by_token_hash(&token_hash)
         .await?
         .ok_or(AppError::InvalidToken)?;
 
-    queries::refresh_tokens::revoke(db, &stored.id).await?;
+    repo.refresh_tokens().revoke(&stored.id).await?;
 
     Ok(())
 }

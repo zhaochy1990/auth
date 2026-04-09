@@ -7,7 +7,6 @@ use crate::auth::oauth2 as oauth2_util;
 use crate::auth::password::{hash_password, validate_password, verify_password};
 use crate::auth::providers;
 use crate::db::models::{Account, User};
-use crate::db::queries;
 use crate::error::AppError;
 use crate::AppState;
 
@@ -69,7 +68,7 @@ pub async fn register(
     validate_password(&req.password)?;
 
     // Check if user with this email already exists
-    let existing = queries::users::find_by_email(&state.db, &req.email).await?;
+    let existing = state.repo.users().find_by_email(&req.email).await?;
 
     if existing.is_some() {
         return Err(AppError::UserAlreadyExists);
@@ -90,7 +89,7 @@ pub async fn register(
         created_at: now,
         updated_at: now,
     };
-    queries::users::insert(&state.db, &user).await?;
+    state.repo.users().insert(&user).await?;
 
     // Create password account
     let password_hash = hash_password(&req.password)?;
@@ -104,7 +103,7 @@ pub async fn register(
         created_at: now,
         updated_at: now,
     };
-    queries::accounts::insert(&state.db, &account).await?;
+    state.repo.accounts().insert(&account).await?;
 
     // Issue tokens
     let scopes = client_app.allowed_scopes.clone();
@@ -115,7 +114,7 @@ pub async fn register(
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(
-        &state.db,
+        self::repo_ref(&state),
         &user_id,
         &client_app.app_id,
         &refresh_token,
@@ -140,7 +139,10 @@ pub async fn login(
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<TokenResponse>, AppError> {
     // Find user by email
-    let user = queries::users::find_by_email(&state.db, &req.email)
+    let user = state
+        .repo
+        .users()
+        .find_by_email(&req.email)
         .await?
         .ok_or(AppError::InvalidCredentials)?;
 
@@ -149,7 +151,10 @@ pub async fn login(
     }
 
     // Find password account
-    let account = queries::accounts::find_by_user_and_provider(&state.db, &user.id, "password")
+    let account = state
+        .repo
+        .accounts()
+        .find_by_user_and_provider(&user.id, "password")
         .await?
         .ok_or(AppError::InvalidCredentials)?;
 
@@ -170,7 +175,7 @@ pub async fn login(
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(
-        &state.db,
+        repo_ref(&state),
         &user.id,
         &client_app.app_id,
         &refresh_token,
@@ -195,13 +200,12 @@ pub async fn provider_login(
     Json(req): Json<ProviderLoginRequest>,
 ) -> Result<Json<TokenResponse>, AppError> {
     // Find provider config for this app
-    let app_provider = queries::app_providers::find_by_app_and_provider(
-        &state.db,
-        &client_app.app_id,
-        &provider_id,
-    )
-    .await?
-    .ok_or(AppError::ProviderNotConfigured)?;
+    let app_provider = state
+        .repo
+        .app_providers()
+        .find_by_app_and_provider(&client_app.app_id, &provider_id)
+        .await?
+        .ok_or(AppError::ProviderNotConfigured)?;
 
     if !app_provider.is_active {
         return Err(AppError::ProviderNotConfigured);
@@ -217,22 +221,24 @@ pub async fn provider_login(
     let now = chrono::Utc::now().naive_utc();
 
     // Check if this provider account already exists
-    let existing_account = queries::accounts::find_by_provider_account(
-        &state.db,
-        &provider_id,
-        &provider_info.provider_account_id,
-    )
-    .await?;
+    let existing_account = state
+        .repo
+        .accounts()
+        .find_by_provider_account(&provider_id, &provider_info.provider_account_id)
+        .await?;
 
     let (user_id, user_role) = if let Some(mut account) = existing_account {
         // Existing user — update metadata
         account.provider_metadata =
             serde_json::to_string(&provider_info.metadata).unwrap_or_default();
         account.updated_at = now;
-        queries::accounts::update(&state.db, &account).await?;
+        state.repo.accounts().update(&account).await?;
 
         // Look up user for role and is_active check
-        let user = queries::users::find_by_id(&state.db, &account.user_id)
+        let user = state
+            .repo
+            .users()
+            .find_by_id(&account.user_id)
             .await?
             .ok_or(AppError::UserNotFound)?;
         if !user.is_active {
@@ -254,7 +260,7 @@ pub async fn provider_login(
             created_at: now,
             updated_at: now,
         };
-        queries::users::insert(&state.db, &user).await?;
+        state.repo.users().insert(&user).await?;
 
         let account = Account {
             id: Uuid::new_v4().to_string(),
@@ -266,7 +272,7 @@ pub async fn provider_login(
             created_at: now,
             updated_at: now,
         };
-        queries::accounts::insert(&state.db, &account).await?;
+        state.repo.accounts().insert(&account).await?;
 
         (user_id, "user".to_string())
     };
@@ -282,7 +288,7 @@ pub async fn provider_login(
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(
-        &state.db,
+        repo_ref(&state),
         &user_id,
         &client_app.app_id,
         &refresh_token,
@@ -306,7 +312,7 @@ pub async fn refresh(
     Json(req): Json<RefreshRequest>,
 ) -> Result<Json<TokenResponse>, AppError> {
     let (user_id, new_refresh_token, scopes) = oauth2_util::rotate_refresh_token(
-        &state.db,
+        repo_ref(&state),
         &req.refresh_token,
         &client_app.app_id,
         state.config.jwt_refresh_token_expiry_days,
@@ -314,7 +320,10 @@ pub async fn refresh(
     .await?;
 
     // Look up user for current role
-    let user = queries::users::find_by_id(&state.db, &user_id)
+    let user = state
+        .repo
+        .users()
+        .find_by_id(&user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
@@ -340,6 +349,11 @@ pub async fn logout(
     State(state): State<AppState>,
     Json(req): Json<LogoutRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    oauth2_util::revoke_refresh_token(&state.db, &req.refresh_token).await?;
+    oauth2_util::revoke_refresh_token(repo_ref(&state), &req.refresh_token).await?;
     Ok(Json(serde_json::json!({"status": "ok"})))
+}
+
+/// Helper to get a `&dyn Repository` from `AppState`.
+fn repo_ref(state: &AppState) -> &dyn crate::db::repository::Repository {
+    state.repo.as_ref()
 }

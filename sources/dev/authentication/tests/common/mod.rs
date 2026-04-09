@@ -1,8 +1,11 @@
 #![allow(dead_code)]
 
+use std::sync::Arc;
+
 use auth_service::auth::jwt::JwtManager;
 use auth_service::config::Config;
-use auth_service::db::queries;
+use auth_service::db::azure_tables::AzureTableRepository;
+use auth_service::db::repository::Repository;
 use auth_service::routes::create_router;
 use auth_service::AppState;
 use axum::body::Body;
@@ -56,6 +59,8 @@ pub struct CreatedApp {
 
 // ─── TestApp ─────────────────────────────────────────────────────────────────
 
+const AZURITE_CONNECTION_STRING: &str = "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1";
+
 pub struct TestApp {
     router: Router,
     pub state: AppState,
@@ -65,11 +70,11 @@ pub struct TestApp {
 
 impl TestApp {
     pub async fn new() -> Self {
-        let database_url = std::env::var("TEST_DATABASE_URL")
-            .expect("TEST_DATABASE_URL must be set for integration tests");
+        let conn_str = std::env::var("TEST_STORAGE_CONNECTION_STRING")
+            .unwrap_or_else(|_| AZURITE_CONNECTION_STRING.to_string());
 
         let config = Config {
-            database_url: database_url.clone(),
+            azure_storage_connection_string: conn_str.clone(),
             jwt_private_key_path: "keys/private.pem".to_string(),
             jwt_public_key_path: "keys/public.pem".to_string(),
             jwt_issuer: "auth-service-test".to_string(),
@@ -80,41 +85,28 @@ impl TestApp {
             cors_allowed_origins: "*".to_string(),
         };
 
-        let db = auth_service::db::pool::connect(&config.database_url)
-            .await
-            .expect("Failed to connect to MSSQL test database");
+        let table_repo = AzureTableRepository::new(&conn_str)
+            .expect("Failed to create AzureTableRepository");
 
-        // Run migrations
-        auth_service::db::migration::run(&db)
+        // Clear and recreate all tables for test isolation
+        table_repo
+            .clear_all_tables()
             .await
-            .expect("Failed to run migrations");
-
-        // Truncate all tables (in FK dependency order)
-        {
-            let mut conn = db
-                .get()
-                .await
-                .expect("Failed to get connection for truncation");
-            // Delete in reverse FK order
-            conn.execute("DELETE FROM refresh_tokens", &[]).await.ok();
-            conn.execute("DELETE FROM authorization_codes", &[])
-                .await
-                .ok();
-            conn.execute("DELETE FROM accounts", &[]).await.ok();
-            conn.execute("DELETE FROM app_providers", &[]).await.ok();
-            conn.execute("DELETE FROM users", &[]).await.ok();
-            conn.execute("DELETE FROM applications", &[]).await.ok();
-        }
+            .expect("Failed to clear tables");
 
         let jwt = JwtManager::new(&config).expect("Failed to init JwtManager");
 
+        let repo: Arc<dyn Repository> = Arc::new(table_repo);
+
         // Bootstrap admin app + admin user via seed
-        auth_service::seed::bootstrap(&db, "test-admin@internal", Some("TestAdmin1!"))
+        auth_service::seed::bootstrap(repo.as_ref(), "test-admin@internal", Some("TestAdmin1!"))
             .await
             .expect("Failed to bootstrap admin");
 
         // Get admin user to issue a token
-        let admin_user = queries::users::find_by_email(&db, "test-admin@internal")
+        let admin_user = repo
+            .users()
+            .find_by_email("test-admin@internal")
             .await
             .unwrap()
             .expect("Admin user not found");
@@ -128,7 +120,7 @@ impl TestApp {
             )
             .expect("Failed to issue admin token");
 
-        let state = AppState { db, jwt, config };
+        let state = AppState { repo, jwt, config };
         let router = create_router(state.clone());
 
         Self {

@@ -5,7 +5,6 @@ use uuid::Uuid;
 use crate::auth::middleware::AuthenticatedUser;
 use crate::auth::providers;
 use crate::db::models::Account;
-use crate::db::queries;
 use crate::error::AppError;
 use crate::AppState;
 
@@ -45,7 +44,10 @@ pub async fn get_profile(
     user: AuthenticatedUser,
     State(state): State<AppState>,
 ) -> Result<Json<UserProfileResponse>, AppError> {
-    let db_user = queries::users::find_by_id(&state.db, &user.user_id)
+    let db_user = state
+        .repo
+        .users()
+        .find_by_id(&user.user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
@@ -64,7 +66,10 @@ pub async fn update_profile(
     State(state): State<AppState>,
     Json(req): Json<UpdateProfileRequest>,
 ) -> Result<Json<UserProfileResponse>, AppError> {
-    let mut db_user = queries::users::find_by_id(&state.db, &user.user_id)
+    let mut db_user = state
+        .repo
+        .users()
+        .find_by_id(&user.user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
@@ -76,7 +81,7 @@ pub async fn update_profile(
     }
     db_user.updated_at = chrono::Utc::now().naive_utc();
 
-    queries::users::update(&state.db, &db_user).await?;
+    state.repo.users().update(&db_user).await?;
 
     Ok(Json(UserProfileResponse {
         id: db_user.id,
@@ -92,7 +97,11 @@ pub async fn list_accounts(
     user: AuthenticatedUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<AccountResponse>>, AppError> {
-    let accounts = queries::accounts::find_all_by_user(&state.db, &user.user_id).await?;
+    let accounts = state
+        .repo
+        .accounts()
+        .find_all_by_user(&user.user_id)
+        .await?;
 
     let responses: Vec<AccountResponse> = accounts
         .into_iter()
@@ -113,23 +122,30 @@ pub async fn link_account(
     Json(req): Json<LinkAccountRequest>,
 ) -> Result<Json<AccountResponse>, AppError> {
     // Check if this provider is already linked
-    let existing =
-        queries::accounts::find_by_user_and_provider(&state.db, &user.user_id, &provider_id)
-            .await?;
+    let existing = state
+        .repo
+        .accounts()
+        .find_by_user_and_provider(&user.user_id, &provider_id)
+        .await?;
 
     if existing.is_some() {
         return Err(AppError::AccountAlreadyLinked);
     }
 
     // Find provider config scoped to the user's current app
-    let app = queries::applications::find_by_client_id(&state.db, &user.client_id)
+    let app = state
+        .repo
+        .applications()
+        .find_by_client_id(&user.client_id)
         .await?
         .ok_or(AppError::ApplicationNotFound)?;
 
-    let app_provider =
-        queries::app_providers::find_by_app_and_provider(&state.db, &app.id, &provider_id)
-            .await?
-            .ok_or(AppError::ProviderNotConfigured)?;
+    let app_provider = state
+        .repo
+        .app_providers()
+        .find_by_app_and_provider(&app.id, &provider_id)
+        .await?
+        .ok_or(AppError::ProviderNotConfigured)?;
 
     let config: serde_json::Value = serde_json::from_str(&app_provider.config).unwrap_or_default();
 
@@ -137,12 +153,11 @@ pub async fn link_account(
     let provider_info = provider.authenticate(&req.credential).await?;
 
     // Check if this provider account is already linked to another user
-    let already_linked = queries::accounts::find_by_provider_account(
-        &state.db,
-        &provider_id,
-        &provider_info.provider_account_id,
-    )
-    .await?;
+    let already_linked = state
+        .repo
+        .accounts()
+        .find_by_provider_account(&provider_id, &provider_info.provider_account_id)
+        .await?;
 
     if already_linked.is_some() {
         return Err(AppError::AccountAlreadyLinked);
@@ -160,7 +175,7 @@ pub async fn link_account(
         updated_at: now,
     };
 
-    queries::accounts::insert(&state.db, &account).await?;
+    state.repo.accounts().insert(&account).await?;
 
     Ok(Json(AccountResponse {
         provider_id,
@@ -175,7 +190,11 @@ pub async fn unlink_account(
     Path(provider_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     // Count user's accounts
-    let accounts = queries::accounts::find_all_by_user(&state.db, &user.user_id).await?;
+    let accounts = state
+        .repo
+        .accounts()
+        .find_all_by_user(&user.user_id)
+        .await?;
 
     if accounts.len() <= 1 {
         return Err(AppError::CannotUnlinkLastAccount);
@@ -186,7 +205,7 @@ pub async fn unlink_account(
         .find(|a| a.provider_id == provider_id)
         .ok_or(AppError::BadRequest("Account not linked".to_string()))?;
 
-    queries::accounts::delete_by_id(&state.db, &account.id).await?;
+    state.repo.accounts().delete_by_id(&account.id).await?;
 
     Ok(Json(serde_json::json!({"status": "unlinked"})))
 }

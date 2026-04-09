@@ -1,6 +1,8 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use auth_service::config::Config;
+use auth_service::db::azure_tables::AzureTableRepository;
 use auth_service::AppState;
 
 #[tokio::main]
@@ -24,20 +26,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(
         host = %config.server_host,
         port = %config.server_port,
-        jwt_private_key = %config.jwt_private_key_path,
-        jwt_public_key = %config.jwt_public_key_path,
         "Configuration loaded"
     );
 
-    // Connect to database
-    tracing::info!("Connecting to database...");
-    let db = auth_service::db::pool::connect(&config.database_url).await?;
-    tracing::info!("Connected to database");
+    // Connect to Azure Table Storage
+    let conn_str = &config.azure_storage_connection_string;
+    tracing::info!("Connecting to Azure Table Storage...");
+    let table_repo = AzureTableRepository::new(conn_str)?;
+    table_repo.ensure_tables().await?;
+    tracing::info!("Azure Table Storage ready");
 
-    // Run migrations
-    tracing::info!("Running migrations...");
-    auth_service::db::migration::run(&db).await?;
-    tracing::info!("Migrations applied");
+    let repo = Arc::new(table_repo);
 
     // Check for seed subcommand: cargo run -- seed <email> <password>
     let args: Vec<String> = std::env::args().collect();
@@ -50,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("=== Auth Service Bootstrap ===\n");
 
-        let result = auth_service::seed::bootstrap(&db, email, password).await?;
+        let result = auth_service::seed::bootstrap(repo.as_ref(), email, password).await?;
 
         println!("  Client ID: {}", result.app_client_id);
         if let Some(ref secret) = result.app_client_secret {
@@ -86,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build app state
     let state = AppState {
-        db,
+        repo,
         jwt,
         config: config.clone(),
     };

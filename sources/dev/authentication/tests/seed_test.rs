@@ -10,7 +10,7 @@ use serial_test::serial;
 async fn seed_creates_app_and_user() {
     let app = common::TestApp::new().await;
 
-    let result = bootstrap(&app.state.db, "admin@seed-test.com", Some("StrongPass1!"))
+    let result = bootstrap(app.state.repo.as_ref(), "admin@seed-test.com", Some("StrongPass1!"))
         .await
         .expect("seed failed");
 
@@ -19,25 +19,28 @@ async fn seed_creates_app_and_user() {
     assert_eq!(result.user_action, "created");
 
     // Verify user in DB
-    let user =
-        auth_service::db::queries::users::find_by_email(&app.state.db, "admin@seed-test.com")
-            .await
-            .unwrap()
-            .expect("user not found");
+    let user = app
+        .state
+        .repo
+        .users()
+        .find_by_email("admin@seed-test.com")
+        .await
+        .unwrap()
+        .expect("user not found");
 
     assert_eq!(user.role, "admin");
     assert!(user.is_active);
     assert!(user.email_verified);
 
     // Verify password account
-    let account = auth_service::db::queries::accounts::find_by_user_and_provider(
-        &app.state.db,
-        &user.id,
-        "password",
-    )
-    .await
-    .unwrap()
-    .expect("account not found");
+    let account = app
+        .state
+        .repo
+        .accounts()
+        .find_by_user_and_provider(&user.id, "password")
+        .await
+        .unwrap()
+        .expect("account not found");
 
     assert!(account.credential.is_some());
 }
@@ -49,7 +52,7 @@ async fn seed_creates_app_and_user() {
 async fn seed_requires_password_for_new_user() {
     let app = common::TestApp::new().await;
 
-    let result = bootstrap(&app.state.db, "nopass@seed-test.com", None).await;
+    let result = bootstrap(app.state.repo.as_ref(), "nopass@seed-test.com", None).await;
     assert!(result.is_err());
 
     let err = result.unwrap_err().to_string();
@@ -65,7 +68,7 @@ async fn seed_is_idempotent() {
 
     // TestApp::new() already bootstrapped "test-admin@internal"
     // Running again with same email should get "already_admin"
-    let r2 = bootstrap(&app.state.db, "test-admin@internal", None)
+    let r2 = bootstrap(app.state.repo.as_ref(), "test-admin@internal", None)
         .await
         .expect("second seed failed");
 
@@ -89,26 +92,32 @@ async fn seed_promotes_existing_user() {
         .await;
 
     // Verify user is "user" role
-    let user =
-        auth_service::db::queries::users::find_by_email(&app.state.db, "regular@seed-test.com")
-            .await
-            .unwrap()
-            .expect("user not found");
+    let user = app
+        .state
+        .repo
+        .users()
+        .find_by_email("regular@seed-test.com")
+        .await
+        .unwrap()
+        .expect("user not found");
     assert_eq!(user.role, "user");
 
     // Seed with same email — should promote, not create
-    let result = bootstrap(&app.state.db, "regular@seed-test.com", None)
+    let result = bootstrap(app.state.repo.as_ref(), "regular@seed-test.com", None)
         .await
         .expect("seed failed");
 
     assert_eq!(result.user_action, "promoted");
 
     // Verify role changed
-    let user =
-        auth_service::db::queries::users::find_by_email(&app.state.db, "regular@seed-test.com")
-            .await
-            .unwrap()
-            .expect("user not found");
+    let user = app
+        .state
+        .repo
+        .users()
+        .find_by_email("regular@seed-test.com")
+        .await
+        .unwrap()
+        .expect("user not found");
     assert_eq!(user.role, "admin");
 }
 
@@ -120,7 +129,7 @@ async fn seeded_admin_can_login() {
     let app = common::TestApp::new().await;
 
     let result = bootstrap(
-        &app.state.db,
+        app.state.repo.as_ref(),
         "seed-admin@seed-test.com",
         Some("SeedPass1!"),
     )

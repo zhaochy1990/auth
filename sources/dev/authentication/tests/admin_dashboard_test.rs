@@ -14,17 +14,19 @@ async fn create_admin_user_and_login(app: &TestApp, client_id: &str) -> String {
         .await;
     resp.assert_status(StatusCode::OK);
 
-    // Promote to admin via db queries
-    let mut user = auth_service::db::queries::users::find_by_email(&app.state.db, "admin@test.com")
+    // Promote to admin via repository
+    let mut user = app
+        .state
+        .repo
+        .users()
+        .find_by_email("admin@test.com")
         .await
         .unwrap()
         .unwrap();
 
     user.role = "admin".to_string();
     user.updated_at = chrono::Utc::now().naive_utc();
-    auth_service::db::queries::users::update(&app.state.db, &user)
-        .await
-        .unwrap();
+    app.state.repo.users().update(&user).await.unwrap();
 
     // Login again to get a token with admin role
     let resp = app
@@ -162,18 +164,19 @@ async fn disabled_user_cannot_login() {
         .await
         .assert_status(StatusCode::OK);
 
-    // Disable user via db queries
-    let mut user =
-        auth_service::db::queries::users::find_by_email(&app.state.db, "disabled@test.com")
-            .await
-            .unwrap()
-            .unwrap();
+    // Disable user via repository
+    let mut user = app
+        .state
+        .repo
+        .users()
+        .find_by_email("disabled@test.com")
+        .await
+        .unwrap()
+        .unwrap();
 
     user.is_active = false;
     user.updated_at = chrono::Utc::now().naive_utc();
-    auth_service::db::queries::users::update(&app.state.db, &user)
-        .await
-        .unwrap();
+    app.state.repo.users().update(&user).await.unwrap();
 
     // Login should fail
     let resp = app

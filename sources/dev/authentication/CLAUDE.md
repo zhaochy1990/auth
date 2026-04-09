@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Rust authentication/authorization microservice using Axum 0.7, Tiberius (MSSQL), and bb8 connection pool. Implements OAuth2 with JWT (RS256), pluggable auth providers, and PKCE support.
+Rust authentication/authorization microservice using Axum 0.7 and Azure Table Storage. Implements OAuth2 with JWT (RS256), pluggable auth providers, and PKCE support.
 
 ## Build, Test, Lint
 
 ```bash
 cargo build                                            # Debug build
-cargo test --features test-providers -- --test-threads=1  # Run all tests (85 tests, serial)
+cargo test --features test-providers -- --test-threads=1  # Run all tests (serial)
 cargo test --features test-providers --test admin_test -- --test-threads=1  # Run one test file
 cargo test --features test-providers -- test_name --test-threads=1         # Run a single test
 cargo clippy                                           # Lint
@@ -20,27 +20,39 @@ cargo fmt                                              # Auto-format
 
 The `test-providers` feature flag enables the `"test"` auth provider used by integration tests. Always include it when running tests.
 
-Tests require a `TEST_DATABASE_URL` environment variable pointing to an MSSQL database:
+Tests require Azurite (Azure Storage emulator) running locally on port 10002. Start with Docker:
 ```bash
-export TEST_DATABASE_URL="Server=localhost,1433;User Id=sa;Password=YourPassword;Database=auth_test;TrustServerCertificate=true"
+docker run -p 10002:10002 mcr.microsoft.com/azure-storage/azurite azurite-table --tableHost 0.0.0.0
 ```
+
+Or use docker-compose:
+```bash
+docker compose up azurite
+```
+
+Optionally set `TEST_STORAGE_CONNECTION_STRING` if not using default Azurite endpoint.
 
 ## Architecture
 
-**Single crate** (`src/`): Handlers, auth logic, routing, config, database layer.
+**Single crate** (`src/`): Handlers, auth logic, routing, config, storage layer.
 
 **Request flow:**
 ```
-HTTP Request → Routes (routes.rs) → Axum Extractors (auth/middleware.rs) → Handlers (handlers/) → db::queries → MSSQL
+HTTP Request → Routes (routes.rs) → Axum Extractors (auth/middleware.rs) → Handlers (handlers/) → Repository trait → Azure Table Storage
 ```
 
-**Database layer** (`src/db/`):
-- `pool.rs` — bb8 connection pool with Tiberius (`Db` type alias)
-- `models.rs` — Plain Rust structs for all 6 tables
-- `migration.rs` — Runs `sql/schema.sql` at startup via `include_str!`
-- `queries/` — 6 modules with parameterized query functions (applications, users, accounts, app_providers, auth_codes, refresh_tokens)
+**Storage layer** (`src/db/`):
+- `repository.rs` — Trait-based storage abstraction (6 sub-traits + composite `Repository` trait)
+- `azure_tables.rs` — Azure Table Storage implementation with index rows for secondary lookups
+- `models.rs` — Plain Rust structs for all 6 entity types
 
-**Schema** (`sql/schema.sql`): Idempotent MSSQL DDL with `IF OBJECT_ID(...) IS NULL` guards.
+**Azure Table Storage tables** (prefixed `auth` for shared storage account):
+- `authapplications` — OAuth2 applications with client_id and name indexes
+- `authusers` — Users with email index
+- `authaccounts` — User-provider account links with provider-account and ID indexes
+- `authappproviders` — Provider configurations per app with ID index
+- `authauthcodes` — OAuth2 authorization codes
+- `authrefreshtokens` — Refresh tokens with token hash index
 
 **Pluggable Auth Providers:** The `AuthProvider` trait (`auth/providers/mod.rs`) defines the interface for authentication methods. `create_provider()` is the factory function. Current providers: password, wechat, test (feature-gated). Add new providers by implementing the trait and adding a match arm in the factory.
 
@@ -65,10 +77,10 @@ HTTP Request → Routes (routes.rs) → Axum Extractors (auth/middleware.rs) →
 ## Testing Architecture
 
 - Integration tests use `tower::ServiceExt::oneshot` (in-process, no HTTP server)
-- Tests connect to a real MSSQL database (set via `TEST_DATABASE_URL`)
-- Each `TestApp::new()` truncates all tables (DELETE FROM in FK dependency order) for isolation
+- Tests connect to Azurite (Azure Storage emulator) for Azure Table Storage
+- Each `TestApp::new()` clears and recreates all tables for isolation
 - All tests use `#[serial]` from `serial_test` crate and run with `--test-threads=1`
-- `TestApp::new()` constructs Config from `TEST_DATABASE_URL`, then bootstraps an admin user + app via `seed::bootstrap()`
+- `TestApp::new()` bootstraps an admin user + app via `seed::bootstrap()`
 - `TestApp.admin_token` provides a pre-issued Bearer token with admin role for admin API calls in tests
 - JWT keys are read from `keys/` relative to project root
 - Test helpers live in `tests/common/mod.rs` (TestApp, TestResponse)
@@ -77,19 +89,19 @@ HTTP Request → Routes (routes.rs) → Axum Extractors (auth/middleware.rs) →
 
 - Route path parameters use `:param` syntax (axum 0.7.x canonical form)
 - `AppState` lives in `lib.rs` and implements `AsRef<AppState>` for extractor compatibility
-- `AppState.db` is `db::pool::Db` (a `bb8::Pool<bb8_tiberius::ConnectionManager>`)
+- `AppState.repo` is `Arc<dyn Repository>` — all storage access goes through the trait abstraction
 - JWT `verify_access_token` sets `validate_aud = false` (jsonwebtoken 9.3 requires this when no expected audience is configured)
 - The `test-providers` Cargo feature gates `src/auth/providers/test_provider.rs` and the `"test"` arm in `create_provider()`
-- MSSQL connection strings use ADO.NET format: `Server=host,port;User Id=...;Password=...;Database=...`
+- Azure Storage connection strings use standard format: `DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net`
 
 ## Admin Bootstrap
 
 Admin access uses the standard JWT authentication flow (Bearer token with `role: "admin"` in claims). There is no static API key.
 
-**Bootstrapping the first admin** uses the `seed` CLI command, which directly inserts into the database:
+**Bootstrapping the first admin** uses the `seed` CLI command:
 
 ```bash
-cargo run -- seed admin@example.com MyPassword1!
+AZURE_STORAGE_CONNECTION_STRING="..." cargo run -- seed admin@example.com MyPassword1!
 ```
 
 This creates:
@@ -105,7 +117,7 @@ The command is idempotent — re-running with the same email promotes an existin
 
 | Variable | Required | Default |
 |----------|----------|---------|
-| `DATABASE_URL` | Yes | - |
+| `AZURE_STORAGE_CONNECTION_STRING` | Yes | - |
 | `JWT_PRIVATE_KEY_PATH` | No | `keys/private.pem` |
 | `JWT_PUBLIC_KEY_PATH` | No | `keys/public.pem` |
 | `JWT_ISSUER` | No | `auth-service` |
@@ -113,4 +125,4 @@ The command is idempotent — re-running with the same email promotes an existin
 | `JWT_REFRESH_TOKEN_EXPIRY_DAYS` | No | `30` |
 | `SERVER_HOST` | No | `127.0.0.1` |
 | `SERVER_PORT` | No | `3000` |
-| `CORS_ALLOWED_ORIGINS` | No | `*` |
+| `CORS_ALLOWED_ORIGINS` | No | `http://localhost:5173,http://localhost:3000` |

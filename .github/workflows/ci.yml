@@ -82,17 +82,14 @@ jobs:
         working-directory: sources/dev/authentication
 
     services:
-      mssql:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: Y
-          MSSQL_SA_PASSWORD: TestPassword1!
+      azurite:
+        image: mcr.microsoft.com/azure-storage/azurite
         ports:
-          - 1433:1433
+          - 10002:10002
         options: >-
-          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P TestPassword1! -C -Q 'SELECT 1'"
-          --health-interval 10s
-          --health-timeout 5s
+          --health-cmd "nc -z 127.0.0.1 10002"
+          --health-interval 5s
+          --health-timeout 3s
           --health-retries 10
 
     steps:
@@ -104,11 +101,6 @@ jobs:
         with:
           workspaces: sources/dev/authentication
 
-      - name: Create test database
-        run: |
-          CID=$(docker ps --filter "ancestor=mcr.microsoft.com/mssql/server:2022-latest" -q)
-          docker exec "$CID" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P TestPassword1! -C -Q "CREATE DATABASE auth_test"
-
       - name: Generate ephemeral JWT keys
         run: |
           mkdir -p keys
@@ -117,7 +109,7 @@ jobs:
 
       - name: Run tests
         env:
-          TEST_DATABASE_URL: "Server=localhost,1433;User Id=sa;Password=TestPassword1!;Database=auth_test;TrustServerCertificate=true"
+          TEST_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1"
         run: cargo test --features test-providers -- --test-threads=1
 
   backend-docker:

@@ -1,6 +1,5 @@
 use crate::db::models::{Account, AppProvider, Application, User};
-use crate::db::pool::Db;
-use crate::db::queries;
+use crate::db::repository::Repository;
 use crate::error::AppError;
 
 /// Result of a bootstrap/seed operation.
@@ -19,12 +18,12 @@ pub struct SeedResult {
 /// - Creates or promotes the admin user.
 /// - `admin_password` is required when the user doesn't exist yet.
 pub async fn bootstrap(
-    db: &Db,
+    repo: &dyn Repository,
     admin_email: &str,
     admin_password: Option<&str>,
 ) -> Result<SeedResult, Box<dyn std::error::Error>> {
     // 1. Create or find Admin Dashboard application
-    let existing_app = queries::applications::find_by_name(db, "Admin Dashboard").await?;
+    let existing_app = repo.applications().find_by_name("Admin Dashboard").await?;
 
     let (app_client_id, app_client_secret) = if let Some(app) = existing_app {
         (app.client_id, None)
@@ -59,7 +58,7 @@ pub async fn bootstrap(
             created_at: now,
             updated_at: now,
         };
-        queries::applications::insert(db, &app).await?;
+        repo.applications().insert(&app).await?;
 
         // Add password provider to the app
         let provider = AppProvider {
@@ -70,13 +69,13 @@ pub async fn bootstrap(
             is_active: true,
             created_at: now,
         };
-        queries::app_providers::insert(db, &provider).await?;
+        repo.app_providers().insert(&provider).await?;
 
         (client_id, Some(client_secret))
     };
 
     // 2. Create or promote admin user
-    let existing_user = queries::users::find_by_email(db, admin_email).await?;
+    let existing_user = repo.users().find_by_email(admin_email).await?;
 
     let user_action = if let Some(mut user) = existing_user {
         if user.role == "admin" {
@@ -84,7 +83,7 @@ pub async fn bootstrap(
         } else {
             user.role = "admin".to_string();
             user.updated_at = chrono::Utc::now().naive_utc();
-            queries::users::update(db, &user).await?;
+            repo.users().update(&user).await?;
             "promoted".to_string()
         }
     } else {
@@ -110,7 +109,7 @@ pub async fn bootstrap(
             created_at: now,
             updated_at: now,
         };
-        queries::users::insert(db, &user).await?;
+        repo.users().insert(&user).await?;
 
         let account = Account {
             id: uuid::Uuid::new_v4().to_string(),
@@ -122,7 +121,7 @@ pub async fn bootstrap(
             created_at: now,
             updated_at: now,
         };
-        queries::accounts::insert(db, &account).await?;
+        repo.accounts().insert(&account).await?;
 
         "created".to_string()
     };

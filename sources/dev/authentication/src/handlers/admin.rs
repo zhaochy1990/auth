@@ -8,7 +8,6 @@ use uuid::Uuid;
 use crate::auth::middleware::AdminAuth;
 use crate::auth::password::{hash_client_secret, hash_password, validate_password};
 use crate::db::models::{Account, AppProvider, Application, User};
-use crate::db::queries;
 use crate::error::AppError;
 use crate::AppState;
 
@@ -167,7 +166,7 @@ pub async fn create_application(
         updated_at: now,
     };
 
-    queries::applications::insert(&state.db, &app).await?;
+    state.repo.applications().insert(&app).await?;
 
     Ok(Json(CreateApplicationResponse {
         id,
@@ -183,7 +182,7 @@ pub async fn list_applications(
     _admin: AdminAuth,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ApplicationResponse>>, AppError> {
-    let apps = queries::applications::find_all(&state.db).await?;
+    let apps = state.repo.applications().find_all().await?;
 
     let responses: Vec<ApplicationResponse> = apps
         .into_iter()
@@ -207,7 +206,10 @@ pub async fn update_application(
     Path(id): Path<String>,
     Json(req): Json<UpdateApplicationRequest>,
 ) -> Result<Json<ApplicationResponse>, AppError> {
-    let mut app = queries::applications::find_by_id(&state.db, &id)
+    let mut app = state
+        .repo
+        .applications()
+        .find_by_id(&id)
         .await?
         .ok_or(AppError::ApplicationNotFound)?;
 
@@ -225,7 +227,7 @@ pub async fn update_application(
     }
     app.updated_at = chrono::Utc::now().naive_utc();
 
-    queries::applications::update(&state.db, &app).await?;
+    state.repo.applications().update(&app).await?;
 
     Ok(Json(ApplicationResponse {
         id: app.id,
@@ -245,14 +247,19 @@ pub async fn add_provider(
     Json(req): Json<AddProviderRequest>,
 ) -> Result<Json<ProviderResponse>, AppError> {
     // Verify application exists
-    queries::applications::find_by_id(&state.db, &app_id)
+    state
+        .repo
+        .applications()
+        .find_by_id(&app_id)
         .await?
         .ok_or(AppError::ApplicationNotFound)?;
 
     // Check if provider already exists for this app
-    let existing =
-        queries::app_providers::find_by_app_and_provider(&state.db, &app_id, &req.provider_id)
-            .await?;
+    let existing = state
+        .repo
+        .app_providers()
+        .find_by_app_and_provider(&app_id, &req.provider_id)
+        .await?;
 
     if existing.is_some() {
         return Err(AppError::BadRequest(
@@ -272,7 +279,7 @@ pub async fn add_provider(
         created_at: now,
     };
 
-    queries::app_providers::insert(&state.db, &ap).await?;
+    state.repo.app_providers().insert(&ap).await?;
 
     Ok(Json(ProviderResponse {
         id,
@@ -288,12 +295,18 @@ pub async fn remove_provider(
     State(state): State<AppState>,
     Path((app_id, provider_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let provider =
-        queries::app_providers::find_by_app_and_provider(&state.db, &app_id, &provider_id)
-            .await?
-            .ok_or(AppError::ProviderNotConfigured)?;
+    let provider = state
+        .repo
+        .app_providers()
+        .find_by_app_and_provider(&app_id, &provider_id)
+        .await?
+        .ok_or(AppError::ProviderNotConfigured)?;
 
-    queries::app_providers::delete_by_id(&state.db, &provider.id).await?;
+    state
+        .repo
+        .app_providers()
+        .delete_by_id(&provider.id)
+        .await?;
 
     Ok(Json(serde_json::json!({"status": "deleted"})))
 }
@@ -303,7 +316,10 @@ pub async fn rotate_secret(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<RotateSecretResponse>, AppError> {
-    let mut app = queries::applications::find_by_id(&state.db, &id)
+    let mut app = state
+        .repo
+        .applications()
+        .find_by_id(&id)
         .await?
         .ok_or(AppError::ApplicationNotFound)?;
 
@@ -312,7 +328,7 @@ pub async fn rotate_secret(
 
     app.client_secret_hash = new_hash;
     app.updated_at = chrono::Utc::now().naive_utc();
-    queries::applications::update(&state.db, &app).await?;
+    state.repo.applications().update(&app).await?;
 
     Ok(Json(RotateSecretResponse {
         client_id: app.client_id,
@@ -326,11 +342,14 @@ pub async fn list_providers(
     Path(app_id): Path<String>,
 ) -> Result<Json<Vec<ProviderResponse>>, AppError> {
     // Verify application exists
-    queries::applications::find_by_id(&state.db, &app_id)
+    state
+        .repo
+        .applications()
+        .find_by_id(&app_id)
         .await?
         .ok_or(AppError::ApplicationNotFound)?;
 
-    let providers = queries::app_providers::find_all_by_app(&state.db, &app_id).await?;
+    let providers = state.repo.app_providers().find_all_by_app(&app_id).await?;
 
     let responses = providers
         .into_iter()
@@ -355,9 +374,11 @@ pub async fn list_users(
     let per_page = query.per_page.unwrap_or(20).min(100);
     let offset = (page - 1) * per_page;
 
-    let (users, total) =
-        queries::users::list_paginated(&state.db, query.search.as_deref(), offset, per_page)
-            .await?;
+    let (users, total) = state
+        .repo
+        .users()
+        .list_paginated(query.search.as_deref(), offset, per_page)
+        .await?;
 
     let responses = users
         .into_iter()
@@ -387,7 +408,10 @@ pub async fn get_user(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<UserResponse>, AppError> {
-    let user = queries::users::find_by_id(&state.db, &id)
+    let user = state
+        .repo
+        .users()
+        .find_by_id(&id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
@@ -410,11 +434,14 @@ pub async fn get_user_accounts(
     Path(user_id): Path<String>,
 ) -> Result<Json<Vec<UserAccountResponse>>, AppError> {
     // Verify user exists
-    queries::users::find_by_id(&state.db, &user_id)
+    state
+        .repo
+        .users()
+        .find_by_id(&user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
-    let accounts = queries::accounts::find_all_by_user(&state.db, &user_id).await?;
+    let accounts = state.repo.accounts().find_all_by_user(&user_id).await?;
 
     let responses = accounts
         .into_iter()
@@ -443,7 +470,7 @@ pub async fn create_user(
         ));
     }
 
-    let existing = queries::users::find_by_email(&state.db, &req.email).await?;
+    let existing = state.repo.users().find_by_email(&req.email).await?;
     if existing.is_some() {
         return Err(AppError::UserAlreadyExists);
     }
@@ -462,7 +489,7 @@ pub async fn create_user(
         created_at: now,
         updated_at: now,
     };
-    queries::users::insert(&state.db, &user).await?;
+    state.repo.users().insert(&user).await?;
 
     let password_hash = hash_password(&req.password)?;
     let account = Account {
@@ -475,7 +502,7 @@ pub async fn create_user(
         created_at: now,
         updated_at: now,
     };
-    queries::accounts::insert(&state.db, &account).await?;
+    state.repo.accounts().insert(&account).await?;
 
     Ok(Json(UserResponse {
         id: user.id,
@@ -496,7 +523,10 @@ pub async fn update_user(
     Path(id): Path<String>,
     Json(req): Json<UpdateUserRequest>,
 ) -> Result<Json<UserResponse>, AppError> {
-    let mut user = queries::users::find_by_id(&state.db, &id)
+    let mut user = state
+        .repo
+        .users()
+        .find_by_id(&id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
@@ -516,7 +546,7 @@ pub async fn update_user(
     }
     user.updated_at = chrono::Utc::now().naive_utc();
 
-    queries::users::update(&state.db, &user).await?;
+    state.repo.users().update(&user).await?;
 
     Ok(Json(UserResponse {
         id: user.id,
@@ -537,22 +567,28 @@ pub async fn admin_unlink_account(
     Path((user_id, provider_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     // Verify user exists
-    queries::users::find_by_id(&state.db, &user_id)
+    state
+        .repo
+        .users()
+        .find_by_id(&user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
-    let account = queries::accounts::find_by_user_and_provider(&state.db, &user_id, &provider_id)
+    let account = state
+        .repo
+        .accounts()
+        .find_by_user_and_provider(&user_id, &provider_id)
         .await?
         .ok_or(AppError::BadRequest("Account not linked".to_string()))?;
 
     // Don't allow unlinking the last account
-    let count = queries::accounts::count_by_user(&state.db, &user_id).await?;
+    let count = state.repo.accounts().count_by_user(&user_id).await?;
 
     if count <= 1 {
         return Err(AppError::CannotUnlinkLastAccount);
     }
 
-    queries::accounts::delete_by_id(&state.db, &account.id).await?;
+    state.repo.accounts().delete_by_id(&account.id).await?;
 
     Ok(Json(serde_json::json!({"status": "unlinked"})))
 }
@@ -561,14 +597,14 @@ pub async fn stats(
     _admin: AdminAuth,
     State(state): State<AppState>,
 ) -> Result<Json<StatsResponse>, AppError> {
-    let total_apps = queries::applications::count_all(&state.db).await?;
-    let active_apps = queries::applications::count_active(&state.db).await?;
+    let total_apps = state.repo.applications().count_all().await?;
+    let active_apps = state.repo.applications().count_active().await?;
 
-    let total_users = queries::users::count_all(&state.db).await?;
+    let total_users = state.repo.users().count_all().await?;
 
     // Recent users: registered in last 7 days
     let seven_days_ago = (chrono::Utc::now() - chrono::Duration::days(7)).naive_utc();
-    let recent_users = queries::users::count_since(&state.db, seven_days_ago).await?;
+    let recent_users = state.repo.users().count_since(seven_days_ago).await?;
 
     Ok(Json(StatsResponse {
         applications: AppStats {

@@ -279,7 +279,7 @@ async fn authorization_code_grant() {
     // Store an auth code directly
     let code = oauth2_util::generate_auth_code();
     oauth2_util::store_auth_code(
-        &app.state.db,
+        app.state.repo.as_ref(),
         &code,
         &created.id,
         &user_id,
@@ -328,7 +328,7 @@ async fn authorization_code_with_pkce() {
 
     let code = oauth2_util::generate_auth_code();
     oauth2_util::store_auth_code(
-        &app.state.db,
+        app.state.repo.as_ref(),
         &code,
         &created.id,
         &user_id,
@@ -368,7 +368,7 @@ async fn authorization_code_pkce_mismatch() {
 
     let code = oauth2_util::generate_auth_code();
     oauth2_util::store_auth_code(
-        &app.state.db,
+        app.state.repo.as_ref(),
         &code,
         &created.id,
         &user_id,
@@ -408,7 +408,7 @@ async fn authorization_code_already_used() {
 
     let code = oauth2_util::generate_auth_code();
     oauth2_util::store_auth_code(
-        &app.state.db,
+        app.state.repo.as_ref(),
         &code,
         &created.id,
         &user_id,
@@ -457,7 +457,7 @@ async fn authorization_code_wrong_redirect_uri() {
 
     let code = oauth2_util::generate_auth_code();
     oauth2_util::store_auth_code(
-        &app.state.db,
+        app.state.repo.as_ref(),
         &code,
         &created.id,
         &user_id,

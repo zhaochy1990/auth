@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::auth::middleware::AuthenticatedApp;
 use crate::auth::oauth2 as oauth2_util;
 use crate::auth::password::verify_password;
-use crate::db::queries;
+use crate::db::repository::Repository;
 use crate::error::AppError;
 use crate::AppState;
 
@@ -93,7 +93,7 @@ async fn handle_authorization_code(
     ))?;
 
     let (user_id, scopes) = oauth2_util::exchange_auth_code(
-        &state.db,
+        repo_ref(state),
         code,
         &auth_app.app_id,
         redirect_uri,
@@ -102,7 +102,10 @@ async fn handle_authorization_code(
     .await?;
 
     // Look up user for role
-    let user = queries::users::find_by_id(&state.db, &user_id)
+    let user = state
+        .repo
+        .users()
+        .find_by_id(&user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
@@ -117,7 +120,7 @@ async fn handle_authorization_code(
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(
-        &state.db,
+        repo_ref(state),
         &user_id,
         &auth_app.app_id,
         &refresh_token,
@@ -161,7 +164,7 @@ async fn handle_refresh_token(
     ))?;
 
     let (user_id, new_refresh_token, scopes) = oauth2_util::rotate_refresh_token(
-        &state.db,
+        repo_ref(state),
         refresh_token_str,
         &auth_app.app_id,
         state.config.jwt_refresh_token_expiry_days,
@@ -169,7 +172,10 @@ async fn handle_refresh_token(
     .await?;
 
     // Look up user for role
-    let user = queries::users::find_by_id(&state.db, &user_id)
+    let user = state
+        .repo
+        .users()
+        .find_by_id(&user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
@@ -204,12 +210,18 @@ async fn handle_password_grant(
     ))?;
 
     // Find user by email
-    let user = queries::users::find_by_email(&state.db, username)
+    let user = state
+        .repo
+        .users()
+        .find_by_email(username)
         .await?
         .ok_or(AppError::InvalidCredentials)?;
 
     // Find password account
-    let account = queries::accounts::find_by_user_and_provider(&state.db, &user.id, "password")
+    let account = state
+        .repo
+        .accounts()
+        .find_by_user_and_provider(&user.id, "password")
         .await?
         .ok_or(AppError::InvalidCredentials)?;
 
@@ -219,7 +231,10 @@ async fn handle_password_grant(
     }
 
     // Determine scopes
-    let app = queries::applications::find_by_id(&state.db, &auth_app.app_id)
+    let app = state
+        .repo
+        .applications()
+        .find_by_id(&auth_app.app_id)
         .await?
         .ok_or(AppError::ApplicationNotFound)?;
 
@@ -247,7 +262,7 @@ async fn handle_password_grant(
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(
-        &state.db,
+        repo_ref(state),
         &user.id,
         &auth_app.app_id,
         &refresh_token,
@@ -272,7 +287,7 @@ pub async fn revoke(
     Json(req): Json<RevokeRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     // Try to revoke as refresh token
-    let _ = oauth2_util::revoke_refresh_token(&state.db, &req.token).await;
+    let _ = oauth2_util::revoke_refresh_token(repo_ref(&state), &req.token).await;
     // Per RFC 7009, always return 200
     Ok(Json(serde_json::json!({})))
 }
@@ -299,4 +314,9 @@ pub async fn introspect(
             scope: None,
         })),
     }
+}
+
+/// Helper to get a `&dyn Repository` from `AppState`.
+fn repo_ref(state: &AppState) -> &dyn Repository {
+    state.repo.as_ref()
 }

@@ -7,13 +7,14 @@ pub mod rate_limit;
 pub mod routes;
 pub mod seed;
 
-use db::pool::Db;
+use std::sync::Arc;
 
 use config::Config;
+use db::repository::Repository;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub db: Db,
+    pub repo: Arc<dyn Repository>,
     pub jwt: auth::jwt::JwtManager,
     pub config: Config,
 }

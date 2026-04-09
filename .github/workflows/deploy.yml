@@ -104,9 +104,6 @@ jobs:
         working-directory: sources/dev/admin-dashboard
         run: npm ci
 
-      - name: Copy SWA config
-        run: cp infra/staticwebapp.config.json sources/dev/admin-dashboard/public/staticwebapp.config.json
-
       - name: Determine version
         id: version
         run: |

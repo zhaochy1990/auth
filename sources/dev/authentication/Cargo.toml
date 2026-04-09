@@ -10,11 +10,11 @@ tokio = { version = "1", features = ["full"] }
 tower = { version = "0.4", features = ["limit"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
-# Database (MSSQL via Tiberius)
-tiberius = { version = "0.12", default-features = false, features = ["tds73", "chrono", "rustls"] }
-bb8 = "0.8"
-bb8-tiberius = "0.15"
-tokio-util = { version = "0.7", features = ["compat"] }
+# Azure Table Storage
+azure_data_tables = "0.21"
+azure_storage = "0.21"
+azure_core = "0.21"
+futures = "0.3"
 
 # Auth
 jsonwebtoken = "9"

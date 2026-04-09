@@ -1,4 +1,3 @@
-pub mod migration;
+pub mod azure_tables;
 pub mod models;
-pub mod pool;
-pub mod queries;
+pub mod repository;
