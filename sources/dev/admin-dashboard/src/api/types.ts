@@ -103,6 +103,17 @@ export interface UserAccount {
   created_at: string;
 }
 
+// Invite Codes
+export interface InviteCode {
+  id: string;
+  code: string;
+  created_by: string;
+  created_at: string;
+  used_at: string | null;
+  used_by: string | null;
+  is_revoked: boolean;
+}
+
 // Stats
 export interface Stats {
   applications: {

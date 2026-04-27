@@ -13,6 +13,7 @@ import type {
   UpdateUserRequest,
   UserAccount,
   Stats,
+  InviteCode,
 } from './types';
 
 // Applications
@@ -60,3 +61,13 @@ export const adminUnlinkAccount = (userId: string, providerId: string) =>
 // Stats
 export const getStats = () =>
   client.get<Stats>('/admin/stats').then((r) => r.data);
+
+// Invite Codes
+export const listInviteCodes = () =>
+  client.get<InviteCode[]>('/admin/invite-codes').then((r) => r.data);
+
+export const createInviteCode = () =>
+  client.post<InviteCode>('/admin/invite-codes').then((r) => r.data);
+
+export const revokeInviteCode = (code: string) =>
+  client.delete(`/admin/invite-codes/${code}`).then((r) => r.data);

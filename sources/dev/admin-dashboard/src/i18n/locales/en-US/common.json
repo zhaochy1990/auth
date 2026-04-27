@@ -3,7 +3,8 @@
   "sidebar": {
     "dashboard": "Dashboard",
     "applications": "Applications",
-    "users": "Users"
+    "users": "Users",
+    "inviteCodes": "Invite Codes"
   },
   "actions": {
     "save": "Save",

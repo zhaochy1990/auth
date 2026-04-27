@@ -1,0 +1,24 @@
+{
+  "title": "邀请码管理",
+  "createBtn": "创建邀请码",
+  "table": {
+    "code": "邀请码",
+    "createdAt": "创建时间",
+    "used": "使用状态",
+    "usedBy": "使用者",
+    "actions": "操作"
+  },
+  "status": {
+    "used": "已使用",
+    "unused": "未使用",
+    "revoked": "已撤销"
+  },
+  "actions": {
+    "revoke": "撤销"
+  },
+  "modal": {
+    "title": "新邀请码",
+    "description": "将此邀请码分享给新用户，每个邀请码只能使用一次。",
+    "warning": "关闭此对话框后将不再显示此邀请码。"
+  }
+}

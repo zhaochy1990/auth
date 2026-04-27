@@ -9,6 +9,7 @@ import ApplicationDetailPage from '../pages/applications/DetailPage';
 import UserListPage from '../pages/users/ListPage';
 import UserCreatePage from '../pages/users/CreatePage';
 import UserDetailPage from '../pages/users/DetailPage';
+import InviteCodeListPage from '../pages/invite-codes/ListPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 export default function AppRouter() {
@@ -30,6 +31,7 @@ export default function AppRouter() {
           <Route path="users" element={<UserListPage />} />
           <Route path="users/new" element={<UserCreatePage />} />
           <Route path="users/:id" element={<UserDetailPage />} />
+          <Route path="invite-codes" element={<InviteCodeListPage />} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Routes>

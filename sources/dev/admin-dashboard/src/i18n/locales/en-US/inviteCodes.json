@@ -1,0 +1,24 @@
+{
+  "title": "Invite Codes",
+  "createBtn": "Create Code",
+  "table": {
+    "code": "Code",
+    "createdAt": "Created At",
+    "used": "Used",
+    "usedBy": "Used By",
+    "actions": "Actions"
+  },
+  "status": {
+    "used": "Used",
+    "unused": "Unused",
+    "revoked": "Revoked"
+  },
+  "actions": {
+    "revoke": "Revoke"
+  },
+  "modal": {
+    "title": "New Invite Code",
+    "description": "Share this code with the new user. It can only be used once.",
+    "warning": "This code will not be shown again after you close this dialog."
+  }
+}

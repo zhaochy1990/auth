@@ -3,7 +3,8 @@
   "sidebar": {
     "dashboard": "总览",
     "applications": "应用管理",
-    "users": "用户管理"
+    "users": "用户管理",
+    "inviteCodes": "邀请码管理"
   },
   "actions": {
     "save": "保存",
