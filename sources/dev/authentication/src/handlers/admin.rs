@@ -663,7 +663,11 @@ pub async fn list_invite_codes(
     State(state): State<AppState>,
     Query(query): Query<ListInviteCodesQuery>,
 ) -> Result<Json<Vec<InviteCodeResponse>>, AppError> {
-    let codes = state.repo.invite_codes().list_invite_codes(query.used).await?;
+    let codes = state
+        .repo
+        .invite_codes()
+        .list_invite_codes(query.used)
+        .await?;
     let responses = codes
         .into_iter()
         .map(|c| InviteCodeResponse {

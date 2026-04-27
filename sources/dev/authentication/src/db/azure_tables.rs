@@ -1123,16 +1123,13 @@ impl InviteCodeRepository for AzureTableRepository {
             .partition_key_client("invite_code")
             .entity_client(code);
 
-        let resp = ec
-            .get::<InviteCodeEntity>()
-            .await
-            .map_err(|e| {
-                if is_not_found(&e) {
-                    AppError::InviteCodeNotFound
-                } else {
-                    db_err(e)
-                }
-            })?;
+        let resp = ec.get::<InviteCodeEntity>().await.map_err(|e| {
+            if is_not_found(&e) {
+                AppError::InviteCodeNotFound
+            } else {
+                db_err(e)
+            }
+        })?;
 
         if resp.entity.used_at.is_some() {
             return Err(AppError::InviteCodeAlreadyUsed);
@@ -1143,24 +1140,30 @@ impl InviteCodeRepository for AzureTableRepository {
         updated.used_at = Some(fmt_dt(&chrono::Utc::now().naive_utc()));
         updated.used_by = Some(user_id.to_string());
 
-        ec.update(updated, azure_data_tables::prelude::IfMatchCondition::Etag(etag))
-            .map_err(db_err)?
-            .await
-            .map_err(|e| {
-                if e.as_http_error()
-                    .map(|h| h.status() == azure_core::StatusCode::PreconditionFailed)
-                    .unwrap_or(false)
-                {
-                    AppError::InviteCodeAlreadyUsed
-                } else {
-                    db_err(e)
-                }
-            })?;
+        ec.update(
+            updated,
+            azure_data_tables::prelude::IfMatchCondition::Etag(etag),
+        )
+        .map_err(db_err)?
+        .await
+        .map_err(|e| {
+            if e.as_http_error()
+                .map(|h| h.status() == azure_core::StatusCode::PreconditionFailed)
+                .unwrap_or(false)
+            {
+                AppError::InviteCodeAlreadyUsed
+            } else {
+                db_err(e)
+            }
+        })?;
 
         Ok(())
     }
 
-    async fn list_invite_codes(&self, used_only: Option<bool>) -> Result<Vec<InviteCode>, AppError> {
+    async fn list_invite_codes(
+        &self,
+        used_only: Option<bool>,
+    ) -> Result<Vec<InviteCode>, AppError> {
         let entities: Vec<InviteCodeEntity> =
             query_entities(&self.invite_codes, "PartitionKey eq 'invite_code'").await?;
         let mut codes: Vec<InviteCode> = entities.iter().map(|e| e.to_model()).collect();

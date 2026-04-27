@@ -87,7 +87,8 @@ pub trait InviteCodeRepository: Send + Sync {
     /// Atomically marks the code used via ETag. Returns Err on race (code already used).
     /// `code` is the RowKey value (the human-readable code string), not the id.
     async fn mark_invite_code_used(&self, code: &str, user_id: &str) -> Result<(), AppError>;
-    async fn list_invite_codes(&self, used_only: Option<bool>) -> Result<Vec<InviteCode>, AppError>;
+    async fn list_invite_codes(&self, used_only: Option<bool>)
+        -> Result<Vec<InviteCode>, AppError>;
     /// `code` is the RowKey value, not the id.
     async fn revoke_invite_code(&self, code: &str) -> Result<(), AppError>;
 }

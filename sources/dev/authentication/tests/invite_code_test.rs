@@ -1,7 +1,7 @@
 mod common;
 
-use axum::http::{Request, StatusCode};
 use axum::body::Body;
+use axum::http::{Request, StatusCode};
 use common::TestApp;
 use serial_test::serial;
 
@@ -322,10 +322,7 @@ async fn concurrent_register_with_same_code_exactly_one_wins() {
         let req2 = make_req("concurrent2@test.com", &code, &created.client_id);
 
         use tower::ServiceExt;
-        let (resp1, resp2) = tokio::join!(
-            router1.oneshot(req1),
-            router2.oneshot(req2),
-        );
+        let (resp1, resp2) = tokio::join!(router1.oneshot(req1), router2.oneshot(req2),);
 
         let status1 = resp1.unwrap().status();
         let status2 = resp2.unwrap().status();
@@ -408,7 +405,11 @@ async fn concurrent_register_loser_has_no_orphan_account() {
         } else {
             panic!("expected exactly one CREATED + one CONFLICT, got {s1:?} / {s2:?}");
         };
-        let loser_email = if winner_email == email1 { email2 } else { email1 };
+        let loser_email = if winner_email == email1 {
+            email2
+        } else {
+            email1
+        };
 
         // Winner: must have a users row AND a password account row
         let winner_user = app
