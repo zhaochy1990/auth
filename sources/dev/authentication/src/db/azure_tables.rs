@@ -1170,7 +1170,7 @@ impl InviteCodeRepository for AzureTableRepository {
         if let Some(used) = used_only {
             codes.retain(|c| used == c.used_at.is_some());
         }
-        codes.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        codes.sort_by_key(|c| std::cmp::Reverse(c.created_at));
         Ok(codes)
     }
 
