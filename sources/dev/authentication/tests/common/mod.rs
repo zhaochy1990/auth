@@ -224,4 +224,46 @@ impl TestApp {
         let encoded = base64::engine::general_purpose::STANDARD.encode(raw);
         format!("Basic {encoded}")
     }
+
+    // ── Invite code helpers ──────────────────────────────────────────────
+
+    /// Create an invite code via the admin API. Returns the code string.
+    pub async fn admin_create_invite_code(&self) -> String {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/admin/invite-codes")
+            .header("Authorization", format!("Bearer {}", self.admin_token))
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = self.request(req).await;
+        resp.assert_status(StatusCode::OK);
+        let json: serde_json::Value = resp.json();
+        json["code"].as_str().unwrap().to_string()
+    }
+
+    /// Register a user supplying an invite code.
+    pub async fn register_user_with_invite(
+        &self,
+        client_id: &str,
+        email: &str,
+        password: &str,
+        invite_code: &str,
+    ) -> TestResponse {
+        let body = serde_json::json!({
+            "email": email,
+            "password": password,
+            "invite_code": invite_code,
+        });
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/auth/register")
+            .header("Content-Type", "application/json")
+            .header("X-Client-Id", client_id)
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+
+        self.request(req).await
+    }
 }

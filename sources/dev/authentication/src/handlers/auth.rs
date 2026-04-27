@@ -1,3 +1,5 @@
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::{extract::Path, extract::State, Json};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -17,6 +19,7 @@ pub struct RegisterRequest {
     pub email: String,
     pub password: String,
     pub name: Option<String>,
+    pub invite_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,9 +66,39 @@ pub async fn register(
     client_app: ClientApp,
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
-) -> Result<Json<RegisterResponse>, AppError> {
+) -> Result<axum::response::Response, AppError> {
     // Validate password complexity
     validate_password(&req.password)?;
+
+    // Feature-flagged invite code gate
+    let require_invite = std::env::var("STRIDE_REQUIRE_INVITE_CODE")
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    let invite_code_record = if require_invite {
+        let code_str = req
+            .invite_code
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .ok_or(AppError::BadRequest("invite_code is required".into()))?;
+
+        let record = state
+            .repo
+            .invite_codes()
+            .get_invite_code_by_code(code_str)
+            .await?
+            .ok_or(AppError::InviteCodeNotFound)?;
+
+        if record.is_revoked {
+            return Err(AppError::InviteCodeNotFound);
+        }
+        if record.used_at.is_some() {
+            return Err(AppError::InviteCodeAlreadyUsed);
+        }
+        Some(record)
+    } else {
+        None
+    };
 
     // Check if user with this email already exists
     let existing = state.repo.users().find_by_email(&req.email).await?;
@@ -76,6 +109,16 @@ pub async fn register(
 
     let now = chrono::Utc::now().naive_utc();
     let user_id = Uuid::new_v4().to_string();
+
+    // Claim the invite code FIRST (before creating user/account) using ETag-atomic
+    // mark_invite_code_used. If the claim fails (race), no orphan rows remain.
+    if let Some(ref code_record) = invite_code_record {
+        state
+            .repo
+            .invite_codes()
+            .mark_invite_code_used(&code_record.code, &user_id)
+            .await?;
+    }
 
     // Create user
     let user = User {
@@ -89,12 +132,15 @@ pub async fn register(
         created_at: now,
         updated_at: now,
     };
+    // If user creation fails, the invite code stays claimed (used) with our user_id
+    // but no user exists; admin can revoke if needed. No earlier rollback to perform.
     state.repo.users().insert(&user).await?;
 
     // Create password account
     let password_hash = hash_password(&req.password)?;
+    let account_id = Uuid::new_v4().to_string();
     let account = Account {
-        id: Uuid::new_v4().to_string(),
+        id: account_id.clone(),
         user_id: user_id.clone(),
         provider_id: "password".to_string(),
         provider_account_id: Some(req.email),
@@ -103,17 +149,31 @@ pub async fn register(
         created_at: now,
         updated_at: now,
     };
-    state.repo.accounts().insert(&account).await?;
+    if let Err(e) = state.repo.accounts().insert(&account).await {
+        // Roll back BOTH the user row AND any partially-inserted account state
+        // (best-effort; ignore inner errors).
+        let _ = state.repo.accounts().delete_by_id(&account_id).await;
+        let _ = state.repo.users().delete_by_id(&user_id).await;
+        return Err(e);
+    }
 
     // Issue tokens
     let scopes = client_app.allowed_scopes.clone();
     let access_token =
-        state
+        match state
             .jwt
-            .issue_access_token(&user_id, &client_app.client_id, scopes.clone(), "user")?;
+            .issue_access_token(&user_id, &client_app.client_id, scopes.clone(), "user")
+        {
+            Ok(t) => t,
+            Err(e) => {
+                let _ = state.repo.accounts().delete_by_id(&account_id).await;
+                let _ = state.repo.users().delete_by_id(&user_id).await;
+                return Err(e);
+            }
+        };
     let refresh_token = oauth2_util::generate_refresh_token();
 
-    oauth2_util::store_refresh_token(
+    if let Err(e) = oauth2_util::store_refresh_token(
         self::repo_ref(&state),
         &user_id,
         &client_app.app_id,
@@ -122,15 +182,21 @@ pub async fn register(
         None,
         state.config.jwt_refresh_token_expiry_days,
     )
-    .await?;
+    .await
+    {
+        let _ = state.repo.accounts().delete_by_id(&account_id).await;
+        let _ = state.repo.users().delete_by_id(&user_id).await;
+        return Err(e);
+    }
 
-    Ok(Json(RegisterResponse {
+    let body = RegisterResponse {
         user_id,
         access_token,
         refresh_token,
         token_type: "Bearer".to_string(),
         expires_in: state.config.jwt_access_token_expiry_secs,
-    }))
+    };
+    Ok((StatusCode::CREATED, Json(body)).into_response())
 }
 
 pub async fn login(

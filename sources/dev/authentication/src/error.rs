@@ -67,6 +67,12 @@ pub enum AppError {
     #[error("Cannot unlink last account")]
     CannotUnlinkLastAccount,
 
+    #[error("Invite code not found or invalid")]
+    InviteCodeNotFound,
+
+    #[error("Invite code has already been used")]
+    InviteCodeAlreadyUsed,
+
     #[error("Bad request: {0}")]
     BadRequest(String),
 
@@ -161,6 +167,16 @@ impl IntoResponse for AppError {
             AppError::CannotUnlinkLastAccount => (
                 StatusCode::BAD_REQUEST,
                 "cannot_unlink_last_account",
+                self.to_string(),
+            ),
+            AppError::InviteCodeNotFound => (
+                StatusCode::UNAUTHORIZED,
+                "invalid_invite_code",
+                self.to_string(),
+            ),
+            AppError::InviteCodeAlreadyUsed => (
+                StatusCode::CONFLICT,
+                "invite_code_already_used",
                 self.to_string(),
             ),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg.clone()),

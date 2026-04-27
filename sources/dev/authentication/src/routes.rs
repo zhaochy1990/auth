@@ -125,6 +125,14 @@ pub fn create_router(state: AppState) -> Router {
             delete(handlers::admin::admin_unlink_account),
         )
         .route("/stats", get(handlers::admin::stats))
+        .route(
+            "/invite-codes",
+            get(handlers::admin::list_invite_codes).post(handlers::admin::create_invite_code),
+        )
+        .route(
+            "/invite-codes/:code",
+            delete(handlers::admin::revoke_invite_code),
+        )
         .route_layer(middleware::from_fn_with_state(
             admin_limiter,
             rate_limit_middleware,

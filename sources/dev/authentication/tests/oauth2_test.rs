@@ -19,7 +19,7 @@ async fn setup_app_and_user(app: &TestApp) -> (common::CreatedApp, String, Strin
     let resp = app
         .register_user(&created.client_id, "oauth@test.com", "Password1!")
         .await;
-    resp.assert_status(StatusCode::OK);
+    resp.assert_status(StatusCode::CREATED);
     let json: serde_json::Value = resp.json();
     let user_id = json["user_id"].as_str().unwrap().to_string();
     let refresh_token = json["refresh_token"].as_str().unwrap().to_string();

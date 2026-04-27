@@ -12,7 +12,7 @@ async fn create_admin_user_and_login(app: &TestApp, client_id: &str) -> String {
     let resp = app
         .register_user(client_id, "admin@test.com", "AdminPass1!")
         .await;
-    resp.assert_status(StatusCode::OK);
+    resp.assert_status(StatusCode::CREATED);
 
     // Promote to admin via repository
     let mut user = app
@@ -49,7 +49,7 @@ async fn login_jwt_contains_role_claim() {
 
     app.register_user(&created.client_id, "role@test.com", "Password1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
 
     let resp = app
         .login_user(&created.client_id, "role@test.com", "Password1!")
@@ -114,7 +114,7 @@ async fn admin_api_with_bearer_token_non_admin_rejected() {
     // Register and login as normal user
     app.register_user(&created.client_id, "normie@test.com", "Password1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
 
     let resp = app
         .login_user(&created.client_id, "normie@test.com", "Password1!")
@@ -162,7 +162,7 @@ async fn disabled_user_cannot_login() {
 
     app.register_user(&created.client_id, "disabled@test.com", "Password1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
 
     // Disable user via repository
     let mut user = app
@@ -203,10 +203,10 @@ async fn stats_endpoint() {
     // Register users
     app.register_user(&created.client_id, "u1@test.com", "Password1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
     app.register_user(&created.client_id, "u2@test.com", "Password1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
 
     let req = Request::builder()
         .method("GET")
@@ -246,7 +246,7 @@ async fn list_users_paginated() {
             "Password1!",
         )
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
     }
 
     // List page 1, per_page 2
@@ -292,10 +292,10 @@ async fn list_users_search() {
 
     app.register_user(&created.client_id, "alice@test.com", "Password1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
     app.register_user(&created.client_id, "bob@test.com", "Password1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
 
     // Search for alice
     let req = Request::builder()
@@ -323,7 +323,7 @@ async fn list_users_response_has_role_and_is_active() {
 
     app.register_user(&created.client_id, "fields@test.com", "Password1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
 
     let req = Request::builder()
         .method("GET")
@@ -356,7 +356,7 @@ async fn get_user_detail() {
     let reg_resp = app
         .register_user(&created.client_id, "detail@test.com", "Password1!")
         .await;
-    reg_resp.assert_status(StatusCode::OK);
+    reg_resp.assert_status(StatusCode::CREATED);
     let reg_json: serde_json::Value = reg_resp.json();
     let user_id = reg_json["user_id"].as_str().unwrap();
 

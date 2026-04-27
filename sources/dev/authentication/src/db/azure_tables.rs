@@ -8,10 +8,12 @@ use chrono::NaiveDateTime;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use crate::db::models::{Account, AppProvider, Application, AuthorizationCode, RefreshToken, User};
+use crate::db::models::{
+    Account, AppProvider, Application, AuthorizationCode, InviteCode, RefreshToken, User,
+};
 use crate::db::repository::{
     AccountRepository, AppProviderRepository, ApplicationRepository, AuthCodeRepository,
-    RefreshTokenRepository, Repository, UserRepository,
+    InviteCodeRepository, RefreshTokenRepository, Repository, UserRepository,
 };
 use crate::error::AppError;
 
@@ -23,6 +25,7 @@ const TABLE_ACCOUNTS: &str = "authaccounts";
 const TABLE_APP_PROVIDERS: &str = "authappproviders";
 const TABLE_AUTH_CODES: &str = "authauthcodes";
 const TABLE_REFRESH_TOKENS: &str = "authrefreshtokens";
+const TABLE_INVITE_CODES: &str = "authinvitecodes";
 
 // ─── DateTime helpers ───────────────────────────────────────────────────────
 
@@ -457,6 +460,53 @@ struct CompositeIndexEntity {
     rk: String,
 }
 
+// ─── InviteCodeEntity ───────────────────────────────────────────────────────
+// PK = "invite_code", RK = code value
+
+#[derive(Debug, Serialize, Deserialize)]
+struct InviteCodeEntity {
+    #[serde(rename = "PartitionKey")]
+    partition_key: String,
+    #[serde(rename = "RowKey")]
+    row_key: String,
+    id: String,
+    created_by: String,
+    #[serde(default)]
+    created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    used_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    used_by: Option<String>,
+    #[serde(default)]
+    is_revoked: bool,
+}
+
+impl InviteCodeEntity {
+    fn from_model(c: &InviteCode) -> Self {
+        Self {
+            partition_key: "invite_code".into(),
+            row_key: c.code.clone(),
+            id: c.id.clone(),
+            created_by: c.created_by.clone(),
+            created_at: fmt_dt(&c.created_at),
+            used_at: c.used_at.as_ref().map(fmt_dt),
+            used_by: c.used_by.clone(),
+            is_revoked: c.is_revoked,
+        }
+    }
+    fn to_model(&self) -> InviteCode {
+        InviteCode {
+            id: self.id.clone(),
+            code: self.row_key.clone(),
+            created_by: self.created_by.clone(),
+            created_at: parse_dt(&self.created_at),
+            used_at: self.used_at.as_deref().map(parse_dt),
+            used_by: self.used_by.clone(),
+            is_revoked: self.is_revoked,
+        }
+    }
+}
+
 // ─── AzureTableRepository ───────────────────────────────────────────────────
 
 pub struct AzureTableRepository {
@@ -466,6 +516,7 @@ pub struct AzureTableRepository {
     app_providers: TableClient,
     auth_codes: TableClient,
     refresh_tokens: TableClient,
+    invite_codes: TableClient,
 }
 
 impl AzureTableRepository {
@@ -502,6 +553,7 @@ impl AzureTableRepository {
             app_providers: svc.table_client(TABLE_APP_PROVIDERS),
             auth_codes: svc.table_client(TABLE_AUTH_CODES),
             refresh_tokens: svc.table_client(TABLE_REFRESH_TOKENS),
+            invite_codes: svc.table_client(TABLE_INVITE_CODES),
         })
     }
 
@@ -524,7 +576,7 @@ impl AzureTableRepository {
         self.ensure_tables().await
     }
 
-    fn all_tables(&self) -> [&TableClient; 6] {
+    fn all_tables(&self) -> [&TableClient; 7] {
         [
             &self.applications,
             &self.users,
@@ -532,6 +584,7 @@ impl AzureTableRepository {
             &self.app_providers,
             &self.auth_codes,
             &self.refresh_tokens,
+            &self.invite_codes,
         ]
     }
 }
@@ -555,6 +608,9 @@ impl Repository for AzureTableRepository {
         self
     }
     fn refresh_tokens(&self) -> &dyn RefreshTokenRepository {
+        self
+    }
+    fn invite_codes(&self) -> &dyn InviteCodeRepository {
         self
     }
 }
@@ -623,6 +679,17 @@ impl UserRepository for AzureTableRepository {
 
         let entity = UserEntity::from_model(user);
         upsert_entity(&self.users, "user", &user.id, &entity).await
+    }
+
+    async fn delete_by_id(&self, id: &str) -> Result<(), AppError> {
+        // Remove email index first
+        let entity: Option<UserEntity> = get_entity(&self.users, "user", id).await?;
+        if let Some(ref e) = entity {
+            if let Some(ref email) = e.email {
+                delete_entity(&self.users, "idx_email", &email.to_lowercase()).await?;
+            }
+        }
+        delete_entity(&self.users, "user", id).await
     }
 
     async fn count_all(&self) -> Result<u64, AppError> {
@@ -1010,5 +1077,113 @@ impl RefreshTokenRepository for AzureTableRepository {
             upsert_entity(&self.refresh_tokens, "rt", id, &entity).await?;
         }
         Ok(())
+    }
+}
+
+// ─── InviteCodeRepository ───────────────────────────────────────────────────
+
+/// Generate a 16-character URL-safe alphanumeric invite code.
+fn generate_invite_code() -> String {
+    use rand::distributions::{Alphanumeric, DistString};
+    Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
+}
+
+#[async_trait]
+impl InviteCodeRepository for AzureTableRepository {
+    async fn create_invite_code(&self, created_by: &str) -> Result<InviteCode, AppError> {
+        let code = InviteCode {
+            id: uuid::Uuid::new_v4().to_string(),
+            code: generate_invite_code(),
+            created_by: created_by.to_string(),
+            created_at: chrono::Utc::now().naive_utc(),
+            used_at: None,
+            used_by: None,
+            is_revoked: false,
+        };
+        let entity = InviteCodeEntity::from_model(&code);
+        insert_entity(&self.invite_codes, &entity)
+            .await
+            .map_err(db_err)?;
+        tracing::info!(invite_code_id = %code.id, created_by = %created_by, "invite code created");
+        Ok(code)
+    }
+
+    async fn get_invite_code_by_code(&self, code: &str) -> Result<Option<InviteCode>, AppError> {
+        let entity: Option<InviteCodeEntity> =
+            get_entity(&self.invite_codes, "invite_code", code).await?;
+        Ok(entity.map(|e| e.to_model()))
+    }
+
+    /// Atomically marks the invite code as used using Azure Tables If-Match ETag.
+    /// `code` is the RowKey value, fetched directly via PK/RK lookup (no scan).
+    /// Returns AppError::InviteCodeAlreadyUsed on a race condition (412 Precondition Failed).
+    async fn mark_invite_code_used(&self, code: &str, user_id: &str) -> Result<(), AppError> {
+        let ec = self
+            .invite_codes
+            .partition_key_client("invite_code")
+            .entity_client(code);
+
+        let resp = ec
+            .get::<InviteCodeEntity>()
+            .await
+            .map_err(|e| {
+                if is_not_found(&e) {
+                    AppError::InviteCodeNotFound
+                } else {
+                    db_err(e)
+                }
+            })?;
+
+        if resp.entity.used_at.is_some() {
+            return Err(AppError::InviteCodeAlreadyUsed);
+        }
+
+        let etag = resp.etag;
+        let mut updated = resp.entity;
+        updated.used_at = Some(fmt_dt(&chrono::Utc::now().naive_utc()));
+        updated.used_by = Some(user_id.to_string());
+
+        ec.update(updated, azure_data_tables::prelude::IfMatchCondition::Etag(etag))
+            .map_err(db_err)?
+            .await
+            .map_err(|e| {
+                if e.as_http_error()
+                    .map(|h| h.status() == azure_core::StatusCode::PreconditionFailed)
+                    .unwrap_or(false)
+                {
+                    AppError::InviteCodeAlreadyUsed
+                } else {
+                    db_err(e)
+                }
+            })?;
+
+        Ok(())
+    }
+
+    async fn list_invite_codes(&self, used_only: Option<bool>) -> Result<Vec<InviteCode>, AppError> {
+        let entities: Vec<InviteCodeEntity> =
+            query_entities(&self.invite_codes, "PartitionKey eq 'invite_code'").await?;
+        let mut codes: Vec<InviteCode> = entities.iter().map(|e| e.to_model()).collect();
+        if let Some(used) = used_only {
+            codes.retain(|c| used == c.used_at.is_some());
+        }
+        codes.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(codes)
+    }
+
+    /// `code` is the RowKey value, fetched directly via PK/RK lookup (no scan).
+    async fn revoke_invite_code(&self, code: &str) -> Result<(), AppError> {
+        let entity: InviteCodeEntity = get_entity(&self.invite_codes, "invite_code", code)
+            .await?
+            .ok_or(AppError::InviteCodeNotFound)?;
+
+        if entity.used_at.is_some() {
+            return Err(AppError::InviteCodeAlreadyUsed);
+        }
+
+        let mut updated = entity;
+        updated.is_revoked = true;
+        let code_val = updated.row_key.clone();
+        upsert_entity(&self.invite_codes, "invite_code", &code_val, &updated).await
     }
 }

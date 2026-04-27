@@ -619,6 +619,75 @@ pub async fn stats(
     }))
 }
 
+// --- Invite code handlers ---
+
+#[derive(Debug, Serialize)]
+pub struct InviteCodeResponse {
+    pub id: String,
+    pub code: String,
+    pub created_by: String,
+    pub created_at: String,
+    pub used_at: Option<String>,
+    pub used_by: Option<String>,
+    pub is_revoked: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListInviteCodesQuery {
+    pub used: Option<bool>,
+}
+
+pub async fn create_invite_code(
+    _admin: AdminAuth,
+    user: crate::auth::middleware::AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<Json<InviteCodeResponse>, AppError> {
+    let code = state
+        .repo
+        .invite_codes()
+        .create_invite_code(&user.user_id)
+        .await?;
+    Ok(Json(InviteCodeResponse {
+        id: code.id,
+        code: code.code,
+        created_by: code.created_by,
+        created_at: code.created_at.to_string(),
+        used_at: code.used_at.map(|d| d.to_string()),
+        used_by: code.used_by,
+        is_revoked: code.is_revoked,
+    }))
+}
+
+pub async fn list_invite_codes(
+    _admin: AdminAuth,
+    State(state): State<AppState>,
+    Query(query): Query<ListInviteCodesQuery>,
+) -> Result<Json<Vec<InviteCodeResponse>>, AppError> {
+    let codes = state.repo.invite_codes().list_invite_codes(query.used).await?;
+    let responses = codes
+        .into_iter()
+        .map(|c| InviteCodeResponse {
+            id: c.id,
+            code: c.code,
+            created_by: c.created_by,
+            created_at: c.created_at.to_string(),
+            used_at: c.used_at.map(|d| d.to_string()),
+            used_by: c.used_by,
+            is_revoked: c.is_revoked,
+        })
+        .collect();
+    Ok(Json(responses))
+}
+
+pub async fn revoke_invite_code(
+    _admin: AdminAuth,
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    state.repo.invite_codes().revoke_invite_code(&code).await?;
+    Ok(Json(serde_json::json!({"status": "revoked"})))
+}
+
 // --- Helpers ---
 
 fn generate_client_id() -> String {

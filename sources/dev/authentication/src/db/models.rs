@@ -2,6 +2,17 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InviteCode {
+    pub id: String,
+    pub code: String,
+    pub created_by: String,
+    pub created_at: NaiveDateTime,
+    pub used_at: Option<NaiveDateTime>,
+    pub used_by: Option<String>,
+    pub is_revoked: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Application {
     pub id: String,
     pub name: String,

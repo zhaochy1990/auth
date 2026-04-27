@@ -18,7 +18,7 @@ async fn register_success() {
     let resp = app
         .register_user(&created.client_id, "alice@test.com", "Password1!")
         .await;
-    resp.assert_status(StatusCode::OK);
+    resp.assert_status(StatusCode::CREATED);
 
     let json: serde_json::Value = resp.json();
     assert!(!json["user_id"].as_str().unwrap().is_empty());
@@ -37,7 +37,7 @@ async fn register_duplicate_email() {
 
     app.register_user(&created.client_id, "dup@test.com", "Password1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
 
     let resp = app
         .register_user(&created.client_id, "dup@test.com", "Password1!")
@@ -114,7 +114,7 @@ async fn login_success() {
 
     app.register_user(&created.client_id, "login@test.com", "Password1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
 
     let resp = app
         .login_user(&created.client_id, "login@test.com", "Password1!")
@@ -137,7 +137,7 @@ async fn login_wrong_password() {
 
     app.register_user(&created.client_id, "user@test.com", "Correct1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
 
     let resp = app
         .login_user(&created.client_id, "user@test.com", "Wrong1!")
@@ -169,7 +169,7 @@ async fn login_access_token_valid_jwt() {
 
     app.register_user(&created.client_id, "jwt@test.com", "Password1!")
         .await
-        .assert_status(StatusCode::OK);
+        .assert_status(StatusCode::CREATED);
 
     let resp = app
         .login_user(&created.client_id, "jwt@test.com", "Password1!")
@@ -206,7 +206,7 @@ async fn refresh_success() {
     let reg_resp = app
         .register_user(&created.client_id, "refresh@test.com", "Password1!")
         .await;
-    reg_resp.assert_status(StatusCode::OK);
+    reg_resp.assert_status(StatusCode::CREATED);
     let reg_json: serde_json::Value = reg_resp.json();
     let refresh_token = reg_json["refresh_token"].as_str().unwrap();
 
