@@ -1,6 +1,6 @@
 [package]
 name = "auth-service"
-version = "2026.4.2"
+version = "2026.4.3"
 edition = "2021"
 
 [dependencies]
