@@ -1336,11 +1336,7 @@ impl TeamMembershipRepository for AzureTableRepository {
         Ok(entities.iter().map(|e| e.to_model()).collect())
     }
 
-    async fn find(
-        &self,
-        team_id: &str,
-        user_id: &str,
-    ) -> Result<Option<TeamMembership>, AppError> {
+    async fn find(&self, team_id: &str, user_id: &str) -> Result<Option<TeamMembership>, AppError> {
         let entity: Option<TeamMembershipEntity> =
             get_entity(&self.team_memberships, team_id, user_id).await?;
         Ok(entity.map(|e| e.to_model()))

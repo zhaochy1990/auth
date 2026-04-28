@@ -109,11 +109,7 @@ pub trait TeamMembershipRepository: Send + Sync {
     async fn find_all_by_team(&self, team_id: &str) -> Result<Vec<TeamMembership>, AppError>;
     /// All teams for a user (cross-partition scan in V1; OK for small N).
     async fn find_all_by_user(&self, user_id: &str) -> Result<Vec<TeamMembership>, AppError>;
-    async fn find(
-        &self,
-        team_id: &str,
-        user_id: &str,
-    ) -> Result<Option<TeamMembership>, AppError>;
+    async fn find(&self, team_id: &str, user_id: &str) -> Result<Option<TeamMembership>, AppError>;
     async fn insert(&self, m: &TeamMembership) -> Result<(), AppError>;
     async fn count_by_team(&self, team_id: &str) -> Result<u64, AppError>;
     async fn delete(&self, team_id: &str, user_id: &str) -> Result<(), AppError>;

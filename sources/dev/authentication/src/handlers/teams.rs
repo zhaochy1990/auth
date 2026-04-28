@@ -241,7 +241,9 @@ pub async fn leave_team(
         .team_memberships()
         .find(&team_id, &user.user_id)
         .await?
-        .ok_or(AppError::BadRequest("Not a member of this team".to_string()))?;
+        .ok_or(AppError::BadRequest(
+            "Not a member of this team".to_string(),
+        ))?;
 
     if team.owner_user_id == user.user_id {
         let count = state

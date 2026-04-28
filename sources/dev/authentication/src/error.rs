@@ -188,9 +188,7 @@ impl IntoResponse for AppError {
                 "invite_code_already_used",
                 self.to_string(),
             ),
-            AppError::TeamNotFound => {
-                (StatusCode::NOT_FOUND, "team_not_found", self.to_string())
-            }
+            AppError::TeamNotFound => (StatusCode::NOT_FOUND, "team_not_found", self.to_string()),
             AppError::TeamNotOpen => (StatusCode::FORBIDDEN, "team_not_open", self.to_string()),
             AppError::OwnerCannotLeaveAsLastMember => (
                 StatusCode::BAD_REQUEST,
