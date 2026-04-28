@@ -83,6 +83,22 @@ pub fn create_router(state: AppState) -> Router {
             "/me/accounts/:provider_id",
             delete(handlers::user::unlink_account),
         )
+        .route("/me/teams", get(handlers::teams::list_my_teams))
+        .route_layer(middleware::from_fn_with_state(
+            user_limiter.clone(),
+            rate_limit_middleware,
+        ));
+
+    // Team endpoints (require Bearer token) — rate limited (shares user limiter)
+    let teams_routes = Router::new()
+        .route(
+            "/",
+            post(handlers::teams::create_team).get(handlers::teams::list_teams),
+        )
+        .route("/:team_id", get(handlers::teams::get_team))
+        .route("/:team_id/join", post(handlers::teams::join_team))
+        .route("/:team_id/leave", post(handlers::teams::leave_team))
+        .route("/:team_id/members", get(handlers::teams::list_members))
         .route_layer(middleware::from_fn_with_state(
             user_limiter,
             rate_limit_middleware,
@@ -142,6 +158,7 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/oauth", oauth2_routes)
         .nest("/api/auth", auth_routes)
         .nest("/api/users", user_routes)
+        .nest("/api/teams", teams_routes)
         .nest("/admin", admin_routes)
         .route("/health", get(health_check))
         .layer(TraceLayer::new_for_http())

@@ -9,11 +9,13 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::db::models::{
-    Account, AppProvider, Application, AuthorizationCode, InviteCode, RefreshToken, User,
+    Account, AppProvider, Application, AuthorizationCode, InviteCode, RefreshToken, Team,
+    TeamMembership, User,
 };
 use crate::db::repository::{
     AccountRepository, AppProviderRepository, ApplicationRepository, AuthCodeRepository,
-    InviteCodeRepository, RefreshTokenRepository, Repository, UserRepository,
+    InviteCodeRepository, RefreshTokenRepository, Repository, TeamMembershipRepository,
+    TeamRepository, UserRepository,
 };
 use crate::error::AppError;
 
@@ -26,6 +28,8 @@ const TABLE_APP_PROVIDERS: &str = "authappproviders";
 const TABLE_AUTH_CODES: &str = "authauthcodes";
 const TABLE_REFRESH_TOKENS: &str = "authrefreshtokens";
 const TABLE_INVITE_CODES: &str = "authinvitecodes";
+const TABLE_TEAMS: &str = "authteams";
+const TABLE_TEAM_MEMBERSHIPS: &str = "authteammemberships";
 
 // ─── DateTime helpers ───────────────────────────────────────────────────────
 
@@ -507,6 +511,86 @@ impl InviteCodeEntity {
     }
 }
 
+// ─── TeamEntity ─────────────────────────────────────────────────────────────
+// PK = "team", RK = team_id
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TeamEntity {
+    #[serde(rename = "PartitionKey")]
+    partition_key: String,
+    #[serde(rename = "RowKey")]
+    row_key: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    description: Option<String>,
+    owner_user_id: String,
+    #[serde(default = "default_true")]
+    is_open: bool,
+    #[serde(default)]
+    created_at: String,
+    #[serde(default)]
+    updated_at: String,
+}
+
+impl TeamEntity {
+    fn from_model(t: &Team) -> Self {
+        Self {
+            partition_key: "team".into(),
+            row_key: t.id.clone(),
+            name: t.name.clone(),
+            description: t.description.clone(),
+            owner_user_id: t.owner_user_id.clone(),
+            is_open: t.is_open,
+            created_at: fmt_dt(&t.created_at),
+            updated_at: fmt_dt(&t.updated_at),
+        }
+    }
+    fn to_model(&self) -> Team {
+        Team {
+            id: self.row_key.clone(),
+            name: self.name.clone(),
+            description: self.description.clone(),
+            owner_user_id: self.owner_user_id.clone(),
+            is_open: self.is_open,
+            created_at: parse_dt(&self.created_at),
+            updated_at: parse_dt(&self.updated_at),
+        }
+    }
+}
+
+// ─── TeamMembershipEntity ───────────────────────────────────────────────────
+// PK = team_id, RK = user_id
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TeamMembershipEntity {
+    #[serde(rename = "PartitionKey")]
+    partition_key: String, // team_id
+    #[serde(rename = "RowKey")]
+    row_key: String, // user_id
+    role: String,
+    #[serde(default)]
+    joined_at: String,
+}
+
+impl TeamMembershipEntity {
+    fn from_model(m: &TeamMembership) -> Self {
+        Self {
+            partition_key: m.team_id.clone(),
+            row_key: m.user_id.clone(),
+            role: m.role.clone(),
+            joined_at: fmt_dt(&m.joined_at),
+        }
+    }
+    fn to_model(&self) -> TeamMembership {
+        TeamMembership {
+            team_id: self.partition_key.clone(),
+            user_id: self.row_key.clone(),
+            role: self.role.clone(),
+            joined_at: parse_dt(&self.joined_at),
+        }
+    }
+}
+
 // ─── AzureTableRepository ───────────────────────────────────────────────────
 
 pub struct AzureTableRepository {
@@ -517,6 +601,8 @@ pub struct AzureTableRepository {
     auth_codes: TableClient,
     refresh_tokens: TableClient,
     invite_codes: TableClient,
+    teams: TableClient,
+    team_memberships: TableClient,
 }
 
 impl AzureTableRepository {
@@ -554,6 +640,8 @@ impl AzureTableRepository {
             auth_codes: svc.table_client(TABLE_AUTH_CODES),
             refresh_tokens: svc.table_client(TABLE_REFRESH_TOKENS),
             invite_codes: svc.table_client(TABLE_INVITE_CODES),
+            teams: svc.table_client(TABLE_TEAMS),
+            team_memberships: svc.table_client(TABLE_TEAM_MEMBERSHIPS),
         })
     }
 
@@ -576,7 +664,7 @@ impl AzureTableRepository {
         self.ensure_tables().await
     }
 
-    fn all_tables(&self) -> [&TableClient; 7] {
+    fn all_tables(&self) -> [&TableClient; 9] {
         [
             &self.applications,
             &self.users,
@@ -585,6 +673,8 @@ impl AzureTableRepository {
             &self.auth_codes,
             &self.refresh_tokens,
             &self.invite_codes,
+            &self.teams,
+            &self.team_memberships,
         ]
     }
 }
@@ -611,6 +701,12 @@ impl Repository for AzureTableRepository {
         self
     }
     fn invite_codes(&self) -> &dyn InviteCodeRepository {
+        self
+    }
+    fn teams(&self) -> &dyn TeamRepository {
+        self
+    }
+    fn team_memberships(&self) -> &dyn TeamMembershipRepository {
         self
     }
 }
@@ -883,7 +979,7 @@ impl AccountRepository for AzureTableRepository {
     }
 
     async fn count_by_user(&self, user_id: &str) -> Result<u64, AppError> {
-        let accounts = self.find_all_by_user(user_id).await?;
+        let accounts = AccountRepository::find_all_by_user(self, user_id).await?;
         Ok(accounts.len() as u64)
     }
 
@@ -1188,5 +1284,79 @@ impl InviteCodeRepository for AzureTableRepository {
         updated.is_revoked = true;
         let code_val = updated.row_key.clone();
         upsert_entity(&self.invite_codes, "invite_code", &code_val, &updated).await
+    }
+}
+
+// ─── TeamRepository ─────────────────────────────────────────────────────────
+
+#[async_trait]
+impl TeamRepository for AzureTableRepository {
+    async fn find_by_id(&self, id: &str) -> Result<Option<Team>, AppError> {
+        let entity: Option<TeamEntity> = get_entity(&self.teams, "team", id).await?;
+        Ok(entity.map(|e| e.to_model()))
+    }
+
+    async fn find_all_open(&self) -> Result<Vec<Team>, AppError> {
+        let entities: Vec<TeamEntity> =
+            query_entities(&self.teams, "PartitionKey eq 'team' and is_open eq true").await?;
+        Ok(entities.iter().map(|e| e.to_model()).collect())
+    }
+
+    async fn insert(&self, team: &Team) -> Result<(), AppError> {
+        let entity = TeamEntity::from_model(team);
+        insert_entity(&self.teams, &entity).await.map_err(db_err)?;
+        Ok(())
+    }
+
+    async fn update(&self, team: &Team) -> Result<(), AppError> {
+        let entity = TeamEntity::from_model(team);
+        upsert_entity(&self.teams, "team", &team.id, &entity).await
+    }
+
+    async fn delete_by_id(&self, id: &str) -> Result<(), AppError> {
+        delete_entity(&self.teams, "team", id).await
+    }
+}
+
+// ─── TeamMembershipRepository ───────────────────────────────────────────────
+
+#[async_trait]
+impl TeamMembershipRepository for AzureTableRepository {
+    async fn find_all_by_team(&self, team_id: &str) -> Result<Vec<TeamMembership>, AppError> {
+        let filter = format!("PartitionKey eq '{team_id}'");
+        let entities: Vec<TeamMembershipEntity> =
+            query_entities(&self.team_memberships, &filter).await?;
+        Ok(entities.iter().map(|e| e.to_model()).collect())
+    }
+
+    async fn find_all_by_user(&self, user_id: &str) -> Result<Vec<TeamMembership>, AppError> {
+        let filter = format!("RowKey eq '{user_id}'");
+        let entities: Vec<TeamMembershipEntity> =
+            query_entities(&self.team_memberships, &filter).await?;
+        Ok(entities.iter().map(|e| e.to_model()).collect())
+    }
+
+    async fn find(
+        &self,
+        team_id: &str,
+        user_id: &str,
+    ) -> Result<Option<TeamMembership>, AppError> {
+        let entity: Option<TeamMembershipEntity> =
+            get_entity(&self.team_memberships, team_id, user_id).await?;
+        Ok(entity.map(|e| e.to_model()))
+    }
+
+    async fn insert(&self, m: &TeamMembership) -> Result<(), AppError> {
+        let entity = TeamMembershipEntity::from_model(m);
+        upsert_entity(&self.team_memberships, &m.team_id, &m.user_id, &entity).await
+    }
+
+    async fn count_by_team(&self, team_id: &str) -> Result<u64, AppError> {
+        let members = self.find_all_by_team(team_id).await?;
+        Ok(members.len() as u64)
+    }
+
+    async fn delete(&self, team_id: &str, user_id: &str) -> Result<(), AppError> {
+        delete_entity(&self.team_memberships, team_id, user_id).await
     }
 }

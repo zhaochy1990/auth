@@ -86,3 +86,22 @@ pub struct RefreshToken {
     pub revoked: bool,
     pub created_at: NaiveDateTime,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Team {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub owner_user_id: String,
+    pub is_open: bool,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TeamMembership {
+    pub team_id: String,
+    pub user_id: String,
+    pub role: String, // "owner" | "member"
+    pub joined_at: NaiveDateTime,
+}

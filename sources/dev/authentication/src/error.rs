@@ -73,6 +73,15 @@ pub enum AppError {
     #[error("Invite code has already been used")]
     InviteCodeAlreadyUsed,
 
+    #[error("Team not found")]
+    TeamNotFound,
+
+    #[error("Team is not open for joining")]
+    TeamNotOpen,
+
+    #[error("Owner cannot leave team while still the only member")]
+    OwnerCannotLeaveAsLastMember,
+
     #[error("Bad request: {0}")]
     BadRequest(String),
 
@@ -177,6 +186,15 @@ impl IntoResponse for AppError {
             AppError::InviteCodeAlreadyUsed => (
                 StatusCode::CONFLICT,
                 "invite_code_already_used",
+                self.to_string(),
+            ),
+            AppError::TeamNotFound => {
+                (StatusCode::NOT_FOUND, "team_not_found", self.to_string())
+            }
+            AppError::TeamNotOpen => (StatusCode::FORBIDDEN, "team_not_open", self.to_string()),
+            AppError::OwnerCannotLeaveAsLastMember => (
+                StatusCode::BAD_REQUEST,
+                "owner_cannot_leave_as_last_member",
                 self.to_string(),
             ),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg.clone()),
