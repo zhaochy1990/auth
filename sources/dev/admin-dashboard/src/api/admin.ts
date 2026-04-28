@@ -14,6 +14,11 @@ import type {
   UserAccount,
   Stats,
   InviteCode,
+  Team,
+  TeamMember,
+  TeamMembership,
+  AdminCreateTeamRequest,
+  AdminAddMemberRequest,
 } from './types';
 
 // Applications
@@ -71,3 +76,22 @@ export const createInviteCode = () =>
 
 export const revokeInviteCode = (code: string) =>
   client.delete(`/admin/invite-codes/${code}`).then((r) => r.data);
+
+// Teams (mix of user-facing reads + admin-only mutations)
+export const listTeams = () =>
+  client.get<{ teams: Team[] }>('/api/teams').then((r) => r.data.teams);
+
+export const getTeam = (id: string) =>
+  client.get<Team>(`/api/teams/${id}`).then((r) => r.data);
+
+export const getTeamMembers = (id: string) =>
+  client.get<{ members: TeamMember[] }>(`/api/teams/${id}/members`).then((r) => r.data.members);
+
+export const adminCreateTeam = (data: AdminCreateTeamRequest) =>
+  client.post<Team>('/admin/teams', data).then((r) => r.data);
+
+export const adminAddTeamMember = (teamId: string, data: AdminAddMemberRequest) =>
+  client.post<TeamMembership>(`/admin/teams/${teamId}/members`, data).then((r) => r.data);
+
+export const adminRemoveTeamMember = (teamId: string, userId: string) =>
+  client.delete(`/admin/teams/${teamId}/members/${userId}`).then((r) => r.data);

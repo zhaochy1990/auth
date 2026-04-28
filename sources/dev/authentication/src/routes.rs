@@ -149,6 +149,15 @@ pub fn create_router(state: AppState) -> Router {
             "/invite-codes/:code",
             delete(handlers::admin::revoke_invite_code),
         )
+        .route("/teams", post(handlers::admin::admin_create_team))
+        .route(
+            "/teams/:id/members",
+            post(handlers::admin::admin_add_team_member),
+        )
+        .route(
+            "/teams/:id/members/:user_id",
+            delete(handlers::admin::admin_remove_team_member),
+        )
         .route_layer(middleware::from_fn_with_state(
             admin_limiter,
             rate_limit_middleware,

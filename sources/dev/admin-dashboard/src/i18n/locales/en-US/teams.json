@@ -1,0 +1,50 @@
+{
+  "title": "Teams",
+  "createBtn": "Create Team",
+  "table": {
+    "name": "Name",
+    "owner": "Owner",
+    "members": "Members",
+    "createdAt": "Created At",
+    "actions": "Actions"
+  },
+  "actions": {
+    "viewDetail": "View",
+    "addMember": "Add Member",
+    "remove": "Remove"
+  },
+  "detail": {
+    "back": "← Back to teams",
+    "memberCount": "{{count}} member",
+    "memberCount_other": "{{count}} members",
+    "membersTitle": "Members",
+    "addMemberTitle": "Add member",
+    "userIdLabel": "User ID",
+    "userIdHelp": "Paste the user UUID. Use the Users page to look it up.",
+    "roleLabel": "Role",
+    "roleMember": "Member",
+    "roleOwner": "Owner",
+    "addBtn": "Add",
+    "removeOwnerBlocked": "Cannot remove the team owner here. Delete the team or transfer ownership first.",
+    "ownerBadge": "OWNER",
+    "openBadge": "OPEN"
+  },
+  "create": {
+    "title": "Create team",
+    "nameLabel": "Name",
+    "namePlaceholder": "e.g. Sub-3 marathon club",
+    "descLabel": "Description (optional)",
+    "ownerLabel": "Owner user ID",
+    "ownerHelp": "The user who will be set as owner of this team.",
+    "isOpenLabel": "Open for anyone to join",
+    "submitBtn": "Create",
+    "cancelBtn": "Cancel"
+  },
+  "errors": {
+    "createFailed": "Failed to create team",
+    "addFailed": "Failed to add member",
+    "removeFailed": "Failed to remove member",
+    "ownerNotFound": "Owner user not found",
+    "userNotFound": "User not found"
+  }
+}

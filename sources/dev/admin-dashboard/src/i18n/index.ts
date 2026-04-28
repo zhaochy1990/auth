@@ -7,6 +7,7 @@ import zhDashboard from './locales/zh-CN/dashboard.json';
 import zhApplications from './locales/zh-CN/applications.json';
 import zhUsers from './locales/zh-CN/users.json';
 import zhInviteCodes from './locales/zh-CN/inviteCodes.json';
+import zhTeams from './locales/zh-CN/teams.json';
 
 import enCommon from './locales/en-US/common.json';
 import enLogin from './locales/en-US/login.json';
@@ -14,6 +15,7 @@ import enDashboard from './locales/en-US/dashboard.json';
 import enApplications from './locales/en-US/applications.json';
 import enUsers from './locales/en-US/users.json';
 import enInviteCodes from './locales/en-US/inviteCodes.json';
+import enTeams from './locales/en-US/teams.json';
 
 const savedLang = localStorage.getItem('lang') || 'zh-CN';
 
@@ -26,6 +28,7 @@ i18n.use(initReactI18next).init({
       applications: zhApplications,
       users: zhUsers,
       inviteCodes: zhInviteCodes,
+      teams: zhTeams,
     },
     'en-US': {
       common: enCommon,
@@ -34,6 +37,7 @@ i18n.use(initReactI18next).init({
       applications: enApplications,
       users: enUsers,
       inviteCodes: enInviteCodes,
+      teams: enTeams,
     },
   },
   lng: savedLang,

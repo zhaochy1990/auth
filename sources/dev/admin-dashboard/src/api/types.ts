@@ -114,6 +114,45 @@ export interface InviteCode {
   is_revoked: boolean;
 }
 
+// Teams
+export interface Team {
+  id: string;
+  name: string;
+  description: string | null;
+  owner_user_id: string;
+  is_open: boolean;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMember {
+  user_id: string;
+  name: string | null;
+  email: string | null;
+  role: string;
+  joined_at: string;
+}
+
+export interface AdminCreateTeamRequest {
+  name: string;
+  description?: string;
+  owner_user_id: string;
+  is_open?: boolean;
+}
+
+export interface AdminAddMemberRequest {
+  user_id: string;
+  role?: 'member' | 'owner';
+}
+
+export interface TeamMembership {
+  team_id: string;
+  user_id: string;
+  role: string;
+  joined_at: string;
+}
+
 // Stats
 export interface Stats {
   applications: {

@@ -1,11 +1,12 @@
 import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router';
-import { LayoutDashboard, AppWindow, Users, Ticket } from 'lucide-react';
+import { LayoutDashboard, AppWindow, Users, Ticket, UsersRound } from 'lucide-react';
 
 const links = [
   { to: '/', icon: LayoutDashboard, labelKey: 'sidebar.dashboard' },
   { to: '/applications', icon: AppWindow, labelKey: 'sidebar.applications' },
   { to: '/users', icon: Users, labelKey: 'sidebar.users' },
+  { to: '/teams', icon: UsersRound, labelKey: 'sidebar.teams' },
   { to: '/invite-codes', icon: Ticket, labelKey: 'sidebar.inviteCodes' },
 ];
 

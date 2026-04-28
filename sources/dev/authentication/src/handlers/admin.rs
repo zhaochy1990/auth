@@ -692,6 +692,225 @@ pub async fn revoke_invite_code(
     Ok(Json(serde_json::json!({"status": "revoked"})))
 }
 
+// --- Admin Team Management ---
+//
+// These endpoints let an authenticated admin create teams on behalf of any
+// user and manage memberships directly. They mirror the user-facing handlers
+// in handlers::teams but require AdminAuth and accept arbitrary target user
+// ids in the request body / path.
+//
+// Every mutation emits a structured tracing::info! audit event with
+// admin_id + target ids + action so admin actions are auditable in logs.
+
+#[derive(Debug, Deserialize)]
+pub struct AdminCreateTeamRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub owner_user_id: String,
+    pub is_open: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AdminAddMemberRequest {
+    pub user_id: String,
+    pub role: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AdminTeamMembershipResponse {
+    pub team_id: String,
+    pub user_id: String,
+    pub role: String,
+    pub joined_at: String,
+}
+
+pub async fn admin_create_team(
+    _admin: AdminAuth,
+    admin_user: crate::auth::middleware::AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(req): Json<AdminCreateTeamRequest>,
+) -> Result<Json<crate::handlers::teams::TeamResponse>, AppError> {
+    let name = req.name.trim().to_string();
+    if name.is_empty() || name.chars().count() > 100 {
+        return Err(AppError::BadRequest(
+            "Team name must be 1-100 characters".to_string(),
+        ));
+    }
+
+    // Validate the requested owner exists.
+    state
+        .repo
+        .users()
+        .find_by_id(&req.owner_user_id)
+        .await?
+        .ok_or(AppError::UserNotFound)?;
+
+    let now = chrono::Utc::now().naive_utc();
+    let team = crate::db::models::Team {
+        id: Uuid::new_v4().to_string(),
+        name,
+        description: req.description,
+        owner_user_id: req.owner_user_id.clone(),
+        is_open: req.is_open.unwrap_or(true),
+        created_at: now,
+        updated_at: now,
+    };
+
+    state.repo.teams().insert(&team).await?;
+
+    let owner_membership = crate::db::models::TeamMembership {
+        team_id: team.id.clone(),
+        user_id: req.owner_user_id.clone(),
+        role: "owner".to_string(),
+        joined_at: now,
+    };
+    state
+        .repo
+        .team_memberships()
+        .insert(&owner_membership)
+        .await?;
+
+    tracing::info!(
+        admin_id = %admin_user.user_id,
+        team_id = %team.id,
+        owner_user_id = %team.owner_user_id,
+        action = "admin_create_team",
+        "Admin created team on behalf"
+    );
+
+    Ok(Json(crate::handlers::teams::TeamResponse {
+        id: team.id,
+        name: team.name,
+        description: team.description,
+        owner_user_id: team.owner_user_id,
+        is_open: team.is_open,
+        member_count: 1,
+        created_at: team.created_at.to_string(),
+        updated_at: team.updated_at.to_string(),
+    }))
+}
+
+pub async fn admin_add_team_member(
+    _admin: AdminAuth,
+    admin_user: crate::auth::middleware::AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(team_id): Path<String>,
+    Json(req): Json<AdminAddMemberRequest>,
+) -> Result<Json<AdminTeamMembershipResponse>, AppError> {
+    // Validate team exists.
+    state
+        .repo
+        .teams()
+        .find_by_id(&team_id)
+        .await?
+        .ok_or(AppError::TeamNotFound)?;
+
+    // Validate target user exists.
+    state
+        .repo
+        .users()
+        .find_by_id(&req.user_id)
+        .await?
+        .ok_or(AppError::UserNotFound)?;
+
+    let role = req.role.unwrap_or_else(|| "member".to_string());
+    if role != "member" && role != "owner" {
+        return Err(AppError::BadRequest(
+            "Role must be 'member' or 'owner'".to_string(),
+        ));
+    }
+
+    // Idempotent: if already a member, return existing — do NOT silently
+    // change the role (admins must remove + re-add to upgrade/downgrade,
+    // which produces clear audit trail).
+    if let Some(existing) = state
+        .repo
+        .team_memberships()
+        .find(&team_id, &req.user_id)
+        .await?
+    {
+        return Ok(Json(AdminTeamMembershipResponse {
+            team_id: existing.team_id,
+            user_id: existing.user_id,
+            role: existing.role,
+            joined_at: existing.joined_at.to_string(),
+        }));
+    }
+
+    let now = chrono::Utc::now().naive_utc();
+    let membership = crate::db::models::TeamMembership {
+        team_id: team_id.clone(),
+        user_id: req.user_id.clone(),
+        role,
+        joined_at: now,
+    };
+    state.repo.team_memberships().insert(&membership).await?;
+
+    tracing::info!(
+        admin_id = %admin_user.user_id,
+        team_id = %membership.team_id,
+        target_user_id = %membership.user_id,
+        role = %membership.role,
+        action = "admin_add_team_member",
+        "Admin added user to team"
+    );
+
+    Ok(Json(AdminTeamMembershipResponse {
+        team_id: membership.team_id,
+        user_id: membership.user_id,
+        role: membership.role,
+        joined_at: membership.joined_at.to_string(),
+    }))
+}
+
+pub async fn admin_remove_team_member(
+    _admin: AdminAuth,
+    admin_user: crate::auth::middleware::AuthenticatedUser,
+    State(state): State<AppState>,
+    Path((team_id, user_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let team = state
+        .repo
+        .teams()
+        .find_by_id(&team_id)
+        .await?
+        .ok_or(AppError::TeamNotFound)?;
+
+    // Refuse to remove the team's owner via this endpoint — keeps Team
+    // .owner_user_id and the membership row in sync. Use a separate flow
+    // (delete team, or future transfer-ownership) to dispose of an owner.
+    if team.owner_user_id == user_id {
+        return Err(AppError::BadRequest(
+            "Cannot remove team owner; delete the team or transfer ownership first".to_string(),
+        ));
+    }
+
+    state
+        .repo
+        .team_memberships()
+        .find(&team_id, &user_id)
+        .await?
+        .ok_or(AppError::BadRequest(
+            "User is not a member of this team".to_string(),
+        ))?;
+
+    state
+        .repo
+        .team_memberships()
+        .delete(&team_id, &user_id)
+        .await?;
+
+    tracing::info!(
+        admin_id = %admin_user.user_id,
+        team_id = %team_id,
+        target_user_id = %user_id,
+        action = "admin_remove_team_member",
+        "Admin removed user from team"
+    );
+
+    Ok(Json(serde_json::json!({"status": "removed"})))
+}
+
 // --- Helpers ---
 
 fn generate_client_id() -> String {

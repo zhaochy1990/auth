@@ -9,10 +9,19 @@ const client = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Request interceptor: attach Bearer token for admin routes
+// Whether a request URL needs an Authorization Bearer attached. /admin/*
+// is admin-only; /api/teams/* are user-facing read endpoints we also want
+// authenticated when called from the admin dashboard (so an admin can
+// browse/inspect teams without first requiring the team owner's token).
+function needsAuth(url: string | undefined): boolean {
+  if (!url) return false;
+  return url.startsWith('/admin') || url.startsWith('/api/teams');
+}
+
+// Request interceptor: attach Bearer token for protected routes
 client.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('access_token');
-  if (token && config.url?.startsWith('/admin')) {
+  if (token && needsAuth(config.url)) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -25,7 +34,7 @@ client.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry && original.url?.startsWith('/admin')) {
+    if (error.response?.status === 401 && !original._retry && needsAuth(original.url)) {
       original._retry = true;
       try {
         const newToken = await refreshAccessToken();

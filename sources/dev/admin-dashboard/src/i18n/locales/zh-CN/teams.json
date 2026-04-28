@@ -1,0 +1,49 @@
+{
+  "title": "团队管理",
+  "createBtn": "创建团队",
+  "table": {
+    "name": "名称",
+    "owner": "所有者",
+    "members": "成员数",
+    "createdAt": "创建时间",
+    "actions": "操作"
+  },
+  "actions": {
+    "viewDetail": "查看",
+    "addMember": "添加成员",
+    "remove": "移除"
+  },
+  "detail": {
+    "back": "← 返回团队列表",
+    "memberCount": "{{count}} 名成员",
+    "membersTitle": "成员",
+    "addMemberTitle": "添加成员",
+    "userIdLabel": "用户 ID",
+    "userIdHelp": "粘贴用户的 UUID。可以在「用户」页面查到。",
+    "roleLabel": "角色",
+    "roleMember": "普通成员",
+    "roleOwner": "所有者",
+    "addBtn": "添加",
+    "removeOwnerBlocked": "不能在此移除团队所有者。请先删除团队或转移所有权。",
+    "ownerBadge": "所有者",
+    "openBadge": "公开"
+  },
+  "create": {
+    "title": "创建团队",
+    "nameLabel": "名称",
+    "namePlaceholder": "例如：破三马拉松俱乐部",
+    "descLabel": "简介（可选）",
+    "ownerLabel": "所有者用户 ID",
+    "ownerHelp": "将被设置为团队所有者的用户。",
+    "isOpenLabel": "公开（任何人可加入）",
+    "submitBtn": "创建",
+    "cancelBtn": "取消"
+  },
+  "errors": {
+    "createFailed": "创建团队失败",
+    "addFailed": "添加成员失败",
+    "removeFailed": "移除成员失败",
+    "ownerNotFound": "找不到所有者用户",
+    "userNotFound": "找不到用户"
+  }
+}

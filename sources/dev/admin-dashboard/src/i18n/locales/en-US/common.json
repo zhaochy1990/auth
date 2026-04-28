@@ -4,6 +4,7 @@
     "dashboard": "Dashboard",
     "applications": "Applications",
     "users": "Users",
+    "teams": "Teams",
     "inviteCodes": "Invite Codes"
   },
   "actions": {
