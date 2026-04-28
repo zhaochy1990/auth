@@ -2,7 +2,8 @@ use async_trait::async_trait;
 use chrono::NaiveDateTime;
 
 use crate::db::models::{
-    Account, AppProvider, Application, AuthorizationCode, InviteCode, RefreshToken, User,
+    Account, AppProvider, Application, AuthorizationCode, InviteCode, RefreshToken, Team,
+    TeamMembership, User,
 };
 use crate::error::AppError;
 
@@ -93,6 +94,27 @@ pub trait InviteCodeRepository: Send + Sync {
     async fn revoke_invite_code(&self, code: &str) -> Result<(), AppError>;
 }
 
+#[async_trait]
+pub trait TeamRepository: Send + Sync {
+    async fn find_by_id(&self, id: &str) -> Result<Option<Team>, AppError>;
+    async fn find_all_open(&self) -> Result<Vec<Team>, AppError>;
+    async fn insert(&self, team: &Team) -> Result<(), AppError>;
+    async fn update(&self, team: &Team) -> Result<(), AppError>;
+    async fn delete_by_id(&self, id: &str) -> Result<(), AppError>;
+}
+
+#[async_trait]
+pub trait TeamMembershipRepository: Send + Sync {
+    /// All members of a team (PartitionKey=team_id query).
+    async fn find_all_by_team(&self, team_id: &str) -> Result<Vec<TeamMembership>, AppError>;
+    /// All teams for a user (cross-partition scan in V1; OK for small N).
+    async fn find_all_by_user(&self, user_id: &str) -> Result<Vec<TeamMembership>, AppError>;
+    async fn find(&self, team_id: &str, user_id: &str) -> Result<Option<TeamMembership>, AppError>;
+    async fn insert(&self, m: &TeamMembership) -> Result<(), AppError>;
+    async fn count_by_team(&self, team_id: &str) -> Result<u64, AppError>;
+    async fn delete(&self, team_id: &str, user_id: &str) -> Result<(), AppError>;
+}
+
 pub trait Repository: Send + Sync {
     fn users(&self) -> &dyn UserRepository;
     fn applications(&self) -> &dyn ApplicationRepository;
@@ -101,4 +123,6 @@ pub trait Repository: Send + Sync {
     fn auth_codes(&self) -> &dyn AuthCodeRepository;
     fn refresh_tokens(&self) -> &dyn RefreshTokenRepository;
     fn invite_codes(&self) -> &dyn InviteCodeRepository;
+    fn teams(&self) -> &dyn TeamRepository;
+    fn team_memberships(&self) -> &dyn TeamMembershipRepository;
 }
