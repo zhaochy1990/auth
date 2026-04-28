@@ -27,11 +27,7 @@ async fn setup_user(app: &TestApp, email: &str) -> (String, String) {
     )
 }
 
-async fn admin_create_team(
-    app: &TestApp,
-    name: &str,
-    owner_user_id: &str,
-) -> serde_json::Value {
+async fn admin_create_team(app: &TestApp, name: &str, owner_user_id: &str) -> serde_json::Value {
     let body = serde_json::json!({
         "name": name,
         "description": "test description",
