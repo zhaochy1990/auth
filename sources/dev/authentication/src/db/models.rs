@@ -44,6 +44,9 @@ pub struct User {
     pub email_verified: bool,
     pub role: String,
     pub is_active: bool,
+    /// Admin-only free-form note about the user. Not exposed via the
+    /// user-facing `/api/users/me` endpoints.
+    pub note: Option<String>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }

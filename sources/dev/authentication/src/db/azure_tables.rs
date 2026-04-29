@@ -199,6 +199,8 @@ struct UserEntity {
     role: String,
     #[serde(default = "default_true")]
     is_active: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    note: Option<String>,
     #[serde(default)]
     created_at: String,
     #[serde(default)]
@@ -223,6 +225,7 @@ impl UserEntity {
             email_verified: u.email_verified,
             role: u.role.clone(),
             is_active: u.is_active,
+            note: u.note.clone(),
             created_at: fmt_dt(&u.created_at),
             updated_at: fmt_dt(&u.updated_at),
         }
@@ -236,6 +239,7 @@ impl UserEntity {
             email_verified: self.email_verified,
             role: self.role.clone(),
             is_active: self.is_active,
+            note: self.note.clone(),
             created_at: parse_dt(&self.created_at),
             updated_at: parse_dt(&self.updated_at),
         }

@@ -106,6 +106,7 @@ pub async fn bootstrap(
             email_verified: true,
             role: "admin".to_string(),
             is_active: true,
+            note: None,
             created_at: now,
             updated_at: now,
         };

@@ -86,6 +86,7 @@ pub struct UserResponse {
     pub email_verified: bool,
     pub role: String,
     pub is_active: bool,
+    pub note: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -103,6 +104,7 @@ pub struct UpdateUserRequest {
     pub name: Option<String>,
     pub role: Option<String>,
     pub is_active: Option<bool>,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -390,6 +392,7 @@ pub async fn list_users(
             email_verified: u.email_verified,
             role: u.role,
             is_active: u.is_active,
+            note: u.note,
             created_at: u.created_at.to_string(),
             updated_at: u.updated_at.to_string(),
         })
@@ -423,6 +426,7 @@ pub async fn get_user(
         email_verified: user.email_verified,
         role: user.role,
         is_active: user.is_active,
+        note: user.note,
         created_at: user.created_at.to_string(),
         updated_at: user.updated_at.to_string(),
     }))
@@ -486,6 +490,7 @@ pub async fn create_user(
         email_verified: false,
         role,
         is_active: true,
+        note: None,
         created_at: now,
         updated_at: now,
     };
@@ -512,6 +517,7 @@ pub async fn create_user(
         email_verified: user.email_verified,
         role: user.role,
         is_active: user.is_active,
+        note: user.note,
         created_at: user.created_at.to_string(),
         updated_at: user.updated_at.to_string(),
     }))
@@ -544,6 +550,11 @@ pub async fn update_user(
     if let Some(is_active) = req.is_active {
         user.is_active = is_active;
     }
+    if let Some(note) = req.note {
+        // Empty string clears the note (reads back as null) so admins
+        // can wipe a note without a separate DELETE endpoint.
+        user.note = if note.is_empty() { None } else { Some(note) };
+    }
     user.updated_at = chrono::Utc::now().naive_utc();
 
     state.repo.users().update(&user).await?;
@@ -556,6 +567,7 @@ pub async fn update_user(
         email_verified: user.email_verified,
         role: user.role,
         is_active: user.is_active,
+        note: user.note,
         created_at: user.created_at.to_string(),
         updated_at: user.updated_at.to_string(),
     }))
