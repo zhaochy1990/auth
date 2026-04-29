@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
+    http::StatusCode,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -571,6 +572,23 @@ pub async fn update_user(
         created_at: user.created_at.to_string(),
         updated_at: user.updated_at.to_string(),
     }))
+}
+
+pub async fn delete_user(
+    admin: AdminAuth,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    crate::handlers::user::delete_user_account(&state, &id).await?;
+
+    tracing::info!(
+        admin_id = %admin.user_id,
+        target_user_id = %id,
+        action = "admin_delete_user",
+        "Admin deleted user account"
+    );
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn admin_unlink_account(

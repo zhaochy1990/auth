@@ -1,22 +1,26 @@
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router';
-import { ArrowLeft, Check, Pencil, Shield, ShieldOff, Unlink, X } from 'lucide-react';
-import { getUser, getUserAccounts, updateUser, adminUnlinkAccount } from '../../api/admin';
+import { ArrowLeft, Check, Pencil, Shield, ShieldOff, Trash2, Unlink, X } from 'lucide-react';
+import { getUser, getUserAccounts, updateUser, adminUnlinkAccount, deleteUser } from '../../api/admin';
 import StatusBadge from '../../components/shared/StatusBadge';
 import Badge from '../../components/ui/Badge';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Spinner from '../../components/ui/Spinner';
 import toast from 'react-hot-toast';
 import { useState } from 'react';
+import { useAuthStore } from '../../store/authStore';
 
 export default function UserDetailPage() {
   const { t } = useTranslation('users');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const currentUserId = useAuthStore((s) => s.userId);
+  const logout = useAuthStore((s) => s.logout);
 
   const [unlinkProvider, setUnlinkProvider] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [editingNote, setEditingNote] = useState(false);
@@ -77,6 +81,22 @@ export default function UserDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['userAccounts', id] });
       setUnlinkProvider(null);
       toast.success(t('detail.unlinkSuccess'));
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteUser(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setDeleteConfirmOpen(false);
+      toast.success(t('detail.deleteSuccess'));
+
+      if (id === currentUserId) {
+        logout();
+        navigate('/login', { replace: true });
+      } else {
+        navigate('/users', { replace: true });
+      }
     },
   });
 
@@ -289,12 +309,34 @@ export default function UserDetailPage() {
         )}
       </div>
 
+      {/* Danger Zone */}
+      <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-red-200 sm:p-6">
+        <h2 className="font-medium text-red-700">{t('detail.dangerZone')}</h2>
+        <p className="mt-2 text-sm text-gray-600">{t('detail.deleteDescription')}</p>
+        <button
+          onClick={() => setDeleteConfirmOpen(true)}
+          disabled={deleteMutation.isPending}
+          className="mt-4 flex w-full items-center justify-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-50 sm:w-auto"
+        >
+          <Trash2 size={16} />
+          {t('detail.deleteUser')}
+        </button>
+      </div>
+
       <ConfirmDialog
         open={!!unlinkProvider}
         message={t('detail.unlinkConfirm')}
         onConfirm={() => unlinkProvider && unlinkMutation.mutate(unlinkProvider)}
         onCancel={() => setUnlinkProvider(null)}
         loading={unlinkMutation.isPending}
+      />
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title={t('detail.deleteConfirmTitle')}
+        message={t('detail.deleteConfirm')}
+        onConfirm={() => deleteMutation.mutate()}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        loading={deleteMutation.isPending}
       />
     </div>
   );

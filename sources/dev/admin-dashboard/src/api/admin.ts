@@ -57,6 +57,9 @@ export const getUser = (id: string) =>
 export const updateUser = (id: string, data: UpdateUserRequest) =>
   client.patch<User>(`/admin/users/${id}`, data).then((r) => r.data);
 
+export const deleteUser = (id: string) =>
+  client.delete(`/admin/users/${id}`).then((r) => r.data);
+
 export const getUserAccounts = (id: string) =>
   client.get<UserAccount[]>(`/admin/users/${id}/accounts`).then((r) => r.data);
 

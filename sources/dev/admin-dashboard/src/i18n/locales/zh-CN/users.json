@@ -51,6 +51,12 @@
     "noteEdit": "编辑备注",
     "notePlaceholder": "关于此用户的内部备注（仅管理员可见，用户本人看不到）",
     "noteSave": "保存",
-    "noteCancel": "取消"
+    "noteCancel": "取消",
+    "dangerZone": "危险操作",
+    "deleteUser": "删除用户",
+    "deleteDescription": "删除后会移除此用户、关联账号、刷新令牌、授权码和团队成员关系。若该用户仍拥有团队，需要先转移或删除团队。",
+    "deleteConfirmTitle": "删除用户",
+    "deleteConfirm": "确定要删除此用户吗？此操作不可撤销。",
+    "deleteSuccess": "用户已删除"
   }
 }

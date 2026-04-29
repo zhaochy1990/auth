@@ -141,7 +141,9 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/users/:id",
-            get(handlers::admin::get_user).patch(handlers::admin::update_user),
+            get(handlers::admin::get_user)
+                .patch(handlers::admin::update_user)
+                .delete(handlers::admin::delete_user),
         )
         .route(
             "/users/:id/accounts",

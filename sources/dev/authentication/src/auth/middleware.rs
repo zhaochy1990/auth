@@ -173,8 +173,10 @@ where
     }
 }
 
-/// Admin auth — requires a Bearer token with admin role.
-pub struct AdminAuth;
+/// Admin auth — requires an active admin user and a Bearer token with admin role.
+pub struct AdminAuth {
+    pub user_id: String,
+}
 
 #[async_trait]
 impl<S> FromRequestParts<S> for AdminAuth
@@ -201,6 +203,23 @@ where
             return Err(AppError::Forbidden);
         }
 
-        Ok(AdminAuth)
+        let db_user = app_state
+            .repo
+            .users()
+            .find_by_id(&claims.sub)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
+
+        if !db_user.is_active {
+            return Err(AppError::UserDisabled);
+        }
+
+        if db_user.role != "admin" {
+            return Err(AppError::Forbidden);
+        }
+
+        Ok(AdminAuth {
+            user_id: claims.sub,
+        })
     }
 }

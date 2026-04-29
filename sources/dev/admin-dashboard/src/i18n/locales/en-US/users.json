@@ -51,6 +51,12 @@
     "noteEdit": "Edit note",
     "notePlaceholder": "Internal note about this user (admin only, not visible to the user)",
     "noteSave": "Save",
-    "noteCancel": "Cancel"
+    "noteCancel": "Cancel",
+    "dangerZone": "Danger Zone",
+    "deleteUser": "Delete User",
+    "deleteDescription": "Deleting removes this user, linked accounts, refresh tokens, authorization codes, and team memberships. If the user still owns teams, transfer or delete those teams first.",
+    "deleteConfirmTitle": "Delete User",
+    "deleteConfirm": "Delete this user? This action cannot be undone.",
+    "deleteSuccess": "User deleted"
   }
 }

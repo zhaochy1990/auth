@@ -214,18 +214,21 @@ pub async fn delete_me(
     user: AuthenticatedUser,
     State(state): State<AppState>,
 ) -> Result<StatusCode, AppError> {
+    delete_user_account(&state, &user.user_id).await?;
+
+    tracing::info!(user_id = %user.user_id, "user self-deleted account");
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn delete_user_account(state: &AppState, user_id: &str) -> Result<(), AppError> {
     state
         .repo
         .users()
-        .find_by_id(&user.user_id)
+        .find_by_id(user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
 
-    let owned_teams = state
-        .repo
-        .teams()
-        .find_all_owned_by_user(&user.user_id)
-        .await?;
+    let owned_teams = state.repo.teams().find_all_owned_by_user(user_id).await?;
     if !owned_teams.is_empty() {
         return Err(AppError::UserOwnsTeams(owned_teams.len()));
     }
@@ -233,25 +236,16 @@ pub async fn delete_me(
     state
         .repo
         .refresh_tokens()
-        .delete_all_by_user(&user.user_id)
+        .delete_all_by_user(user_id)
         .await?;
-    state
-        .repo
-        .auth_codes()
-        .delete_all_by_user(&user.user_id)
-        .await?;
-    state
-        .repo
-        .accounts()
-        .delete_all_by_user(&user.user_id)
-        .await?;
+    state.repo.auth_codes().delete_all_by_user(user_id).await?;
+    state.repo.accounts().delete_all_by_user(user_id).await?;
     state
         .repo
         .team_memberships()
-        .delete_all_by_user(&user.user_id)
+        .delete_all_by_user(user_id)
         .await?;
-    state.repo.users().delete_by_id(&user.user_id).await?;
+    state.repo.users().delete_by_id(user_id).await?;
 
-    tracing::info!(user_id = %user.user_id, "user self-deleted account");
-    Ok(StatusCode::NO_CONTENT)
+    Ok(())
 }
