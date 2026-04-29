@@ -19,6 +19,8 @@ export default function UserDetailPage() {
   const [unlinkProvider, setUnlinkProvider] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteInput, setNoteInput] = useState('');
 
   const { data: user, isLoading } = useQuery({
     queryKey: ['user', id],
@@ -56,6 +58,15 @@ export default function UserDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['user', id] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setEditingName(false);
+      toast.success(t('detail.updateSuccess'));
+    },
+  });
+
+  const noteMutation = useMutation({
+    mutationFn: (note: string) => updateUser(id!, { note }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user', id] });
+      setEditingNote(false);
       toast.success(t('detail.updateSuccess'));
     },
   });
@@ -191,6 +202,59 @@ export default function UserDetailPage() {
             {t('detail.toggleActive')} → {user.is_active ? t('common:actions.disable') : t('common:actions.enable')}
           </button>
         </div>
+      </div>
+
+      {/* Admin Note */}
+      <div className="mt-6 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium text-gray-900">{t('detail.note')}</h2>
+          {!editingNote && (
+            <button
+              onClick={() => { setNoteInput(user.note || ''); setEditingNote(true); }}
+              className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+              title={t('detail.noteEdit')}
+            >
+              <Pencil size={14} />
+              {t('detail.noteEdit')}
+            </button>
+          )}
+        </div>
+
+        {editingNote ? (
+          <div className="mt-3">
+            <textarea
+              value={noteInput}
+              onChange={(e) => setNoteInput(e.target.value)}
+              placeholder={t('detail.notePlaceholder')}
+              rows={4}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              autoFocus
+            />
+            <div className="mt-2 flex justify-end gap-2">
+              <button
+                onClick={() => setEditingNote(false)}
+                className="rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200"
+              >
+                {t('detail.noteCancel')}
+              </button>
+              <button
+                onClick={() => noteMutation.mutate(noteInput)}
+                disabled={noteMutation.isPending}
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {t('detail.noteSave')}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 whitespace-pre-wrap text-sm">
+            {user.note ? (
+              <span className="text-gray-900">{user.note}</span>
+            ) : (
+              <span className="text-gray-400">{t('detail.noteEmpty')}</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Accounts */}

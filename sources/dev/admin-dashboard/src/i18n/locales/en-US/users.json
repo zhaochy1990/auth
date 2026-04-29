@@ -45,6 +45,12 @@
     "updateSuccess": "Updated",
     "unlinkSuccess": "Account unlinked",
     "editName": "Edit name",
-    "namePlaceholder": "Enter name"
+    "namePlaceholder": "Enter name",
+    "note": "Admin Note",
+    "noteEmpty": "No note",
+    "noteEdit": "Edit note",
+    "notePlaceholder": "Internal note about this user (admin only, not visible to the user)",
+    "noteSave": "Save",
+    "noteCancel": "Cancel"
   }
 }
