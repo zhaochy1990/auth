@@ -129,6 +129,7 @@ pub async fn register(
         email_verified: false,
         role: "user".to_string(),
         is_active: true,
+        note: None,
         created_at: now,
         updated_at: now,
     };
@@ -323,6 +324,7 @@ pub async fn provider_login(
             email_verified: false,
             role: "user".to_string(),
             is_active: true,
+            note: None,
             created_at: now,
             updated_at: now,
         };

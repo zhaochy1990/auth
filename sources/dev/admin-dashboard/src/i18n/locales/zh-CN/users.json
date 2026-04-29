@@ -45,6 +45,12 @@
     "updateSuccess": "更新成功",
     "unlinkSuccess": "解除绑定成功",
     "editName": "编辑姓名",
-    "namePlaceholder": "输入姓名"
+    "namePlaceholder": "输入姓名",
+    "note": "管理员备注",
+    "noteEmpty": "暂无备注",
+    "noteEdit": "编辑备注",
+    "notePlaceholder": "关于此用户的内部备注（仅管理员可见，用户本人看不到）",
+    "noteSave": "保存",
+    "noteCancel": "取消"
   }
 }

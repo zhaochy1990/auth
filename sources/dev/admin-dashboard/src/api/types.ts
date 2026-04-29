@@ -72,6 +72,7 @@ export interface User {
   email_verified: boolean;
   role: string;
   is_active: boolean;
+  note: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -87,6 +88,7 @@ export interface UpdateUserRequest {
   name?: string;
   role?: string;
   is_active?: boolean;
+  note?: string;
 }
 
 export interface CreateUserRequest {
