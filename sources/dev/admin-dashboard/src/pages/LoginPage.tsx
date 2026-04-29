@@ -47,16 +47,16 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-gray-50 px-4 py-8">
       <div className="w-full max-w-sm">
-        <div className="flex justify-end mb-4">
+        <div className="mb-4 flex justify-end">
           <button onClick={toggleLang} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
             <Globe size={16} />
             {i18n.language === 'zh-CN' ? 'EN' : '中文'}
           </button>
         </div>
 
-        <div className="rounded-lg bg-white p-8 shadow-sm ring-1 ring-gray-200">
+        <div className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 sm:p-8">
           <h1 className="text-center text-xl font-semibold text-gray-900">{t('title')}</h1>
 
           {error && (

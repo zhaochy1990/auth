@@ -24,51 +24,51 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-gray-900">{t('title')}</h1>
+      <h1 className="text-xl font-semibold text-gray-900 sm:text-2xl">{t('title')}</h1>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:mt-6 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
         {/* App Stats */}
-        <div className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
+        <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
           <div className="flex items-center gap-2 text-gray-500">
             <AppWindow size={20} />
             <h2 className="font-medium">{t('apps.title')}</h2>
           </div>
-          <div className="mt-4 grid grid-cols-3 gap-4 text-center">
+          <div className="mt-4 grid grid-cols-3 gap-3 text-center sm:gap-4">
             <div>
-              <div className="text-2xl font-semibold text-gray-900">{stats?.applications.total ?? 0}</div>
+              <div className="text-xl font-semibold text-gray-900 sm:text-2xl">{stats?.applications.total ?? 0}</div>
               <div className="text-xs text-gray-500">{t('apps.total')}</div>
             </div>
             <div>
-              <div className="text-2xl font-semibold text-green-600">{stats?.applications.active ?? 0}</div>
+              <div className="text-xl font-semibold text-green-600 sm:text-2xl">{stats?.applications.active ?? 0}</div>
               <div className="text-xs text-gray-500">{t('apps.active')}</div>
             </div>
             <div>
-              <div className="text-2xl font-semibold text-red-600">{stats?.applications.inactive ?? 0}</div>
+              <div className="text-xl font-semibold text-red-600 sm:text-2xl">{stats?.applications.inactive ?? 0}</div>
               <div className="text-xs text-gray-500">{t('apps.inactive')}</div>
             </div>
           </div>
         </div>
 
         {/* User Stats */}
-        <div className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
+        <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
           <div className="flex items-center gap-2 text-gray-500">
             <Users size={20} />
             <h2 className="font-medium">{t('users.title')}</h2>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-4 text-center">
+          <div className="mt-4 grid grid-cols-2 gap-3 text-center sm:gap-4">
             <div>
-              <div className="text-2xl font-semibold text-gray-900">{stats?.users.total ?? 0}</div>
+              <div className="text-xl font-semibold text-gray-900 sm:text-2xl">{stats?.users.total ?? 0}</div>
               <div className="text-xs text-gray-500">{t('users.total')}</div>
             </div>
             <div>
-              <div className="text-2xl font-semibold text-blue-600">{stats?.users.recent ?? 0}</div>
+              <div className="text-xl font-semibold text-blue-600 sm:text-2xl">{stats?.users.recent ?? 0}</div>
               <div className="text-xs text-gray-500">{t('users.recent')}</div>
             </div>
           </div>
         </div>
 
         {/* Quick Actions */}
-        <div className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
+        <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
           <h2 className="font-medium text-gray-500">{t('quickActions.title')}</h2>
           <div className="mt-4 space-y-2">
             <button

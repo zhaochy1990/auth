@@ -135,7 +135,7 @@ export default function ApplicationDetailPage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="mx-auto w-full max-w-2xl">
       <button
         onClick={() => navigate('/applications')}
         className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
@@ -144,10 +144,10 @@ export default function ApplicationDetailPage() {
         {t('common:actions.back')}
       </button>
 
-      <h1 className="mt-4 text-2xl font-semibold text-gray-900">{app.name}</h1>
+      <h1 className="mt-4 break-words text-xl font-semibold text-gray-900 sm:text-2xl">{app.name}</h1>
 
       {/* Basic Settings */}
-      <form onSubmit={handleSave} className="mt-6 space-y-4 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
+      <form onSubmit={handleSave} className="mt-6 space-y-4 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
         <h2 className="font-medium text-gray-900">{t('detail.basicSettings')}</h2>
 
         <div>
@@ -179,7 +179,7 @@ export default function ApplicationDetailPage() {
           <button
             type="submit"
             disabled={saveMutation.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
           >
             {t('common:actions.save')}
           </button>
@@ -187,14 +187,18 @@ export default function ApplicationDetailPage() {
       </form>
 
       {/* Credentials */}
-      <div className="mt-6 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
+      <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
         <h2 className="font-medium text-gray-900">{t('detail.credentials')}</h2>
 
         <div className="mt-4">
           <label className="text-xs font-medium text-gray-500">Client ID</label>
           <div className="flex items-center gap-2 rounded-md bg-gray-50 px-3 py-2">
-            <code className="flex-1 text-sm">{app.client_id}</code>
-            <button onClick={copyClientId} className="text-gray-400 hover:text-gray-600">
+            <code className="min-w-0 flex-1 break-all text-sm">{app.client_id}</code>
+            <button
+              onClick={copyClientId}
+              aria-label={t('common:actions.copy')}
+              className="shrink-0 text-gray-400 hover:text-gray-600"
+            >
               {copiedClientId ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
             </button>
           </div>
@@ -202,19 +206,19 @@ export default function ApplicationDetailPage() {
 
         <button
           onClick={() => setShowRotateConfirm(true)}
-          className="mt-3 rounded-md bg-amber-600 px-3 py-1.5 text-sm text-white hover:bg-amber-700"
+          className="mt-3 w-full rounded-md bg-amber-600 px-3 py-1.5 text-sm text-white hover:bg-amber-700 sm:w-auto"
         >
           {t('detail.rotateSecret')}
         </button>
       </div>
 
       {/* Providers */}
-      <div className="mt-6 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
-        <div className="flex items-center justify-between">
+      <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="font-medium text-gray-900">{t('detail.providers')}</h2>
           <button
             onClick={() => setShowAddProvider(true)}
-            className="text-sm text-blue-600 hover:underline"
+            className="self-start text-sm text-blue-600 hover:underline"
           >
             {t('detail.addProvider')}
           </button>
@@ -227,7 +231,7 @@ export default function ApplicationDetailPage() {
         ) : (
           <div className="mt-4 divide-y divide-gray-100">
             {(providers || []).map((p) => (
-              <div key={p.id} className="flex items-center justify-between py-3">
+              <div key={p.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">{p.provider_id}</span>
@@ -238,7 +242,7 @@ export default function ApplicationDetailPage() {
                       {Object.entries(p.config).map(([key, value]) => (
                         <span key={key} className="text-xs text-gray-500">
                           <span className="font-medium text-gray-600">{key}:</span>{' '}
-                          <span className="font-mono">{String(value)}</span>
+                          <span className="break-all font-mono">{String(value)}</span>
                         </span>
                       ))}
                     </div>
@@ -246,7 +250,8 @@ export default function ApplicationDetailPage() {
                 </div>
                 <button
                   onClick={() => setRemoveProviderId(p.provider_id)}
-                  className="ml-2 shrink-0 text-red-500 hover:text-red-700"
+                  aria-label={t('common:actions.delete')}
+                  className="self-start text-red-500 hover:text-red-700 sm:ml-2 sm:self-auto"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -258,8 +263,8 @@ export default function ApplicationDetailPage() {
 
       {/* Add Provider Dialog */}
       {showAddProvider && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-lg bg-white p-4 shadow-xl sm:p-6">
             <h3 className="text-lg font-semibold">{t('detail.addProvider')}</h3>
             <div className="mt-4 space-y-3">
               <div>
@@ -301,7 +306,7 @@ export default function ApplicationDetailPage() {
                 </div>
               )}
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button
                 onClick={() => { setShowAddProvider(false); setNewProviderId('password'); setNewProviderConfig({}); }}
                 className="rounded-md px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"

@@ -20,26 +20,34 @@ export default function SecretDisplay({ clientId, clientSecret, onAcknowledge }:
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-4 shadow-xl sm:p-6">
         <h3 className="text-lg font-semibold text-gray-900">{t('secret.title')}</h3>
         <p className="mt-1 text-sm text-amber-600">{t('secret.message')}</p>
 
         <div className="mt-4 space-y-3">
           <div>
             <label className="text-xs font-medium text-gray-500">{t('secret.clientId')}</label>
-            <div className="flex items-center gap-2 rounded-md bg-gray-50 px-3 py-2">
-              <code className="flex-1 break-all text-sm">{clientId}</code>
-              <button onClick={() => copy(clientId, 'id')} className="text-gray-400 hover:text-gray-600">
+            <div className="flex items-start gap-2 rounded-md bg-gray-50 px-3 py-2">
+              <code className="min-w-0 flex-1 break-all text-sm">{clientId}</code>
+              <button
+                onClick={() => copy(clientId, 'id')}
+                aria-label={t('common:actions.copy')}
+                className="shrink-0 text-gray-400 hover:text-gray-600"
+              >
                 {copiedField === 'id' ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
               </button>
             </div>
           </div>
           <div>
             <label className="text-xs font-medium text-gray-500">{t('secret.clientSecret')}</label>
-            <div className="flex items-center gap-2 rounded-md bg-gray-50 px-3 py-2">
-              <code className="flex-1 break-all text-sm">{clientSecret}</code>
-              <button onClick={() => copy(clientSecret, 'secret')} className="text-gray-400 hover:text-gray-600">
+            <div className="flex items-start gap-2 rounded-md bg-gray-50 px-3 py-2">
+              <code className="min-w-0 flex-1 break-all text-sm">{clientSecret}</code>
+              <button
+                onClick={() => copy(clientSecret, 'secret')}
+                aria-label={t('common:actions.copy')}
+                className="shrink-0 text-gray-400 hover:text-gray-600"
+              >
                 {copiedField === 'secret' ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
               </button>
             </div>
@@ -62,7 +70,7 @@ export default function SecretDisplay({ clientId, clientSecret, onAcknowledge }:
           <button
             onClick={onAcknowledge}
             disabled={!acknowledged}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
           >
             {t('common:actions.confirm')}
           </button>

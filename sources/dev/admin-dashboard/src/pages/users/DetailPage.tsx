@@ -93,7 +93,7 @@ export default function UserDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="mx-auto w-full max-w-2xl">
       <button
         onClick={() => navigate('/users')}
         className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
@@ -102,18 +102,18 @@ export default function UserDetailPage() {
         {t('common:actions.back')}
       </button>
 
-      <h1 className="mt-4 text-2xl font-semibold text-gray-900">
+      <h1 className="mt-4 break-words text-xl font-semibold text-gray-900 sm:text-2xl">
         {user.email || user.name || user.id}
       </h1>
 
       {/* Profile */}
-      <div className="mt-6 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
+      <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
         <h2 className="font-medium text-gray-900">{t('detail.profile')}</h2>
 
-        <dl className="mt-4 grid grid-cols-2 gap-4">
+        <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <dt className="text-xs font-medium text-gray-500">{t('detail.email')}</dt>
-            <dd className="mt-1 text-sm text-gray-900">{user.email || '-'}</dd>
+            <dd className="mt-1 break-all text-sm text-gray-900">{user.email || '-'}</dd>
           </div>
           <div>
             <dt className="text-xs font-medium text-gray-500">{t('detail.name')}</dt>
@@ -148,7 +148,7 @@ export default function UserDetailPage() {
                 </div>
               ) : (
                 <div className="flex items-center gap-1">
-                  <span className="text-sm text-gray-900">{user.name || '-'}</span>
+                  <span className="break-words text-sm text-gray-900">{user.name || '-'}</span>
                   <button
                     onClick={() => { setNameInput(user.name || ''); setEditingName(true); }}
                     className="text-gray-400 hover:text-gray-600"
@@ -185,11 +185,11 @@ export default function UserDetailPage() {
           </div>
         </dl>
 
-        <div className="mt-6 flex gap-2">
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
           <button
             onClick={() => roleMutation.mutate(user.role === 'admin' ? 'user' : 'admin')}
             disabled={roleMutation.isPending}
-            className="flex items-center gap-1 rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-1 rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50 sm:w-auto"
           >
             {user.role === 'admin' ? <ShieldOff size={16} /> : <Shield size={16} />}
             {t('detail.changeRole')} → {user.role === 'admin' ? t('role.user') : t('role.admin')}
@@ -197,7 +197,7 @@ export default function UserDetailPage() {
           <button
             onClick={() => activeMutation.mutate(!user.is_active)}
             disabled={activeMutation.isPending}
-            className="rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+            className="w-full rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50 sm:w-auto"
           >
             {t('detail.toggleActive')} → {user.is_active ? t('common:actions.disable') : t('common:actions.enable')}
           </button>
@@ -205,13 +205,13 @@ export default function UserDetailPage() {
       </div>
 
       {/* Admin Note */}
-      <div className="mt-6 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
-        <div className="flex items-center justify-between">
+      <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="font-medium text-gray-900">{t('detail.note')}</h2>
           {!editingNote && (
             <button
               onClick={() => { setNoteInput(user.note || ''); setEditingNote(true); }}
-              className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+              className="flex items-center gap-1 self-start text-sm text-gray-500 hover:text-gray-700"
               title={t('detail.noteEdit')}
             >
               <Pencil size={14} />
@@ -230,7 +230,7 @@ export default function UserDetailPage() {
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               autoFocus
             />
-            <div className="mt-2 flex justify-end gap-2">
+            <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button
                 onClick={() => setEditingNote(false)}
                 className="rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200"
@@ -258,7 +258,7 @@ export default function UserDetailPage() {
       </div>
 
       {/* Accounts */}
-      <div className="mt-6 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
+      <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
         <h2 className="font-medium text-gray-900">{t('detail.accounts')}</h2>
 
         {(accounts || []).length === 0 ? (
@@ -266,10 +266,10 @@ export default function UserDetailPage() {
         ) : (
           <div className="mt-4 divide-y divide-gray-100">
             {(accounts || []).map((a) => (
-              <div key={a.id} className="flex items-center justify-between py-3">
-                <div>
+              <div key={a.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <div className="text-sm font-medium">{a.provider_id}</div>
-                  <div className="text-xs text-gray-500">
+                  <div className="break-all text-xs text-gray-500">
                     {t('detail.accountId')}: {a.provider_account_id || '-'}
                   </div>
                   <div className="text-xs text-gray-400">
@@ -278,7 +278,7 @@ export default function UserDetailPage() {
                 </div>
                 <button
                   onClick={() => setUnlinkProvider(a.provider_id)}
-                  className="flex items-center gap-1 text-sm text-red-600 hover:text-red-800"
+                  className="flex items-center gap-1 self-start text-sm text-red-600 hover:text-red-800"
                 >
                   <Unlink size={14} />
                   {t('detail.unlinkAccount')}

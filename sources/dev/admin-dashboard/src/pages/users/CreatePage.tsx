@@ -47,7 +47,7 @@ export default function UserCreatePage() {
   };
 
   return (
-    <div className="mx-auto max-w-lg">
+    <div className="mx-auto w-full max-w-lg">
       <button
         onClick={() => navigate('/users')}
         className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
@@ -56,9 +56,9 @@ export default function UserCreatePage() {
         {t('common:actions.back')}
       </button>
 
-      <h1 className="mt-4 text-2xl font-semibold text-gray-900">{t('create.title')}</h1>
+      <h1 className="mt-4 text-xl font-semibold text-gray-900 sm:text-2xl">{t('create.title')}</h1>
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
+      <form onSubmit={handleSubmit} className="mt-6 space-y-4 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
         {error && (
           <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
         )}
@@ -114,7 +114,7 @@ export default function UserCreatePage() {
           <button
             type="submit"
             disabled={mutation.isPending}
-            className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
           >
             {mutation.isPending && <Spinner className="h-4 w-4" />}
             {t('create.submit')}

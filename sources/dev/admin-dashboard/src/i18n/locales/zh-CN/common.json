@@ -21,7 +21,9 @@
     "refresh": "刷新",
     "enable": "启用",
     "disable": "禁用",
-    "logout": "退出登录"
+    "logout": "退出登录",
+    "openMenu": "打开菜单",
+    "closeMenu": "关闭菜单"
   },
   "status": {
     "active": "启用",

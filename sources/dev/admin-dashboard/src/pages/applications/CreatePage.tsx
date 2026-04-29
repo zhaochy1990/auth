@@ -47,7 +47,7 @@ export default function ApplicationCreatePage() {
   }
 
   return (
-    <div className="mx-auto max-w-lg">
+    <div className="mx-auto w-full max-w-lg">
       <button
         onClick={() => navigate('/applications')}
         className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
@@ -56,9 +56,9 @@ export default function ApplicationCreatePage() {
         {t('common:actions.back')}
       </button>
 
-      <h1 className="mt-4 text-2xl font-semibold text-gray-900">{t('create.title')}</h1>
+      <h1 className="mt-4 text-xl font-semibold text-gray-900 sm:text-2xl">{t('create.title')}</h1>
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
+      <form onSubmit={handleSubmit} className="mt-6 space-y-4 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
         <div>
           <label className="block text-sm font-medium text-gray-700">{t('create.name')}</label>
           <input
@@ -97,7 +97,7 @@ export default function ApplicationCreatePage() {
           <button
             type="submit"
             disabled={mutation.isPending}
-            className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
           >
             {mutation.isPending && <Spinner className="h-4 w-4" />}
             {t('create.submit')}

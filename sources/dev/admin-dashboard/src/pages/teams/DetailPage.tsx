@@ -83,15 +83,15 @@ export default function TeamDetailPage() {
   const isOwner = (m: TeamMember) => m.user_id === team.owner_user_id;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <NavLink to="/teams" className="text-sm text-blue-600 hover:text-blue-800">
         {t('detail.back')}
       </NavLink>
 
       {/* Team header */}
-      <div className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold text-gray-900">{team.name}</h1>
+      <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="break-words text-xl font-semibold text-gray-900 sm:text-2xl">{team.name}</h1>
           {team.is_open && (
             <span className="rounded bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
               {t('detail.openBadge')}
@@ -110,7 +110,7 @@ export default function TeamDetailPage() {
       {/* Add member */}
       <form
         onSubmit={handleAdd}
-        className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200"
+        className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6"
       >
         <h2 className="text-base font-semibold text-gray-900">{t('detail.addMemberTitle')}</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_140px_auto]">
@@ -140,7 +140,7 @@ export default function TeamDetailPage() {
             <button
               type="submit"
               disabled={!newUserId.trim() || addMutation.isPending}
-              className="flex items-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
             >
               <UserPlus size={16} />
               {t('detail.addBtn')}
@@ -154,52 +154,102 @@ export default function TeamDetailPage() {
         <div className="border-b border-gray-200 px-4 py-3">
           <h2 className="text-base font-semibold text-gray-900">{t('detail.membersTitle')}</h2>
         </div>
-        <table className="min-w-full divide-y divide-gray-200">
+        <div className="divide-y divide-gray-200 md:hidden">
+          {members.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-gray-500">
+              {t('common:status.empty')}
+            </div>
+          ) : (
+            members.map((m) => (
+              <div key={m.user_id} className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="break-words text-sm font-medium text-gray-900">
+                      {m.name || m.email || '—'}
+                    </div>
+                    <code className="text-xs text-gray-400">{m.user_id.slice(0, 8)}…</code>
+                  </div>
+                  {isOwner(m) ? (
+                    <span className="shrink-0 rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                      {t('detail.ownerBadge')}
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-sm text-gray-500">{m.role}</span>
+                  )}
+                </div>
+
+                <div className="mt-3 text-xs text-gray-500">
+                  {t('detail.joinedAt')}: {new Date(m.joined_at).toLocaleDateString()}
+                </div>
+
+                {!isOwner(m) && (
+                  <button
+                    onClick={() => removeMutation.mutate(m.user_id)}
+                    disabled={removeMutation.isPending}
+                    className="mt-3 flex items-center gap-1 text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
+                  >
+                    <Trash2 size={14} />
+                    {t('actions.remove')}
+                  </button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+        <table className="hidden min-w-full divide-y divide-gray-200 md:table">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">User</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('detail.userLabel')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('detail.roleLabel')}</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Joined</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('detail.joinedAt')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {members.map((m) => (
-              <tr key={m.user_id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 text-sm">
-                  <div className="font-medium text-gray-900">
-                    {m.name || m.email || '—'}
-                  </div>
-                  <code className="text-xs text-gray-400">{m.user_id.slice(0, 8)}…</code>
-                </td>
-                <td className="px-4 py-3 text-sm">
-                  {isOwner(m) ? (
-                    <span className="rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                      {t('detail.ownerBadge')}
-                    </span>
-                  ) : (
-                    <span className="text-gray-500">{m.role}</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-500">
-                  {new Date(m.joined_at).toLocaleDateString()}
-                </td>
-                <td className="px-4 py-3 text-sm">
-                  {isOwner(m) ? (
-                    <span className="text-xs text-gray-400" title={t('detail.removeOwnerBlocked')}>—</span>
-                  ) : (
-                    <button
-                      onClick={() => removeMutation.mutate(m.user_id)}
-                      disabled={removeMutation.isPending}
-                      className="flex items-center gap-1 text-red-600 hover:text-red-800 disabled:opacity-50"
-                    >
-                      <Trash2 size={14} />
-                      {t('actions.remove')}
-                    </button>
-                  )}
+            {members.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-4 py-8 text-center text-sm text-gray-500">
+                  {t('common:status.empty')}
                 </td>
               </tr>
-            ))}
+            ) : (
+              members.map((m) => (
+                <tr key={m.user_id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm">
+                    <div className="font-medium text-gray-900">
+                      {m.name || m.email || '—'}
+                    </div>
+                    <code className="text-xs text-gray-400">{m.user_id.slice(0, 8)}…</code>
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    {isOwner(m) ? (
+                      <span className="rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                        {t('detail.ownerBadge')}
+                      </span>
+                    ) : (
+                      <span className="text-gray-500">{m.role}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-500">
+                    {new Date(m.joined_at).toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    {isOwner(m) ? (
+                      <span className="text-xs text-gray-400" title={t('detail.removeOwnerBlocked')}>—</span>
+                    ) : (
+                      <button
+                        onClick={() => removeMutation.mutate(m.user_id)}
+                        disabled={removeMutation.isPending}
+                        className="flex items-center gap-1 text-red-600 hover:text-red-800 disabled:opacity-50"
+                      >
+                        <Trash2 size={14} />
+                        {t('actions.remove')}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

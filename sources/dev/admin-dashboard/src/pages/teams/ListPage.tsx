@@ -13,6 +13,7 @@ export default function TeamsListPage() {
     queryKey: ['teams'],
     queryFn: listTeams,
   });
+  const teams = data || [];
 
   if (isLoading) {
     return (
@@ -24,18 +25,65 @@ export default function TeamsListPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-gray-900">{t('title')}</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-xl font-semibold text-gray-900 sm:text-2xl">{t('title')}</h1>
         <NavLink
           to="/teams/new"
-          className="flex items-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
+          className="flex w-full items-center justify-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 sm:w-auto"
         >
           <Plus size={16} />
           {t('createBtn')}
         </NavLink>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-200">
+      <div className="mt-4 space-y-3 md:hidden">
+        {teams.length === 0 ? (
+          <div className="rounded-lg bg-white px-4 py-8 text-center text-sm text-gray-500 shadow-sm ring-1 ring-gray-200">
+            {tc('status.empty')}
+          </div>
+        ) : (
+          teams.map((team) => (
+            <div key={team.id} className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="break-words text-sm font-medium text-gray-900">{team.name}</h2>
+                  {team.description && (
+                    <p className="mt-1 line-clamp-2 text-xs text-gray-500">{team.description}</p>
+                  )}
+                </div>
+                <span className="inline-flex shrink-0 items-center gap-1 text-sm text-gray-700">
+                  <Users size={14} className="text-gray-400" />
+                  {team.member_count}
+                </span>
+              </div>
+
+              <dl className="mt-3 grid grid-cols-1 gap-3 text-sm">
+                <div>
+                  <dt className="text-xs font-medium text-gray-500">{t('table.owner')}</dt>
+                  <dd className="mt-1">
+                    <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-600">
+                      {team.owner_user_id.slice(0, 8)}…
+                    </code>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-gray-500">{t('table.createdAt')}</dt>
+                  <dd className="mt-1 text-gray-500">{new Date(team.created_at).toLocaleDateString()}</dd>
+                </div>
+              </dl>
+
+              <NavLink
+                to={`/teams/${team.id}`}
+                className="mt-3 inline-flex text-sm font-medium text-blue-600 hover:text-blue-800"
+              >
+                {t('actions.viewDetail')}
+              </NavLink>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="mt-4 hidden overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-200 md:block">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -47,14 +95,14 @@ export default function TeamsListPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {(data || []).length === 0 ? (
+            {teams.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500">
                   {tc('status.empty')}
                 </td>
               </tr>
             ) : (
-              (data || []).map((team) => (
+              teams.map((team) => (
                 <tr key={team.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm">
                     <div className="font-medium text-gray-900">{team.name}</div>

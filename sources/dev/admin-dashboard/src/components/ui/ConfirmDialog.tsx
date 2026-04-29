@@ -14,11 +14,11 @@ export default function ConfirmDialog({ open, title, message, onConfirm, onCance
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-lg bg-white p-4 shadow-xl sm:p-6">
         <h3 className="text-lg font-semibold text-gray-900">{title || t('confirm.title')}</h3>
         <p className="mt-2 text-sm text-gray-600">{message}</p>
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             onClick={onCancel}
             disabled={loading}

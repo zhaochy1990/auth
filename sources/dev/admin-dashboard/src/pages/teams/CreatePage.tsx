@@ -39,16 +39,16 @@ export default function TeamCreatePage() {
   };
 
   return (
-    <div className="max-w-2xl">
+    <div className="mx-auto w-full max-w-2xl">
       <NavLink to="/teams" className="text-sm text-blue-600 hover:text-blue-800">
         {t('detail.back')}
       </NavLink>
 
-      <h1 className="mt-4 text-2xl font-semibold text-gray-900">{t('create.title')}</h1>
+      <h1 className="mt-4 text-xl font-semibold text-gray-900 sm:text-2xl">{t('create.title')}</h1>
 
       <form
         onSubmit={handleSubmit}
-        className="mt-6 space-y-4 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200"
+        className="mt-6 space-y-4 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6"
       >
         <div>
           <label className="block text-sm font-medium text-gray-700">{t('create.nameLabel')}</label>
@@ -99,18 +99,18 @@ export default function TeamCreatePage() {
           </label>
         </div>
 
-        <div className="flex items-center gap-2 pt-2">
+        <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center">
           <button
             type="submit"
             disabled={mutation.isPending || !name.trim() || !ownerUserId.trim()}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
           >
             {t('create.submitBtn')}
           </button>
           <button
             type="button"
             onClick={() => navigate('/teams')}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className="w-full rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 sm:w-auto"
           >
             {t('create.cancelBtn')}
           </button>

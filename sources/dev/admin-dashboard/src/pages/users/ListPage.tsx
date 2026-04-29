@@ -38,6 +38,7 @@ export default function UserListPage() {
   };
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0;
+  const users = data?.users || [];
 
   if (isLoading) {
     return (
@@ -49,35 +50,78 @@ export default function UserListPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-gray-900">{t('title')}</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-xl font-semibold text-gray-900 sm:text-2xl">{t('title')}</h1>
         <button
           onClick={() => navigate('/users/new')}
-          className="flex items-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
+          className="flex w-full items-center justify-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 sm:w-auto"
         >
           <Plus size={16} />
           {t('createBtn')}
         </button>
       </div>
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
         <input
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           placeholder={t('searchPlaceholder')}
-          className="w-full max-w-xs rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:max-w-xs"
         />
         <button
           onClick={handleSearch}
-          className="rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700 hover:bg-gray-200"
+          className="rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700 hover:bg-gray-200 sm:w-auto"
         >
           {tc('actions.search')}
         </button>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-200">
+      <div className="mt-4 space-y-3 md:hidden">
+        {users.length === 0 ? (
+          <div className="rounded-lg bg-white px-4 py-8 text-center text-sm text-gray-500 shadow-sm ring-1 ring-gray-200">
+            {tc('status.empty')}
+          </div>
+        ) : (
+          users.map((user) => (
+            <div key={user.id} className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200">
+              <div className="flex items-start justify-between gap-3">
+                <Link to={`/users/${user.id}`} className="min-w-0 text-sm font-medium text-blue-600 hover:underline">
+                  <span className="break-all">{user.email || '-'}</span>
+                </Link>
+                <button
+                  onClick={() => toggleMutation.mutate({ id: user.id, is_active: !user.is_active })}
+                  className="shrink-0 cursor-pointer"
+                >
+                  <StatusBadge active={user.is_active} />
+                </button>
+              </div>
+
+              <dl className="mt-3 grid grid-cols-1 gap-3 text-sm">
+                <div>
+                  <dt className="text-xs font-medium text-gray-500">{t('table.name')}</dt>
+                  <dd className="mt-1 text-gray-900">{user.name || '-'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-gray-500">{t('table.role')}</dt>
+                  <dd className="mt-1">
+                    <Badge variant={user.role === 'admin' ? 'yellow' : 'gray'}>
+                      {t(`role.${user.role}`)}
+                    </Badge>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-gray-500">{t('table.createdAt')}</dt>
+                  <dd className="mt-1 text-gray-500">{new Date(user.created_at).toLocaleDateString()}</dd>
+                </div>
+              </dl>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="mt-4 hidden overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-200 md:block">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -89,14 +133,14 @@ export default function UserListPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {(data?.users || []).length === 0 ? (
+            {users.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500">
                   {tc('status.empty')}
                 </td>
               </tr>
             ) : (
-              (data?.users || []).map((user) => (
+              users.map((user) => (
                 <tr key={user.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <Link to={`/users/${user.id}`} className="text-sm font-medium text-blue-600 hover:underline">
@@ -129,7 +173,7 @@ export default function UserListPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="mt-4 flex items-center justify-between">
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <span className="text-sm text-gray-500">
             {tc('pagination.total', { total: data?.total ?? 0 })}
           </span>

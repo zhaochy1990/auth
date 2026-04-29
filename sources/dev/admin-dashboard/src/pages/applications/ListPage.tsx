@@ -49,11 +49,11 @@ export default function ApplicationListPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-gray-900">{t('title')}</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-xl font-semibold text-gray-900 sm:text-2xl">{t('title')}</h1>
         <button
           onClick={() => navigate('/applications/new')}
-          className="flex items-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
+          className="flex w-full items-center justify-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 sm:w-auto"
         >
           <Plus size={16} />
           {t('createBtn')}
@@ -66,11 +66,68 @@ export default function ApplicationListPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t('searchPlaceholder')}
-          className="w-full max-w-xs rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:max-w-xs"
         />
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-200">
+      <div className="mt-4 space-y-3 md:hidden">
+        {filtered.length === 0 ? (
+          <div className="rounded-lg bg-white px-4 py-8 text-center text-sm text-gray-500 shadow-sm ring-1 ring-gray-200">
+            {tc('status.empty')}
+          </div>
+        ) : (
+          filtered.map((app) => (
+            <div key={app.id} className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200">
+              <div className="flex items-start justify-between gap-3">
+                <Link to={`/applications/${app.id}`} className="min-w-0 text-sm font-medium text-blue-600 hover:underline">
+                  <span className="break-words">{app.name}</span>
+                </Link>
+                <button
+                  onClick={() =>
+                    toggleMutation.mutate({ id: app.id, is_active: !app.is_active })
+                  }
+                  className="shrink-0 cursor-pointer"
+                >
+                  <StatusBadge active={app.is_active} />
+                </button>
+              </div>
+
+              <div className="mt-3">
+                <div className="text-xs font-medium text-gray-500">{t('table.clientId')}</div>
+                <div className="mt-1 flex items-start gap-2 rounded-md bg-gray-50 px-3 py-2">
+                  <code className="min-w-0 flex-1 break-all text-xs text-gray-600">{app.client_id}</code>
+                  <button
+                    onClick={() => copyClientId(app.client_id)}
+                    aria-label={tc('actions.copy')}
+                    className="shrink-0 text-gray-400 hover:text-gray-600"
+                  >
+                    {copiedId === app.client_id ? (
+                      <Check size={14} className="text-green-600" />
+                    ) : (
+                      <Copy size={14} />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <div className="text-xs font-medium text-gray-500">{t('table.scopes')}</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {app.allowed_scopes.map((s) => (
+                    <Badge key={s} variant="blue">{s}</Badge>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-3 text-xs text-gray-500">
+                {t('table.createdAt')}: {new Date(app.created_at).toLocaleDateString()}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="mt-4 hidden overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-200 md:block">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -101,6 +158,7 @@ export default function ApplicationListPage() {
                       <code className="text-xs text-gray-600">{app.client_id}</code>
                       <button
                         onClick={() => copyClientId(app.client_id)}
+                        aria-label={tc('actions.copy')}
                         className="text-gray-400 hover:text-gray-600"
                       >
                         {copiedId === app.client_id ? (

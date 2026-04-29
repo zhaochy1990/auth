@@ -21,7 +21,9 @@
     "refresh": "Refresh",
     "enable": "Enable",
     "disable": "Disable",
-    "logout": "Logout"
+    "logout": "Logout",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu"
   },
   "status": {
     "active": "Active",
