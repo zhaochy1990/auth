@@ -950,6 +950,10 @@ impl ApplicationRepository for AzureTableRepository {
 
 // ─── AccountRepository ──────────────────────────────────────────────────────
 
+fn provider_account_index_pk(provider_id: &str) -> String {
+    format!("idx_pa_{}", hex::encode(provider_id.as_bytes()))
+}
+
 #[async_trait]
 impl AccountRepository for AzureTableRepository {
     async fn find_by_user_and_provider(
@@ -967,7 +971,7 @@ impl AccountRepository for AzureTableRepository {
         provider_id: &str,
         provider_account_id: &str,
     ) -> Result<Option<Account>, AppError> {
-        let pk = format!("idx_pa#{provider_id}");
+        let pk = provider_account_index_pk(provider_id);
         let idx: Option<CompositeIndexEntity> =
             get_entity(&self.accounts, &pk, provider_account_id).await?;
         match idx {
@@ -990,7 +994,7 @@ impl AccountRepository for AzureTableRepository {
     async fn insert(&self, account: &Account) -> Result<(), AppError> {
         // Insert provider-account index if provider_account_id exists
         if let Some(ref pa_id) = account.provider_account_id {
-            let pk = format!("idx_pa#{}", account.provider_id);
+            let pk = provider_account_index_pk(&account.provider_id);
             let idx = CompositeIndexEntity {
                 partition_key: pk.clone(),
                 row_key: pa_id.clone(),
@@ -1043,7 +1047,7 @@ impl AccountRepository for AzureTableRepository {
         // Delete provider-account index if exists
         if let Some(ref entity) = entity {
             if let Some(ref pa_id) = entity.provider_account_id {
-                let pk = format!("idx_pa#{}", idx.rk);
+                let pk = provider_account_index_pk(&idx.rk);
                 delete_entity(&self.accounts, &pk, pa_id).await?;
             }
         }
@@ -1408,5 +1412,20 @@ impl TeamMembershipRepository for AzureTableRepository {
             delete_entity(&self.team_memberships, &membership.team_id, user_id).await?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::provider_account_index_pk;
+
+    #[test]
+    fn provider_account_index_pk_avoids_azure_table_key_forbidden_chars() {
+        let pk = provider_account_index_pk("password#custom/provider?bad\\chars");
+
+        assert!(pk.starts_with("idx_pa_"));
+        assert!(!pk
+            .chars()
+            .any(|c| matches!(c, '/' | '\\' | '#' | '?') || c.is_control()));
     }
 }
