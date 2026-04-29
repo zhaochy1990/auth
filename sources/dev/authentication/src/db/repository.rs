@@ -53,6 +53,7 @@ pub trait AccountRepository: Send + Sync {
     async fn insert(&self, account: &Account) -> Result<(), AppError>;
     async fn update(&self, account: &Account) -> Result<(), AppError>;
     async fn delete_by_id(&self, id: &str) -> Result<(), AppError>;
+    async fn delete_all_by_user(&self, user_id: &str) -> Result<(), AppError>;
 }
 
 #[async_trait]
@@ -72,6 +73,7 @@ pub trait AuthCodeRepository: Send + Sync {
     async fn find_by_code(&self, code: &str) -> Result<Option<AuthorizationCode>, AppError>;
     async fn insert(&self, code: &AuthorizationCode) -> Result<(), AppError>;
     async fn mark_used(&self, code: &str) -> Result<(), AppError>;
+    async fn delete_all_by_user(&self, user_id: &str) -> Result<(), AppError>;
 }
 
 #[async_trait]
@@ -79,6 +81,7 @@ pub trait RefreshTokenRepository: Send + Sync {
     async fn find_by_token_hash(&self, hash: &str) -> Result<Option<RefreshToken>, AppError>;
     async fn insert(&self, token: &RefreshToken) -> Result<(), AppError>;
     async fn revoke(&self, id: &str) -> Result<(), AppError>;
+    async fn delete_all_by_user(&self, user_id: &str) -> Result<(), AppError>;
 }
 
 #[async_trait]
@@ -98,6 +101,7 @@ pub trait InviteCodeRepository: Send + Sync {
 pub trait TeamRepository: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<Team>, AppError>;
     async fn find_all_open(&self) -> Result<Vec<Team>, AppError>;
+    async fn find_all_owned_by_user(&self, user_id: &str) -> Result<Vec<Team>, AppError>;
     async fn insert(&self, team: &Team) -> Result<(), AppError>;
     async fn update(&self, team: &Team) -> Result<(), AppError>;
     async fn delete_by_id(&self, id: &str) -> Result<(), AppError>;
@@ -113,6 +117,8 @@ pub trait TeamMembershipRepository: Send + Sync {
     async fn insert(&self, m: &TeamMembership) -> Result<(), AppError>;
     async fn count_by_team(&self, team_id: &str) -> Result<u64, AppError>;
     async fn delete(&self, team_id: &str, user_id: &str) -> Result<(), AppError>;
+    async fn delete_all_by_team(&self, team_id: &str) -> Result<(), AppError>;
+    async fn delete_all_by_user(&self, user_id: &str) -> Result<(), AppError>;
 }
 
 pub trait Repository: Send + Sync {

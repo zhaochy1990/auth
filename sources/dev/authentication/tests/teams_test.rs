@@ -42,6 +42,18 @@ async fn create_team(app: &TestApp, token: &str, name: &str) -> serde_json::Valu
     resp.json()
 }
 
+async fn join_team(app: &TestApp, token: &str, team_id: &str) -> serde_json::Value {
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/teams/{team_id}/join"))
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::OK);
+    resp.json()
+}
+
 #[serial]
 #[tokio::test]
 async fn create_team_success() {
@@ -213,4 +225,131 @@ async fn my_teams() {
     for t in teams {
         assert_eq!(t["role"], "owner");
     }
+}
+
+#[serial]
+#[tokio::test]
+async fn transfer_owner_success() {
+    let app = TestApp::new().await;
+    let (_, owner_token, owner_id) = setup_user(&app, "transfer-owner@test.com").await;
+    let (_, member_token, member_id) = setup_user(&app, "transfer-member@test.com").await;
+    let team = create_team(&app, &owner_token, "Transferable").await;
+    let team_id = team["id"].as_str().unwrap().to_string();
+
+    join_team(&app, &member_token, &team_id).await;
+
+    let body = serde_json::json!({ "new_owner_user_id": member_id });
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/teams/{team_id}/transfer-owner"))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {owner_token}"))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::OK);
+    let json: serde_json::Value = resp.json();
+    assert_eq!(json["owner_user_id"], body["new_owner_user_id"]);
+
+    let memberships = app
+        .state
+        .repo
+        .team_memberships()
+        .find_all_by_team(&team_id)
+        .await
+        .unwrap();
+    let owner_role = memberships
+        .iter()
+        .find(|m| m.user_id == owner_id)
+        .map(|m| m.role.as_str());
+    let member_role = memberships
+        .iter()
+        .find(|m| m.user_id == body["new_owner_user_id"].as_str().unwrap())
+        .map(|m| m.role.as_str());
+    assert_eq!(owner_role, Some("member"));
+    assert_eq!(member_role, Some("owner"));
+}
+
+#[serial]
+#[tokio::test]
+async fn transfer_owner_rejects_non_member() {
+    let app = TestApp::new().await;
+    let (_, owner_token, _) = setup_user(&app, "transfer-owner-2@test.com").await;
+    let (_, _outsider_token, outsider_id) = setup_user(&app, "transfer-outsider@test.com").await;
+    let team = create_team(&app, &owner_token, "No Outsiders").await;
+    let team_id = team["id"].as_str().unwrap().to_string();
+
+    let body = serde_json::json!({ "new_owner_user_id": outsider_id });
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/teams/{team_id}/transfer-owner"))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {owner_token}"))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+    let json: serde_json::Value = resp.json();
+    assert_eq!(json["error"], "team_transfer_target_not_member");
+}
+
+#[serial]
+#[tokio::test]
+async fn non_owner_cannot_dissolve_team() {
+    let app = TestApp::new().await;
+    let (_, owner_token, _) = setup_user(&app, "dissolve-owner@test.com").await;
+    let (_, member_token, _) = setup_user(&app, "dissolve-member@test.com").await;
+    let team = create_team(&app, &owner_token, "Protected").await;
+    let team_id = team["id"].as_str().unwrap().to_string();
+
+    join_team(&app, &member_token, &team_id).await;
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(format!("/api/teams/{team_id}"))
+        .header("Authorization", format!("Bearer {member_token}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::FORBIDDEN);
+    let json: serde_json::Value = resp.json();
+    assert_eq!(json["error"], "team_owner_required");
+}
+
+#[serial]
+#[tokio::test]
+async fn owner_can_dissolve_team() {
+    let app = TestApp::new().await;
+    let (_, owner_token, _) = setup_user(&app, "dissolve-owner-2@test.com").await;
+    let (_, member_token, _) = setup_user(&app, "dissolve-member-2@test.com").await;
+    let team = create_team(&app, &owner_token, "Disposable").await;
+    let team_id = team["id"].as_str().unwrap().to_string();
+
+    join_team(&app, &member_token, &team_id).await;
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(format!("/api/teams/{team_id}"))
+        .header("Authorization", format!("Bearer {owner_token}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::OK);
+
+    assert!(app
+        .state
+        .repo
+        .teams()
+        .find_by_id(&team_id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(app
+        .state
+        .repo
+        .team_memberships()
+        .find_all_by_team(&team_id)
+        .await
+        .unwrap()
+        .is_empty());
 }

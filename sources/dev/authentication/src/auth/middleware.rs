@@ -37,6 +37,16 @@ where
             .ok_or(AppError::Unauthorized)?;
 
         let claims: Claims = app_state.jwt.verify_access_token(token)?;
+        let db_user = app_state
+            .repo
+            .users()
+            .find_by_id(&claims.sub)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
+
+        if !db_user.is_active {
+            return Err(AppError::UserDisabled);
+        }
 
         Ok(AuthenticatedUser {
             user_id: claims.sub,

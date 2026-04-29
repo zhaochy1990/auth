@@ -82,6 +82,15 @@ pub enum AppError {
     #[error("Owner cannot leave team while still the only member")]
     OwnerCannotLeaveAsLastMember,
 
+    #[error("Only the team owner can perform this action")]
+    TeamOwnerRequired,
+
+    #[error("New owner must already be a team member")]
+    TeamTransferTargetNotMember,
+
+    #[error("User still owns {0} team(s)")]
+    UserOwnsTeams(usize),
+
     #[error("Bad request: {0}")]
     BadRequest(String),
 
@@ -195,6 +204,19 @@ impl IntoResponse for AppError {
                 "owner_cannot_leave_as_last_member",
                 self.to_string(),
             ),
+            AppError::TeamOwnerRequired => (
+                StatusCode::FORBIDDEN,
+                "team_owner_required",
+                self.to_string(),
+            ),
+            AppError::TeamTransferTargetNotMember => (
+                StatusCode::BAD_REQUEST,
+                "team_transfer_target_not_member",
+                self.to_string(),
+            ),
+            AppError::UserOwnsTeams(_) => {
+                (StatusCode::CONFLICT, "user_owns_teams", self.to_string())
+            }
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg.clone()),
             AppError::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

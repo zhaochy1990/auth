@@ -26,6 +26,31 @@ async fn setup(app: &TestApp) -> (common::CreatedApp, String, String) {
     (created, access_token, user_id)
 }
 
+async fn setup_with_email(
+    app: &TestApp,
+    email: &str,
+) -> (common::CreatedApp, String, String, String) {
+    let created = app
+        .admin_create_app(
+            &format!("User App {email}"),
+            &["https://example.com/cb"],
+            &["openid", "profile"],
+        )
+        .await;
+
+    let resp = app
+        .register_user(&created.client_id, email, "Password1!")
+        .await;
+    resp.assert_status(StatusCode::CREATED);
+    let json: serde_json::Value = resp.json();
+    (
+        created,
+        json["access_token"].as_str().unwrap().to_string(),
+        json["refresh_token"].as_str().unwrap().to_string(),
+        json["user_id"].as_str().unwrap().to_string(),
+    )
+}
+
 // ─── Get Profile ─────────────────────────────────────────────────────────────
 
 #[serial]
@@ -243,4 +268,121 @@ async fn link_and_unlink_account() {
     let resp = app.request(req).await;
     let accounts: Vec<serde_json::Value> = resp.json();
     assert_eq!(accounts.len(), 1);
+}
+
+#[serial]
+#[tokio::test]
+async fn delete_me_blocked_when_user_owns_team() {
+    let app = TestApp::new().await;
+    let (_, token, _) = setup(&app).await;
+    let body = serde_json::json!({"name": "Owned Team"});
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/teams")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    app.request(req).await.assert_status(StatusCode::OK);
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/api/users/me")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::CONFLICT);
+    let json: serde_json::Value = resp.json();
+    assert_eq!(json["error"], "user_owns_teams");
+}
+
+#[serial]
+#[tokio::test]
+async fn delete_me_removes_auth_data_and_invalidates_tokens() {
+    let app = TestApp::new().await;
+    let (created, token, refresh_token, user_id) =
+        setup_with_email(&app, "delete-me@test.com").await;
+    let (_, owner_token, _, _) = setup_with_email(&app, "delete-team-owner@test.com").await;
+
+    let body = serde_json::json!({"name": "Membership Only"});
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/teams")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {owner_token}"))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let team_resp = app.request(req).await;
+    team_resp.assert_status(StatusCode::OK);
+    let team: serde_json::Value = team_resp.json();
+    let team_id = team["id"].as_str().unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/teams/{team_id}/join"))
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    app.request(req).await.assert_status(StatusCode::OK);
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/api/users/me")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    app.request(req).await.assert_status(StatusCode::NO_CONTENT);
+
+    assert!(app
+        .state
+        .repo
+        .users()
+        .find_by_id(&user_id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(app
+        .state
+        .repo
+        .accounts()
+        .find_all_by_user(&user_id)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(app
+        .state
+        .repo
+        .team_memberships()
+        .find_all_by_user(&user_id)
+        .await
+        .unwrap()
+        .is_empty());
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/users/me")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    app.request(req)
+        .await
+        .assert_status(StatusCode::UNAUTHORIZED);
+
+    let login = app
+        .login_user(&created.client_id, "delete-me@test.com", "Password1!")
+        .await;
+    login.assert_status(StatusCode::UNAUTHORIZED);
+
+    let body = serde_json::json!({"refresh_token": refresh_token});
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/refresh")
+        .header("Content-Type", "application/json")
+        .header("X-Client-Id", created.client_id)
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    app.request(req)
+        .await
+        .assert_status(StatusCode::UNAUTHORIZED);
 }

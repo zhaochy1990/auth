@@ -1053,6 +1053,14 @@ impl AccountRepository for AzureTableRepository {
         delete_entity(&self.accounts, "idx_id", id).await?;
         Ok(())
     }
+
+    async fn delete_all_by_user(&self, user_id: &str) -> Result<(), AppError> {
+        let accounts = AccountRepository::find_all_by_user(self, user_id).await?;
+        for account in accounts {
+            AccountRepository::delete_by_id(self, &account.id).await?;
+        }
+        Ok(())
+    }
 }
 
 // ─── AppProviderRepository ──────────────────────────────────────────────────
@@ -1135,6 +1143,15 @@ impl AuthCodeRepository for AzureTableRepository {
         }
         Ok(())
     }
+
+    async fn delete_all_by_user(&self, user_id: &str) -> Result<(), AppError> {
+        let filter = format!("PartitionKey eq 'code' and user_id eq '{user_id}'");
+        let entities: Vec<AuthCodeEntity> = query_entities(&self.auth_codes, &filter).await?;
+        for entity in entities {
+            delete_entity(&self.auth_codes, "code", &entity.row_key).await?;
+        }
+        Ok(())
+    }
 }
 
 // ─── RefreshTokenRepository ─────────────────────────────────────────────────
@@ -1175,6 +1192,17 @@ impl RefreshTokenRepository for AzureTableRepository {
         if let Some(mut entity) = entity {
             entity.revoked = true;
             upsert_entity(&self.refresh_tokens, "rt", id, &entity).await?;
+        }
+        Ok(())
+    }
+
+    async fn delete_all_by_user(&self, user_id: &str) -> Result<(), AppError> {
+        let filter = format!("PartitionKey eq 'rt' and user_id eq '{user_id}'");
+        let entities: Vec<RefreshTokenEntity> =
+            query_entities(&self.refresh_tokens, &filter).await?;
+        for entity in entities {
+            delete_entity(&self.refresh_tokens, "idx_hash", &entity.token_hash).await?;
+            delete_entity(&self.refresh_tokens, "rt", &entity.row_key).await?;
         }
         Ok(())
     }
@@ -1306,6 +1334,12 @@ impl TeamRepository for AzureTableRepository {
         Ok(entities.iter().map(|e| e.to_model()).collect())
     }
 
+    async fn find_all_owned_by_user(&self, user_id: &str) -> Result<Vec<Team>, AppError> {
+        let filter = format!("PartitionKey eq 'team' and owner_user_id eq '{user_id}'");
+        let entities: Vec<TeamEntity> = query_entities(&self.teams, &filter).await?;
+        Ok(entities.iter().map(|e| e.to_model()).collect())
+    }
+
     async fn insert(&self, team: &Team) -> Result<(), AppError> {
         let entity = TeamEntity::from_model(team);
         insert_entity(&self.teams, &entity).await.map_err(db_err)?;
@@ -1358,5 +1392,21 @@ impl TeamMembershipRepository for AzureTableRepository {
 
     async fn delete(&self, team_id: &str, user_id: &str) -> Result<(), AppError> {
         delete_entity(&self.team_memberships, team_id, user_id).await
+    }
+
+    async fn delete_all_by_team(&self, team_id: &str) -> Result<(), AppError> {
+        let memberships = self.find_all_by_team(team_id).await?;
+        for membership in memberships {
+            delete_entity(&self.team_memberships, team_id, &membership.user_id).await?;
+        }
+        Ok(())
+    }
+
+    async fn delete_all_by_user(&self, user_id: &str) -> Result<(), AppError> {
+        let memberships = TeamMembershipRepository::find_all_by_user(self, user_id).await?;
+        for membership in memberships {
+            delete_entity(&self.team_memberships, &membership.team_id, user_id).await?;
+        }
+        Ok(())
     }
 }
