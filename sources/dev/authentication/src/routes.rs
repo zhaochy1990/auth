@@ -72,8 +72,12 @@ pub fn create_router(state: AppState) -> Router {
 
     // User endpoints (require Bearer token) — rate limited
     let user_routes = Router::new()
-        .route("/me", get(handlers::user::get_profile))
-        .route("/me", patch(handlers::user::update_profile))
+        .route(
+            "/me",
+            get(handlers::user::get_profile)
+                .patch(handlers::user::update_profile)
+                .delete(handlers::user::delete_me),
+        )
         .route("/me/accounts", get(handlers::user::list_accounts))
         .route(
             "/me/accounts/:provider_id/link",
@@ -95,9 +99,16 @@ pub fn create_router(state: AppState) -> Router {
             "/",
             post(handlers::teams::create_team).get(handlers::teams::list_teams),
         )
-        .route("/:team_id", get(handlers::teams::get_team))
+        .route(
+            "/:team_id",
+            get(handlers::teams::get_team).delete(handlers::teams::delete_team),
+        )
         .route("/:team_id/join", post(handlers::teams::join_team))
         .route("/:team_id/leave", post(handlers::teams::leave_team))
+        .route(
+            "/:team_id/transfer-owner",
+            post(handlers::teams::transfer_owner),
+        )
         .route("/:team_id/members", get(handlers::teams::list_members))
         .route_layer(middleware::from_fn_with_state(
             user_limiter,

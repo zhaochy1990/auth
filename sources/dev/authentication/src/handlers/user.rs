@@ -1,4 +1,4 @@
-use axum::{extract::Path, extract::State, Json};
+use axum::{extract::Path, extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -208,4 +208,50 @@ pub async fn unlink_account(
     state.repo.accounts().delete_by_id(&account.id).await?;
 
     Ok(Json(serde_json::json!({"status": "unlinked"})))
+}
+
+pub async fn delete_me(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<StatusCode, AppError> {
+    state
+        .repo
+        .users()
+        .find_by_id(&user.user_id)
+        .await?
+        .ok_or(AppError::UserNotFound)?;
+
+    let owned_teams = state
+        .repo
+        .teams()
+        .find_all_owned_by_user(&user.user_id)
+        .await?;
+    if !owned_teams.is_empty() {
+        return Err(AppError::UserOwnsTeams(owned_teams.len()));
+    }
+
+    state
+        .repo
+        .refresh_tokens()
+        .delete_all_by_user(&user.user_id)
+        .await?;
+    state
+        .repo
+        .auth_codes()
+        .delete_all_by_user(&user.user_id)
+        .await?;
+    state
+        .repo
+        .accounts()
+        .delete_all_by_user(&user.user_id)
+        .await?;
+    state
+        .repo
+        .team_memberships()
+        .delete_all_by_user(&user.user_id)
+        .await?;
+    state.repo.users().delete_by_id(&user.user_id).await?;
+
+    tracing::info!(user_id = %user.user_id, "user self-deleted account");
+    Ok(StatusCode::NO_CONTENT)
 }

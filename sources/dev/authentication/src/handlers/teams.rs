@@ -15,6 +15,11 @@ pub struct CreateTeamRequest {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TransferOwnerRequest {
+    pub new_owner_user_id: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct TeamResponse {
     pub id: String,
@@ -264,6 +269,124 @@ pub async fn leave_team(
 
     let _ = existing; // silence unused
     Ok(Json(serde_json::json!({"status": "left"})))
+}
+
+pub async fn transfer_owner(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(team_id): Path<String>,
+    Json(req): Json<TransferOwnerRequest>,
+) -> Result<Json<TeamResponse>, AppError> {
+    let mut team = state
+        .repo
+        .teams()
+        .find_by_id(&team_id)
+        .await?
+        .ok_or(AppError::TeamNotFound)?;
+
+    if team.owner_user_id != user.user_id {
+        return Err(AppError::TeamOwnerRequired);
+    }
+
+    let new_owner = state
+        .repo
+        .team_memberships()
+        .find(&team_id, &req.new_owner_user_id)
+        .await?
+        .ok_or(AppError::TeamTransferTargetNotMember)?;
+
+    if req.new_owner_user_id == user.user_id {
+        let count = state
+            .repo
+            .team_memberships()
+            .count_by_team(&team_id)
+            .await?;
+        return Ok(Json(TeamResponse {
+            id: team.id,
+            name: team.name,
+            description: team.description,
+            owner_user_id: team.owner_user_id,
+            is_open: team.is_open,
+            member_count: count,
+            created_at: team.created_at.to_string(),
+            updated_at: team.updated_at.to_string(),
+        }));
+    }
+
+    let current_owner = state
+        .repo
+        .team_memberships()
+        .find(&team_id, &user.user_id)
+        .await?
+        .ok_or(AppError::BadRequest(
+            "Current owner is not a member of this team".to_string(),
+        ))?;
+
+    let current_owner_membership = TeamMembership {
+        role: "member".to_string(),
+        ..current_owner
+    };
+    let new_owner_membership = TeamMembership {
+        role: "owner".to_string(),
+        ..new_owner
+    };
+
+    state
+        .repo
+        .team_memberships()
+        .insert(&current_owner_membership)
+        .await?;
+    state
+        .repo
+        .team_memberships()
+        .insert(&new_owner_membership)
+        .await?;
+
+    team.owner_user_id = req.new_owner_user_id;
+    team.updated_at = chrono::Utc::now().naive_utc();
+    state.repo.teams().update(&team).await?;
+
+    let count = state
+        .repo
+        .team_memberships()
+        .count_by_team(&team_id)
+        .await?;
+    Ok(Json(TeamResponse {
+        id: team.id,
+        name: team.name,
+        description: team.description,
+        owner_user_id: team.owner_user_id,
+        is_open: team.is_open,
+        member_count: count,
+        created_at: team.created_at.to_string(),
+        updated_at: team.updated_at.to_string(),
+    }))
+}
+
+pub async fn delete_team(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(team_id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let team = state
+        .repo
+        .teams()
+        .find_by_id(&team_id)
+        .await?
+        .ok_or(AppError::TeamNotFound)?;
+
+    if team.owner_user_id != user.user_id {
+        return Err(AppError::TeamOwnerRequired);
+    }
+
+    state
+        .repo
+        .team_memberships()
+        .delete_all_by_team(&team_id)
+        .await?;
+    state.repo.teams().delete_by_id(&team_id).await?;
+
+    Ok(Json(serde_json::json!({"status": "deleted"})))
 }
 
 pub async fn list_members(
