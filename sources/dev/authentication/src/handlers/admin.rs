@@ -640,9 +640,7 @@ pub async fn reset_user_password(
         .accounts()
         .find_by_user_and_provider(&id, "password")
         .await?
-        .ok_or_else(|| {
-            AppError::BadRequest("User has no password provider account".to_string())
-        })?;
+        .ok_or_else(|| AppError::BadRequest("User has no password provider account".to_string()))?;
 
     account.credential = Some(hash_password(&req.password)?);
     account.updated_at = chrono::Utc::now().naive_utc();
