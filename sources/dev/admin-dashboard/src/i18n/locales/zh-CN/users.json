@@ -57,6 +57,22 @@
     "deleteDescription": "删除后会移除此用户、关联账号、刷新令牌、授权码和团队成员关系。若该用户仍拥有团队，需要先转移或删除团队。",
     "deleteConfirmTitle": "删除用户",
     "deleteConfirm": "确定要删除此用户吗？此操作不可撤销。",
-    "deleteSuccess": "用户已删除"
+    "deleteSuccess": "用户已删除",
+    "password": {
+      "title": "密码",
+      "description": "重置该用户的登录密码。该用户必须已启用密码登录方式。",
+      "resetBtn": "重置密码",
+      "dialogTitle": "重置用户密码",
+      "newPassword": "新密码",
+      "newPasswordPlaceholder": "输入新密码",
+      "passwordHint": "至少 8 位，需包含大小写字母、数字和特殊字符",
+      "showPassword": "显示密码",
+      "hidePassword": "隐藏密码",
+      "revokeSessions": "重置后强制该用户重新登录（撤销现有会话）",
+      "selfWarning": "你正在重置自己的密码并撤销自己的会话。提交后将立即跳转到登录页。",
+      "submit": "确认重置",
+      "cancel": "取消",
+      "success": "密码已重置"
+    }
   }
 }

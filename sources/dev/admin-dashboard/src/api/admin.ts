@@ -11,6 +11,8 @@ import type {
   User,
   CreateUserRequest,
   UpdateUserRequest,
+  ResetUserPasswordRequest,
+  ResetUserPasswordResponse,
   UserAccount,
   Stats,
   InviteCode,
@@ -65,6 +67,11 @@ export const getUserAccounts = (id: string) =>
 
 export const adminUnlinkAccount = (userId: string, providerId: string) =>
   client.delete(`/admin/users/${userId}/accounts/${providerId}`).then((r) => r.data);
+
+export const resetUserPassword = (id: string, data: ResetUserPasswordRequest) =>
+  client
+    .post<ResetUserPasswordResponse>(`/admin/users/${id}/reset-password`, data)
+    .then((r) => r.data);
 
 // Stats
 export const getStats = () =>

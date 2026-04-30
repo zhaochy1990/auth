@@ -1,14 +1,16 @@
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router';
-import { ArrowLeft, Check, Pencil, Shield, ShieldOff, Trash2, Unlink, X } from 'lucide-react';
-import { getUser, getUserAccounts, updateUser, adminUnlinkAccount, deleteUser } from '../../api/admin';
+import { ArrowLeft, Check, KeyRound, Pencil, Shield, ShieldOff, Trash2, Unlink, X } from 'lucide-react';
+import { getUser, getUserAccounts, updateUser, adminUnlinkAccount, deleteUser, resetUserPassword } from '../../api/admin';
 import StatusBadge from '../../components/shared/StatusBadge';
 import Badge from '../../components/ui/Badge';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import ResetPasswordDialog from '../../components/ui/ResetPasswordDialog';
 import Spinner from '../../components/ui/Spinner';
 import toast from 'react-hot-toast';
 import { useState } from 'react';
+import { isAxiosError } from 'axios';
 import { useAuthStore } from '../../store/authStore';
 
 export default function UserDetailPage() {
@@ -25,6 +27,8 @@ export default function UserDetailPage() {
   const [nameInput, setNameInput] = useState('');
   const [editingNote, setEditingNote] = useState(false);
   const [noteInput, setNoteInput] = useState('');
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+  const [resetPasswordError, setResetPasswordError] = useState('');
 
   const { data: user, isLoading } = useQuery({
     queryKey: ['user', id],
@@ -96,6 +100,28 @@ export default function UserDetailPage() {
         navigate('/login', { replace: true });
       } else {
         navigate('/users', { replace: true });
+      }
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: (data: { password: string; revoke_sessions: boolean }) =>
+      resetUserPassword(id!, data),
+    onSuccess: (_, vars) => {
+      toast.success(t('detail.password.success'));
+      setResetPasswordOpen(false);
+      setResetPasswordError('');
+
+      if (id === currentUserId && vars.revoke_sessions) {
+        logout();
+        navigate('/login', { replace: true });
+      }
+    },
+    onError: (err) => {
+      if (isAxiosError(err) && err.response?.data?.message) {
+        setResetPasswordError(err.response.data.message);
+      } else {
+        setResetPasswordError(String(err));
       }
     },
   });
@@ -309,6 +335,21 @@ export default function UserDetailPage() {
         )}
       </div>
 
+      {/* Password */}
+      {(accounts || []).some((a) => a.provider_id === 'password') && (
+        <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
+          <h2 className="font-medium text-gray-900">{t('detail.password.title')}</h2>
+          <p className="mt-2 text-sm text-gray-600">{t('detail.password.description')}</p>
+          <button
+            onClick={() => { setResetPasswordError(''); setResetPasswordOpen(true); }}
+            className="mt-4 flex w-full items-center justify-center gap-1 rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 sm:w-auto"
+          >
+            <KeyRound size={16} />
+            {t('detail.password.resetBtn')}
+          </button>
+        </div>
+      )}
+
       {/* Danger Zone */}
       <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-red-200 sm:p-6">
         <h2 className="font-medium text-red-700">{t('detail.dangerZone')}</h2>
@@ -338,6 +379,16 @@ export default function UserDetailPage() {
         onCancel={() => setDeleteConfirmOpen(false)}
         loading={deleteMutation.isPending}
       />
+      {resetPasswordOpen && (
+        <ResetPasswordDialog
+          open={resetPasswordOpen}
+          isSelf={id === currentUserId}
+          loading={resetPasswordMutation.isPending}
+          errorMessage={resetPasswordError}
+          onSubmit={(data) => resetPasswordMutation.mutate(data)}
+          onCancel={() => { setResetPasswordOpen(false); setResetPasswordError(''); }}
+        />
+      )}
     </div>
   );
 }

@@ -98,6 +98,16 @@ export interface CreateUserRequest {
   role?: string;
 }
 
+export interface ResetUserPasswordRequest {
+  password: string;
+  revoke_sessions?: boolean;
+}
+
+export interface ResetUserPasswordResponse {
+  user_id: string;
+  revoked_sessions: boolean;
+}
+
 export interface UserAccount {
   id: string;
   provider_id: string;

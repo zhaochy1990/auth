@@ -153,6 +153,10 @@ pub fn create_router(state: AppState) -> Router {
             "/users/:id/accounts/:provider_id",
             delete(handlers::admin::admin_unlink_account),
         )
+        .route(
+            "/users/:id/reset-password",
+            post(handlers::admin::reset_user_password),
+        )
         .route("/stats", get(handlers::admin::stats))
         .route(
             "/invite-codes",

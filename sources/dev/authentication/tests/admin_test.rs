@@ -370,3 +370,281 @@ async fn rotate_secret_app_not_found() {
     let resp = app.request(req).await;
     resp.assert_status(StatusCode::NOT_FOUND);
 }
+
+// ─── Reset User Password ─────────────────────────────────────────────────────
+
+/// Helper: register a fresh user via the auth API and return the user_id.
+async fn register_and_get_user_id(
+    app: &TestApp,
+    client_id: &str,
+    email: &str,
+    password: &str,
+) -> String {
+    let resp = app.register_user(client_id, email, password).await;
+    resp.assert_status(StatusCode::CREATED);
+    let json: serde_json::Value = resp.json();
+    json["user_id"].as_str().unwrap().to_string()
+}
+
+#[serial]
+#[tokio::test]
+async fn reset_password_success_changes_credential() {
+    let app = TestApp::new().await;
+    let created = app
+        .admin_create_app("App", &["https://a.com/cb"], &["openid"])
+        .await;
+
+    // Add password provider so login works
+    let body = serde_json::json!({"provider_id": "password", "config": {}});
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/admin/applications/{}/providers", created.id))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", app.admin_token))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    app.request(req).await.assert_status(StatusCode::OK);
+
+    let user_id =
+        register_and_get_user_id(&app, &created.client_id, "reset@test.com", "OldPass1!").await;
+
+    // Reset password
+    let body = serde_json::json!({"password": "NewPass1!"});
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/admin/users/{user_id}/reset-password"))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", app.admin_token))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::OK);
+    let json: serde_json::Value = resp.json();
+    assert_eq!(json["user_id"], user_id);
+    assert_eq!(json["revoked_sessions"], true);
+
+    // Old password fails
+    let resp = app
+        .login_user(&created.client_id, "reset@test.com", "OldPass1!")
+        .await;
+    resp.assert_status(StatusCode::UNAUTHORIZED);
+
+    // New password works
+    let resp = app
+        .login_user(&created.client_id, "reset@test.com", "NewPass1!")
+        .await;
+    resp.assert_status(StatusCode::OK);
+}
+
+#[serial]
+#[tokio::test]
+async fn reset_password_revokes_refresh_tokens_by_default() {
+    let app = TestApp::new().await;
+    let created = app
+        .admin_create_app("App", &["https://a.com/cb"], &["openid"])
+        .await;
+
+    let body = serde_json::json!({"provider_id": "password", "config": {}});
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/admin/applications/{}/providers", created.id))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", app.admin_token))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    app.request(req).await.assert_status(StatusCode::OK);
+
+    let user_id =
+        register_and_get_user_id(&app, &created.client_id, "rt@test.com", "OldPass1!").await;
+
+    // Login to get a refresh token
+    let resp = app
+        .login_user(&created.client_id, "rt@test.com", "OldPass1!")
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let login_json: serde_json::Value = resp.json();
+    let refresh_token = login_json["refresh_token"].as_str().unwrap().to_string();
+
+    // Reset password (default revoke_sessions = true)
+    let body = serde_json::json!({"password": "NewPass1!"});
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/admin/users/{user_id}/reset-password"))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", app.admin_token))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    app.request(req).await.assert_status(StatusCode::OK);
+
+    // Refresh token should be invalid now
+    let body = serde_json::json!({"refresh_token": refresh_token});
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/refresh")
+        .header("Content-Type", "application/json")
+        .header("X-Client-Id", &created.client_id)
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.request(req).await;
+    assert_ne!(
+        resp.status,
+        StatusCode::OK,
+        "refresh token should have been revoked"
+    );
+}
+
+#[serial]
+#[tokio::test]
+async fn reset_password_keeps_refresh_tokens_when_revoke_false() {
+    let app = TestApp::new().await;
+    let created = app
+        .admin_create_app("App", &["https://a.com/cb"], &["openid"])
+        .await;
+
+    let body = serde_json::json!({"provider_id": "password", "config": {}});
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/admin/applications/{}/providers", created.id))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", app.admin_token))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    app.request(req).await.assert_status(StatusCode::OK);
+
+    let user_id =
+        register_and_get_user_id(&app, &created.client_id, "keep@test.com", "OldPass1!").await;
+
+    // Login to get a refresh token
+    let resp = app
+        .login_user(&created.client_id, "keep@test.com", "OldPass1!")
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let login_json: serde_json::Value = resp.json();
+    let refresh_token = login_json["refresh_token"].as_str().unwrap().to_string();
+
+    // Reset with revoke_sessions = false
+    let body = serde_json::json!({"password": "NewPass1!", "revoke_sessions": false});
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/admin/users/{user_id}/reset-password"))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", app.admin_token))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::OK);
+    let json: serde_json::Value = resp.json();
+    assert_eq!(json["revoked_sessions"], false);
+
+    // Refresh token still works
+    let body = serde_json::json!({"refresh_token": refresh_token});
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/refresh")
+        .header("Content-Type", "application/json")
+        .header("X-Client-Id", &created.client_id)
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::OK);
+}
+
+#[serial]
+#[tokio::test]
+async fn reset_password_weak_password() {
+    let app = TestApp::new().await;
+    let created = app
+        .admin_create_app("App", &["https://a.com/cb"], &["openid"])
+        .await;
+
+    let body = serde_json::json!({"provider_id": "password", "config": {}});
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/admin/applications/{}/providers", created.id))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", app.admin_token))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    app.request(req).await.assert_status(StatusCode::OK);
+
+    let user_id =
+        register_and_get_user_id(&app, &created.client_id, "weak@test.com", "OldPass1!").await;
+
+    let body = serde_json::json!({"password": "weak"});
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/admin/users/{user_id}/reset-password"))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", app.admin_token))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+}
+
+#[serial]
+#[tokio::test]
+async fn reset_password_user_not_found() {
+    let app = TestApp::new().await;
+
+    let body = serde_json::json!({"password": "NewPass1!"});
+    let req = Request::builder()
+        .method("POST")
+        .uri("/admin/users/nonexistent-id/reset-password")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", app.admin_token))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::NOT_FOUND);
+}
+
+#[serial]
+#[tokio::test]
+async fn reset_password_user_without_password_account() {
+    // The seed admin uses password provider, so create a user via direct
+    // repository insert with no password account.
+    let app = TestApp::new().await;
+
+    // Insert a user that has no password account
+    let user = auth_service::db::models::User {
+        id: uuid::Uuid::new_v4().to_string(),
+        email: Some("no-password@test.com".to_string()),
+        name: None,
+        avatar_url: None,
+        email_verified: false,
+        role: "user".to_string(),
+        is_active: true,
+        note: None,
+        created_at: chrono::Utc::now().naive_utc(),
+        updated_at: chrono::Utc::now().naive_utc(),
+    };
+    app.state.repo.users().insert(&user).await.unwrap();
+
+    let body = serde_json::json!({"password": "NewPass1!"});
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/admin/users/{}/reset-password", user.id))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", app.admin_token))
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+}
+
+#[serial]
+#[tokio::test]
+async fn reset_password_missing_auth() {
+    let app = TestApp::new().await;
+
+    let body = serde_json::json!({"password": "NewPass1!"});
+    let req = Request::builder()
+        .method("POST")
+        .uri("/admin/users/some-id/reset-password")
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.request(req).await;
+    resp.assert_status(StatusCode::UNAUTHORIZED);
+}

@@ -116,6 +116,35 @@ pub struct CreateUserRequest {
     pub role: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ResetUserPasswordRequest {
+    pub password: String,
+    /// Defaults to true: reset is treated as a security-sensitive op so all
+    /// existing refresh tokens for the target user are revoked.
+    #[serde(default = "default_revoke_sessions")]
+    pub revoke_sessions: bool,
+}
+
+// Manual Debug to keep the plaintext password out of trace/log output.
+impl std::fmt::Debug for ResetUserPasswordRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResetUserPasswordRequest")
+            .field("password", &"[REDACTED]")
+            .field("revoke_sessions", &self.revoke_sessions)
+            .finish()
+    }
+}
+
+fn default_revoke_sessions() -> bool {
+    true
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResetUserPasswordResponse {
+    pub user_id: String,
+    pub revoked_sessions: bool,
+}
+
 #[derive(Debug, Serialize)]
 pub struct UserAccountResponse {
     pub id: String,
@@ -589,6 +618,52 @@ pub async fn delete_user(
     );
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn reset_user_password(
+    admin: AdminAuth,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<ResetUserPasswordRequest>,
+) -> Result<Json<ResetUserPasswordResponse>, AppError> {
+    validate_password(&req.password)?;
+
+    state
+        .repo
+        .users()
+        .find_by_id(&id)
+        .await?
+        .ok_or(AppError::UserNotFound)?;
+
+    let mut account = state
+        .repo
+        .accounts()
+        .find_by_user_and_provider(&id, "password")
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest("User has no password provider account".to_string())
+        })?;
+
+    account.credential = Some(hash_password(&req.password)?);
+    account.updated_at = chrono::Utc::now().naive_utc();
+    state.repo.accounts().update(&account).await?;
+
+    if req.revoke_sessions {
+        state.repo.refresh_tokens().delete_all_by_user(&id).await?;
+    }
+
+    tracing::info!(
+        admin_id = %admin.user_id,
+        target_user_id = %id,
+        action = "admin_reset_password",
+        revoked_sessions = req.revoke_sessions,
+        "Admin reset user password"
+    );
+
+    Ok(Json(ResetUserPasswordResponse {
+        user_id: id,
+        revoked_sessions: req.revoke_sessions,
+    }))
 }
 
 pub async fn admin_unlink_account(

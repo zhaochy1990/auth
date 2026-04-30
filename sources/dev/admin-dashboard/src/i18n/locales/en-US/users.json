@@ -57,6 +57,22 @@
     "deleteDescription": "Deleting removes this user, linked accounts, refresh tokens, authorization codes, and team memberships. If the user still owns teams, transfer or delete those teams first.",
     "deleteConfirmTitle": "Delete User",
     "deleteConfirm": "Delete this user? This action cannot be undone.",
-    "deleteSuccess": "User deleted"
+    "deleteSuccess": "User deleted",
+    "password": {
+      "title": "Password",
+      "description": "Reset this user's login password. The user must already have password login enabled.",
+      "resetBtn": "Reset Password",
+      "dialogTitle": "Reset User Password",
+      "newPassword": "New Password",
+      "newPasswordPlaceholder": "Enter new password",
+      "passwordHint": "At least 8 chars, with uppercase, lowercase, digit, and special character",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "revokeSessions": "Force this user to re-login after reset (revoke existing sessions)",
+      "selfWarning": "You are resetting your own password and revoking your own sessions. You will be redirected to the login page immediately after submitting.",
+      "submit": "Confirm Reset",
+      "cancel": "Cancel",
+      "success": "Password reset"
+    }
   }
 }
