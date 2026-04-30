@@ -14,6 +14,10 @@ pub struct Claims {
     pub iat: i64,    // issued at
     pub scopes: Vec<String>,
     pub role: String,
+    /// Display name of the user, when set. Embedded in the access token so
+    /// clients can render a name without an extra `/api/users/me` round-trip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -59,6 +63,7 @@ impl JwtManager {
         client_id: &str,
         scopes: Vec<String>,
         role: &str,
+        name: Option<&str>,
     ) -> Result<String, AppError> {
         let now = Utc::now().timestamp();
         let claims = Claims {
@@ -69,6 +74,7 @@ impl JwtManager {
             iat: now,
             scopes,
             role: role.to_string(),
+            name: name.map(|s| s.to_string()),
         };
 
         let header = Header::new(Algorithm::RS256);

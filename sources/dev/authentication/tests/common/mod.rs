@@ -117,6 +117,7 @@ impl TestApp {
                 "test-internal",
                 vec!["admin".to_string()],
                 "admin",
+                admin_user.name.as_deref(),
             )
             .expect("Failed to issue admin token");
 

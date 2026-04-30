@@ -1,10 +1,26 @@
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::{extract::Path, extract::State, Json};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::middleware::{AuthenticatedUser, ClientApp};
+
+/// Extract the originating client IP from forwarding headers, falling back to "unknown".
+fn client_ip(headers: &HeaderMap) -> String {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|s| s.trim().to_string())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
 use crate::auth::oauth2 as oauth2_util;
 use crate::auth::password::{hash_password, validate_password, verify_password};
 use crate::auth::providers;
@@ -65,6 +81,7 @@ pub struct RegisterResponse {
 pub async fn register(
     client_app: ClientApp,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> Result<axum::response::Response, AppError> {
     // Validate password complexity
@@ -132,6 +149,8 @@ pub async fn register(
         note: None,
         created_at: now,
         updated_at: now,
+        last_login_at: None,
+        recent_logins: Vec::new(),
     };
     // If user creation fails, the invite code stays claimed (used) with our user_id
     // but no user exists; admin can revoke if needed. No earlier rollback to perform.
@@ -158,20 +177,28 @@ pub async fn register(
         return Err(e);
     }
 
+    // Record initial login (best-effort).
+    let ip = client_ip(&headers);
+    if let Err(e) = state.repo.users().record_login(&user_id, &ip).await {
+        tracing::warn!(error = %e, user_id = %user_id, "failed to record login history");
+    }
+
     // Issue tokens
     let scopes = client_app.allowed_scopes.clone();
-    let access_token =
-        match state
-            .jwt
-            .issue_access_token(&user_id, &client_app.client_id, scopes.clone(), "user")
-        {
-            Ok(t) => t,
-            Err(e) => {
-                let _ = state.repo.accounts().delete_by_id(&account_id).await;
-                let _ = state.repo.users().delete_by_id(&user_id).await;
-                return Err(e);
-            }
-        };
+    let access_token = match state.jwt.issue_access_token(
+        &user_id,
+        &client_app.client_id,
+        scopes.clone(),
+        "user",
+        user.name.as_deref(),
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = state.repo.accounts().delete_by_id(&account_id).await;
+            let _ = state.repo.users().delete_by_id(&user_id).await;
+            return Err(e);
+        }
+    };
     let refresh_token = oauth2_util::generate_refresh_token();
 
     if let Err(e) = oauth2_util::store_refresh_token(
@@ -203,6 +230,7 @@ pub async fn register(
 pub async fn login(
     client_app: ClientApp,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<TokenResponse>, AppError> {
     // Find user by email
@@ -231,6 +259,12 @@ pub async fn login(
         return Err(AppError::InvalidCredentials);
     }
 
+    // Record login (best-effort: failures here must not block the login).
+    let ip = client_ip(&headers);
+    if let Err(e) = state.repo.users().record_login(&user.id, &ip).await {
+        tracing::warn!(error = %e, user_id = %user.id, "failed to record login history");
+    }
+
     // Issue tokens
     let scopes = client_app.allowed_scopes.clone();
     let access_token = state.jwt.issue_access_token(
@@ -238,6 +272,7 @@ pub async fn login(
         &client_app.client_id,
         scopes.clone(),
         &user.role,
+        user.name.as_deref(),
     )?;
     let refresh_token = oauth2_util::generate_refresh_token();
 
@@ -264,6 +299,7 @@ pub async fn provider_login(
     client_app: ClientApp,
     State(state): State<AppState>,
     Path(provider_id): Path<String>,
+    headers: HeaderMap,
     Json(req): Json<ProviderLoginRequest>,
 ) -> Result<Json<TokenResponse>, AppError> {
     // Find provider config for this app
@@ -294,7 +330,7 @@ pub async fn provider_login(
         .find_by_provider_account(&provider_id, &provider_info.provider_account_id)
         .await?;
 
-    let (user_id, user_role) = if let Some(mut account) = existing_account {
+    let (user_id, user_role, user_name) = if let Some(mut account) = existing_account {
         // Existing user — update metadata
         account.provider_metadata =
             serde_json::to_string(&provider_info.metadata).unwrap_or_default();
@@ -311,7 +347,7 @@ pub async fn provider_login(
         if !user.is_active {
             return Err(AppError::UserDisabled);
         }
-        (account.user_id, user.role)
+        (account.user_id, user.role, user.name)
     } else {
         // New user
         let user_id = Uuid::new_v4().to_string();
@@ -319,7 +355,7 @@ pub async fn provider_login(
         let user = User {
             id: user_id.clone(),
             email: provider_info.email,
-            name: provider_info.name,
+            name: provider_info.name.clone(),
             avatar_url: provider_info.avatar_url,
             email_verified: false,
             role: "user".to_string(),
@@ -327,6 +363,8 @@ pub async fn provider_login(
             note: None,
             created_at: now,
             updated_at: now,
+            last_login_at: None,
+            recent_logins: Vec::new(),
         };
         state.repo.users().insert(&user).await?;
 
@@ -342,8 +380,14 @@ pub async fn provider_login(
         };
         state.repo.accounts().insert(&account).await?;
 
-        (user_id, "user".to_string())
+        (user_id, "user".to_string(), provider_info.name)
     };
+
+    // Record login (best-effort).
+    let ip = client_ip(&headers);
+    if let Err(e) = state.repo.users().record_login(&user_id, &ip).await {
+        tracing::warn!(error = %e, user_id = %user_id, "failed to record login history");
+    }
 
     // Issue tokens
     let scopes = client_app.allowed_scopes.clone();
@@ -352,6 +396,7 @@ pub async fn provider_login(
         &client_app.client_id,
         scopes.clone(),
         &user_role,
+        user_name.as_deref(),
     )?;
     let refresh_token = oauth2_util::generate_refresh_token();
 
@@ -399,10 +444,13 @@ pub async fn refresh(
         return Err(AppError::UserDisabled);
     }
 
-    let access_token =
-        state
-            .jwt
-            .issue_access_token(&user_id, &client_app.client_id, scopes, &user.role)?;
+    let access_token = state.jwt.issue_access_token(
+        &user_id,
+        &client_app.client_id,
+        scopes,
+        &user.role,
+        user.name.as_deref(),
+    )?;
 
     Ok(Json(TokenResponse {
         access_token,

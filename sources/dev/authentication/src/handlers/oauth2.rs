@@ -113,10 +113,13 @@ async fn handle_authorization_code(
         return Err(AppError::Forbidden);
     }
 
-    let access_token =
-        state
-            .jwt
-            .issue_access_token(&user_id, &auth_app.client_id, scopes.clone(), &user.role)?;
+    let access_token = state.jwt.issue_access_token(
+        &user_id,
+        &auth_app.client_id,
+        scopes.clone(),
+        &user.role,
+        user.name.as_deref(),
+    )?;
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(
@@ -183,10 +186,13 @@ async fn handle_refresh_token(
         return Err(AppError::Forbidden);
     }
 
-    let access_token =
-        state
-            .jwt
-            .issue_access_token(&user_id, &auth_app.client_id, scopes.clone(), &user.role)?;
+    let access_token = state.jwt.issue_access_token(
+        &user_id,
+        &auth_app.client_id,
+        scopes.clone(),
+        &user.role,
+        user.name.as_deref(),
+    )?;
 
     Ok(Json(OAuthTokenResponse {
         access_token,
@@ -255,10 +261,13 @@ async fn handle_password_grant(
         return Err(AppError::Forbidden);
     }
 
-    let access_token =
-        state
-            .jwt
-            .issue_access_token(&user.id, &auth_app.client_id, scopes.clone(), &user.role)?;
+    let access_token = state.jwt.issue_access_token(
+        &user.id,
+        &auth_app.client_id,
+        scopes.clone(),
+        &user.role,
+        user.name.as_deref(),
+    )?;
     let refresh_token = oauth2_util::generate_refresh_token();
 
     oauth2_util::store_refresh_token(

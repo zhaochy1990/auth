@@ -303,6 +303,27 @@ export default function UserDetailPage() {
         )}
       </div>
 
+      {/* Recent Logins */}
+      <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
+        <h2 className="font-medium text-gray-900">{t('detail.recentLogins')}</h2>
+        {user.recent_logins && user.recent_logins.length > 0 ? (
+          <ul className="mt-3 divide-y divide-gray-100">
+            {user.recent_logins.map((login, idx) => (
+              <li key={idx} className="flex flex-col gap-1 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-sm text-gray-900">
+                  {new Date(login.at).toLocaleString()}
+                </span>
+                <span className="break-all text-xs text-gray-500">
+                  {t('detail.loginIp')}: {login.ip}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 text-sm text-gray-500">{t('detail.noLogins')}</p>
+        )}
+      </div>
+
       {/* Accounts */}
       <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
         <h2 className="font-medium text-gray-900">{t('detail.accounts')}</h2>

@@ -7,7 +7,8 @@
     "name": "姓名",
     "role": "角色",
     "status": "状态",
-    "createdAt": "注册时间"
+    "createdAt": "注册时间",
+    "lastLoginAt": "上次登录时间"
   },
   "role": {
     "user": "普通用户",
@@ -36,6 +37,9 @@
     "emailVerified": "邮箱已验证",
     "emailNotVerified": "邮箱未验证",
     "createdAt": "注册时间",
+    "recentLogins": "最近登录记录",
+    "loginIp": "登录IP",
+    "noLogins": "暂无登录记录",
     "provider": "认证方式",
     "accountId": "账号ID",
     "unlinkAccount": "解除绑定",

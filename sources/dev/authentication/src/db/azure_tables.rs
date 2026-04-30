@@ -9,8 +9,8 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::db::models::{
-    Account, AppProvider, Application, AuthorizationCode, InviteCode, RefreshToken, Team,
-    TeamMembership, User,
+    Account, AppProvider, Application, AuthorizationCode, InviteCode, LoginRecord, RefreshToken,
+    Team, TeamMembership, User,
 };
 use crate::db::repository::{
     AccountRepository, AppProviderRepository, ApplicationRepository, AuthCodeRepository,
@@ -205,6 +205,11 @@ struct UserEntity {
     created_at: String,
     #[serde(default)]
     updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    last_login_at: Option<String>,
+    /// JSON-encoded array of `{at, ip}` records (most recent first).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    recent_logins: Option<String>,
 }
 
 fn default_role() -> String {
@@ -212,6 +217,40 @@ fn default_role() -> String {
 }
 fn default_true() -> bool {
     true
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LoginRecordPersist {
+    at: String,
+    ip: String,
+}
+
+fn serialize_logins(records: &[LoginRecord]) -> Option<String> {
+    if records.is_empty() {
+        return None;
+    }
+    let persist: Vec<LoginRecordPersist> = records
+        .iter()
+        .map(|r| LoginRecordPersist {
+            at: fmt_dt(&r.at),
+            ip: r.ip.clone(),
+        })
+        .collect();
+    serde_json::to_string(&persist).ok()
+}
+
+fn deserialize_logins(s: Option<&str>) -> Vec<LoginRecord> {
+    let Some(s) = s else { return Vec::new() };
+    serde_json::from_str::<Vec<LoginRecordPersist>>(s)
+        .map(|v| {
+            v.into_iter()
+                .map(|p| LoginRecord {
+                    at: parse_dt(&p.at),
+                    ip: p.ip,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 impl UserEntity {
@@ -228,6 +267,8 @@ impl UserEntity {
             note: u.note.clone(),
             created_at: fmt_dt(&u.created_at),
             updated_at: fmt_dt(&u.updated_at),
+            last_login_at: u.last_login_at.as_ref().map(fmt_dt),
+            recent_logins: serialize_logins(&u.recent_logins),
         }
     }
     fn to_model(&self) -> User {
@@ -242,6 +283,8 @@ impl UserEntity {
             note: self.note.clone(),
             created_at: parse_dt(&self.created_at),
             updated_at: parse_dt(&self.updated_at),
+            last_login_at: self.last_login_at.as_deref().map(parse_dt),
+            recent_logins: deserialize_logins(self.recent_logins.as_deref()),
         }
     }
 }
@@ -806,6 +849,22 @@ impl UserRepository for AzureTableRepository {
             .iter()
             .filter(|e| e.created_at >= since_str)
             .count() as u64)
+    }
+
+    async fn record_login(&self, user_id: &str, ip: &str) -> Result<(), AppError> {
+        let Some(mut user) = UserRepository::find_by_id(self, user_id).await? else {
+            return Ok(());
+        };
+        let now = chrono::Utc::now().naive_utc();
+        let mut records = vec![LoginRecord {
+            at: now,
+            ip: ip.to_string(),
+        }];
+        records.extend(user.recent_logins);
+        records.truncate(3);
+        user.recent_logins = records;
+        user.last_login_at = Some(now);
+        UserRepository::update(self, &user).await
     }
 
     async fn list_paginated(

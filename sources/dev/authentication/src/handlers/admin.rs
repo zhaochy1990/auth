@@ -90,6 +90,38 @@ pub struct UserResponse {
     pub note: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub last_login_at: Option<String>,
+    pub recent_logins: Vec<LoginRecordResponse>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LoginRecordResponse {
+    pub at: String,
+    pub ip: String,
+}
+
+fn to_user_response(u: User) -> UserResponse {
+    UserResponse {
+        id: u.id,
+        email: u.email,
+        name: u.name,
+        avatar_url: u.avatar_url,
+        email_verified: u.email_verified,
+        role: u.role,
+        is_active: u.is_active,
+        note: u.note,
+        created_at: u.created_at.to_string(),
+        updated_at: u.updated_at.to_string(),
+        last_login_at: u.last_login_at.map(|d| d.to_string()),
+        recent_logins: u
+            .recent_logins
+            .into_iter()
+            .map(|r| LoginRecordResponse {
+                at: r.at.to_string(),
+                ip: r.ip,
+            })
+            .collect(),
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -412,21 +444,7 @@ pub async fn list_users(
         .list_paginated(query.search.as_deref(), offset, per_page)
         .await?;
 
-    let responses = users
-        .into_iter()
-        .map(|u| UserResponse {
-            id: u.id,
-            email: u.email,
-            name: u.name,
-            avatar_url: u.avatar_url,
-            email_verified: u.email_verified,
-            role: u.role,
-            is_active: u.is_active,
-            note: u.note,
-            created_at: u.created_at.to_string(),
-            updated_at: u.updated_at.to_string(),
-        })
-        .collect();
+    let responses = users.into_iter().map(to_user_response).collect();
 
     Ok(Json(UserListResponse {
         users: responses,
@@ -448,18 +466,7 @@ pub async fn get_user(
         .await?
         .ok_or(AppError::UserNotFound)?;
 
-    Ok(Json(UserResponse {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        avatar_url: user.avatar_url,
-        email_verified: user.email_verified,
-        role: user.role,
-        is_active: user.is_active,
-        note: user.note,
-        created_at: user.created_at.to_string(),
-        updated_at: user.updated_at.to_string(),
-    }))
+    Ok(Json(to_user_response(user)))
 }
 
 pub async fn get_user_accounts(
@@ -523,6 +530,8 @@ pub async fn create_user(
         note: None,
         created_at: now,
         updated_at: now,
+        last_login_at: None,
+        recent_logins: Vec::new(),
     };
     state.repo.users().insert(&user).await?;
 
@@ -539,18 +548,7 @@ pub async fn create_user(
     };
     state.repo.accounts().insert(&account).await?;
 
-    Ok(Json(UserResponse {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        avatar_url: user.avatar_url,
-        email_verified: user.email_verified,
-        role: user.role,
-        is_active: user.is_active,
-        note: user.note,
-        created_at: user.created_at.to_string(),
-        updated_at: user.updated_at.to_string(),
-    }))
+    Ok(Json(to_user_response(user)))
 }
 
 pub async fn update_user(
@@ -589,18 +587,7 @@ pub async fn update_user(
 
     state.repo.users().update(&user).await?;
 
-    Ok(Json(UserResponse {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        avatar_url: user.avatar_url,
-        email_verified: user.email_verified,
-        role: user.role,
-        is_active: user.is_active,
-        note: user.note,
-        created_at: user.created_at.to_string(),
-        updated_at: user.updated_at.to_string(),
-    }))
+    Ok(Json(to_user_response(user)))
 }
 
 pub async fn delete_user(

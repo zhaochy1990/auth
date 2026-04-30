@@ -109,6 +109,8 @@ pub async fn bootstrap(
             note: None,
             created_at: now,
             updated_at: now,
+            last_login_at: None,
+            recent_logins: Vec::new(),
         };
         repo.users().insert(&user).await?;
 

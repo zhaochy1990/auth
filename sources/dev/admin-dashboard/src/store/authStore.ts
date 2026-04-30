@@ -6,6 +6,7 @@ interface AuthState {
   refreshToken: string | null;
   userId: string | null;
   role: string | null;
+  name: string | null;
   isAuthenticated: boolean;
 
   login: (email: string, password: string) => Promise<void>;
@@ -18,6 +19,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   refreshToken: null,
   userId: null,
   role: null,
+  name: null,
   isAuthenticated: false,
 
   login: async (email: string, password: string) => {
@@ -42,6 +44,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       refreshToken: refresh_token,
       userId: payload.sub,
       role: payload.role,
+      name: payload.name ?? null,
       isAuthenticated: true,
     });
 
@@ -55,6 +58,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       refreshToken: null,
       userId: null,
       role: null,
+      name: null,
       isAuthenticated: false,
     });
   },
@@ -72,6 +76,7 @@ export const useAuthStore = create<AuthState>((set) => ({
             refreshToken,
             userId: payload.sub,
             role: payload.role,
+            name: payload.name ?? null,
             isAuthenticated: true,
           });
           scheduleTokenRefresh();
@@ -86,6 +91,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       refreshToken: null,
       userId: null,
       role: null,
+      name: null,
       isAuthenticated: false,
     });
   },

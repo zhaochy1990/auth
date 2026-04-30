@@ -618,6 +618,8 @@ async fn reset_password_user_without_password_account() {
         note: None,
         created_at: chrono::Utc::now().naive_utc(),
         updated_at: chrono::Utc::now().naive_utc(),
+        last_login_at: None,
+        recent_logins: Vec::new(),
     };
     app.state.repo.users().insert(&user).await.unwrap();
 

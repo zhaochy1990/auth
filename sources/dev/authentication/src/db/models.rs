@@ -36,6 +36,12 @@ pub struct AppProvider {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LoginRecord {
+    pub at: NaiveDateTime,
+    pub ip: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct User {
     pub id: String,
     pub email: Option<String>,
@@ -49,6 +55,12 @@ pub struct User {
     pub note: Option<String>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    /// Most recent successful login timestamp.
+    #[serde(default)]
+    pub last_login_at: Option<NaiveDateTime>,
+    /// The user's last 3 login records (most recent first), each with timestamp + IP.
+    #[serde(default)]
+    pub recent_logins: Vec<LoginRecord>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

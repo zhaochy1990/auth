@@ -64,6 +64,11 @@ export interface AddProviderRequest {
 }
 
 // Users
+export interface LoginRecord {
+  at: string;
+  ip: string;
+}
+
 export interface User {
   id: string;
   email: string | null;
@@ -75,6 +80,8 @@ export interface User {
   note: string | null;
   created_at: string;
   updated_at: string;
+  last_login_at: string | null;
+  recent_logins: LoginRecord[];
 }
 
 export interface UserListResponse {
@@ -187,4 +194,6 @@ export interface JwtPayload {
   iat: number;
   scopes: string[];
   role: string;
+  /// Display name of the user, when set on their profile.
+  name?: string;
 }

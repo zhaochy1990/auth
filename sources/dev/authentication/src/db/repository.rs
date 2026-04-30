@@ -22,6 +22,9 @@ pub trait UserRepository: Send + Sync {
         offset: u64,
         limit: u64,
     ) -> Result<(Vec<User>, u64), AppError>;
+    /// Append a login record (timestamp + IP) to the user, keeping at most the
+    /// 3 most recent entries, and update `last_login_at`.
+    async fn record_login(&self, user_id: &str, ip: &str) -> Result<(), AppError>;
 }
 
 #[async_trait]

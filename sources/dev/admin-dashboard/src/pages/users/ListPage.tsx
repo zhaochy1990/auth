@@ -115,6 +115,12 @@ export default function UserListPage() {
                   <dt className="text-xs font-medium text-gray-500">{t('table.createdAt')}</dt>
                   <dd className="mt-1 text-gray-500">{new Date(user.created_at).toLocaleDateString()}</dd>
                 </div>
+                <div>
+                  <dt className="text-xs font-medium text-gray-500">{t('table.lastLoginAt')}</dt>
+                  <dd className="mt-1 text-gray-500">
+                    {user.last_login_at ? new Date(user.last_login_at).toLocaleString() : '-'}
+                  </dd>
+                </div>
               </dl>
             </div>
           ))
@@ -130,12 +136,13 @@ export default function UserListPage() {
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.role')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.status')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.createdAt')}</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.lastLoginAt')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {users.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500">
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
                   {tc('status.empty')}
                 </td>
               </tr>
@@ -163,6 +170,9 @@ export default function UserListPage() {
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500">
                     {new Date(user.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-500">
+                    {user.last_login_at ? new Date(user.last_login_at).toLocaleString() : '-'}
                   </td>
                 </tr>
               ))
