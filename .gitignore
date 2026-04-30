@@ -4,6 +4,15 @@
 # Claude Code
 .claude/
 
+# OMC (oh-my-claudecode) local state
+.omc/
+
+# Playwright MCP test artifacts
+.playwright-mcp/
+
 # Generated files
 code-review-report.md
 infra/main.json
+
+# Local screenshots / scratch
+prod-recent-logins.png
