@@ -29,6 +29,7 @@
   "detail": {
     "title": "User Detail",
     "profile": "Profile",
+    "userId": "User ID",
     "accounts": "Linked Accounts",
     "email": "Email",
     "name": "Name",

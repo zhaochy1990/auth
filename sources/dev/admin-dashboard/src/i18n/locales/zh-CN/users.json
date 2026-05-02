@@ -29,6 +29,7 @@
   "detail": {
     "title": "用户详情",
     "profile": "基本信息",
+    "userId": "用户ID",
     "accounts": "关联账号",
     "email": "邮箱",
     "name": "姓名",

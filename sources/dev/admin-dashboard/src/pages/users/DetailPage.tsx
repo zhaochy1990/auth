@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router';
-import { ArrowLeft, Check, KeyRound, Pencil, Shield, ShieldOff, Trash2, Unlink, X } from 'lucide-react';
+import { ArrowLeft, Check, Copy, KeyRound, Pencil, Shield, ShieldOff, Trash2, Unlink, X } from 'lucide-react';
 import { getUser, getUserAccounts, updateUser, adminUnlinkAccount, deleteUser, resetUserPassword } from '../../api/admin';
 import StatusBadge from '../../components/shared/StatusBadge';
 import Badge from '../../components/ui/Badge';
@@ -29,6 +29,7 @@ export default function UserDetailPage() {
   const [noteInput, setNoteInput] = useState('');
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
   const [resetPasswordError, setResetPasswordError] = useState('');
+  const [copiedUserId, setCopiedUserId] = useState(false);
 
   const { data: user, isLoading } = useQuery({
     queryKey: ['user', id],
@@ -138,6 +139,12 @@ export default function UserDetailPage() {
     return <div className="text-gray-500">User not found</div>;
   }
 
+  const copyUserId = async () => {
+    await navigator.clipboard.writeText(user.id);
+    setCopiedUserId(true);
+    setTimeout(() => setCopiedUserId(false), 2000);
+  };
+
   return (
     <div className="mx-auto w-full max-w-2xl">
       <button
@@ -157,6 +164,20 @@ export default function UserDetailPage() {
         <h2 className="font-medium text-gray-900">{t('detail.profile')}</h2>
 
         <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <dt className="text-xs font-medium text-gray-500">{t('detail.userId')}</dt>
+            <dd className="mt-1 flex items-center gap-1">
+              <span className="break-all font-mono text-sm text-gray-900">{user.id}</span>
+              <button
+                onClick={copyUserId}
+                aria-label={t('common:actions.copy')}
+                title={copiedUserId ? t('common:actions.copied') : t('common:actions.copy')}
+                className="shrink-0 text-gray-400 hover:text-gray-600"
+              >
+                {copiedUserId ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+              </button>
+            </dd>
+          </div>
           <div>
             <dt className="text-xs font-medium text-gray-500">{t('detail.email')}</dt>
             <dd className="mt-1 break-all text-sm text-gray-900">{user.email || '-'}</dd>
