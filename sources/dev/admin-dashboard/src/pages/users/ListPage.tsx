@@ -118,7 +118,9 @@ export default function UserListPage() {
                 <div>
                   <dt className="text-xs font-medium text-gray-500">{t('table.lastLoginAt')}</dt>
                   <dd className="mt-1 text-gray-500">
-                    {user.last_login_at ? new Date(user.last_login_at).toLocaleString() : '-'}
+                    {user.last_login_at
+                      ? new Date(user.last_login_at).toLocaleString(undefined, { timeZone: 'Asia/Shanghai' })
+                      : '-'}
                   </dd>
                 </div>
               </dl>
@@ -172,7 +174,9 @@ export default function UserListPage() {
                     {new Date(user.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500">
-                    {user.last_login_at ? new Date(user.last_login_at).toLocaleString() : '-'}
+                    {user.last_login_at
+                      ? new Date(user.last_login_at).toLocaleString(undefined, { timeZone: 'Asia/Shanghai' })
+                      : '-'}
                   </td>
                 </tr>
               ))
