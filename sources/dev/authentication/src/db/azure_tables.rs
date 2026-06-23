@@ -9,8 +9,8 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::db::models::{
-    Account, AppProvider, Application, AuthorizationCode, InviteCode, LoginRecord, RefreshToken,
-    Team, TeamMembership, User,
+    Account, AppProvider, Application, AuthorizationCode, InviteCode, InviteCodeKind, LoginRecord,
+    RefreshToken, Team, TeamMembership, User,
 };
 use crate::db::repository::{
     AccountRepository, AppProviderRepository, ApplicationRepository, AuthCodeRepository,
@@ -210,6 +210,9 @@ struct UserEntity {
     /// JSON-encoded array of `{at, ip}` records (most recent first).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     recent_logins: Option<String>,
+    /// Invite code used at registration, if any. Absent on rows predating this field.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    invite_code: Option<String>,
 }
 
 fn default_role() -> String {
@@ -269,6 +272,7 @@ impl UserEntity {
             updated_at: fmt_dt(&u.updated_at),
             last_login_at: u.last_login_at.as_ref().map(fmt_dt),
             recent_logins: serialize_logins(&u.recent_logins),
+            invite_code: u.invite_code.clone(),
         }
     }
     fn to_model(&self) -> User {
@@ -285,6 +289,7 @@ impl UserEntity {
             updated_at: parse_dt(&self.updated_at),
             last_login_at: self.last_login_at.as_deref().map(parse_dt),
             recent_logins: deserialize_logins(self.recent_logins.as_deref()),
+            invite_code: self.invite_code.clone(),
         }
     }
 }
@@ -530,6 +535,28 @@ struct InviteCodeEntity {
     used_by: Option<String>,
     #[serde(default)]
     is_revoked: bool,
+    /// Stored as a snake_case string ("single_use" | "long_term"). Defaults to
+    /// "single_use" so rows that predate this field deserialize as single-use.
+    #[serde(default = "default_kind")]
+    kind: String,
+}
+
+fn default_kind() -> String {
+    "single_use".into()
+}
+
+fn kind_to_str(kind: InviteCodeKind) -> String {
+    match kind {
+        InviteCodeKind::SingleUse => "single_use".into(),
+        InviteCodeKind::LongTerm => "long_term".into(),
+    }
+}
+
+fn kind_from_str(s: &str) -> InviteCodeKind {
+    match s {
+        "long_term" => InviteCodeKind::LongTerm,
+        _ => InviteCodeKind::SingleUse,
+    }
 }
 
 impl InviteCodeEntity {
@@ -543,6 +570,7 @@ impl InviteCodeEntity {
             used_at: c.used_at.as_ref().map(fmt_dt),
             used_by: c.used_by.clone(),
             is_revoked: c.is_revoked,
+            kind: kind_to_str(c.kind),
         }
     }
     fn to_model(&self) -> InviteCode {
@@ -554,6 +582,7 @@ impl InviteCodeEntity {
             used_at: self.used_at.as_deref().map(parse_dt),
             used_by: self.used_by.clone(),
             is_revoked: self.is_revoked,
+            kind: kind_from_str(&self.kind),
         }
     }
 }
@@ -723,6 +752,49 @@ impl AzureTableRepository {
             &self.teams,
             &self.team_memberships,
         ]
+    }
+
+    /// Backfill the `kind` property on every invite-code row, materializing
+    /// `single_use` on rows that predate the field. Idempotent — re-running
+    /// rewrites each row with its (already defaulted) kind. Returns the count.
+    pub async fn migrate_invite_code_kinds(&self) -> Result<usize, AppError> {
+        let entities: Vec<InviteCodeEntity> =
+            query_entities(&self.invite_codes, "PartitionKey eq 'invite_code'").await?;
+        let mut count = 0usize;
+        for mut e in entities {
+            if e.kind.is_empty() {
+                e.kind = default_kind();
+            }
+            let code_val = e.row_key.clone();
+            upsert_entity(&self.invite_codes, "invite_code", &code_val, &e).await?;
+            count += 1;
+        }
+        tracing::info!(count, "migrated invite code kinds");
+        Ok(count)
+    }
+
+    /// Best-effort backfill of `users.invite_code` from each single-use code's
+    /// `used_by`. Long-term codes never set `used_by`, so only historical
+    /// single-use linkage is recovered. Skips users that already have a value.
+    /// Idempotent. Returns the number of users updated.
+    pub async fn migrate_user_invite_codes(&self) -> Result<usize, AppError> {
+        let codes: Vec<InviteCodeEntity> =
+            query_entities(&self.invite_codes, "PartitionKey eq 'invite_code'").await?;
+        let mut count = 0usize;
+        for c in codes {
+            let Some(user_id) = c.used_by.clone() else {
+                continue;
+            };
+            let entity: Option<UserEntity> = get_entity(&self.users, "user", &user_id).await?;
+            let Some(mut ue) = entity else { continue };
+            if ue.invite_code.is_none() {
+                ue.invite_code = Some(c.row_key.clone());
+                upsert_entity(&self.users, "user", &user_id, &ue).await?;
+                count += 1;
+            }
+        }
+        tracing::info!(count, "migrated user invite codes");
+        Ok(count)
     }
 }
 
@@ -1281,7 +1353,11 @@ fn generate_invite_code() -> String {
 
 #[async_trait]
 impl InviteCodeRepository for AzureTableRepository {
-    async fn create_invite_code(&self, created_by: &str) -> Result<InviteCode, AppError> {
+    async fn create_invite_code(
+        &self,
+        created_by: &str,
+        kind: InviteCodeKind,
+    ) -> Result<InviteCode, AppError> {
         let code = InviteCode {
             id: uuid::Uuid::new_v4().to_string(),
             code: generate_invite_code(),
@@ -1290,12 +1366,13 @@ impl InviteCodeRepository for AzureTableRepository {
             used_at: None,
             used_by: None,
             is_revoked: false,
+            kind,
         };
         let entity = InviteCodeEntity::from_model(&code);
         insert_entity(&self.invite_codes, &entity)
             .await
             .map_err(db_err)?;
-        tracing::info!(invite_code_id = %code.id, created_by = %created_by, "invite code created");
+        tracing::info!(invite_code_id = %code.id, created_by = %created_by, kind = ?kind, "invite code created");
         Ok(code)
     }
 

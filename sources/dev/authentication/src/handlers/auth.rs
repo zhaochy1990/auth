@@ -109,7 +109,9 @@ pub async fn register(
         if record.is_revoked {
             return Err(AppError::InviteCodeNotFound);
         }
-        if record.used_at.is_some() {
+        // Single-use codes are consumed by the first registration; long-term codes
+        // may be reused any number of times and are never marked used.
+        if record.kind == crate::db::models::InviteCodeKind::SingleUse && record.used_at.is_some() {
             return Err(AppError::InviteCodeAlreadyUsed);
         }
         Some(record)
@@ -130,11 +132,13 @@ pub async fn register(
     // Claim the invite code FIRST (before creating user/account) using ETag-atomic
     // mark_invite_code_used. If the claim fails (race), no orphan rows remain.
     if let Some(ref code_record) = invite_code_record {
-        state
-            .repo
-            .invite_codes()
-            .mark_invite_code_used(&code_record.code, &user_id)
-            .await?;
+        if code_record.kind == crate::db::models::InviteCodeKind::SingleUse {
+            state
+                .repo
+                .invite_codes()
+                .mark_invite_code_used(&code_record.code, &user_id)
+                .await?;
+        }
     }
 
     // Create user
@@ -151,6 +155,7 @@ pub async fn register(
         updated_at: now,
         last_login_at: None,
         recent_logins: Vec::new(),
+        invite_code: invite_code_record.as_ref().map(|c| c.code.clone()),
     };
     // If user creation fails, the invite code stays claimed (used) with our user_id
     // but no user exists; admin can revoke if needed. No earlier rollback to perform.
@@ -365,6 +370,7 @@ pub async fn provider_login(
             updated_at: now,
             last_login_at: None,
             recent_logins: Vec::new(),
+            invite_code: None,
         };
         state.repo.users().insert(&user).await?;
 

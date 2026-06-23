@@ -1,6 +1,19 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
+/// Invite code reuse policy.
+///
+/// `SingleUse` codes are consumed by the first successful registration and then
+/// rejected (the historical behavior). `LongTerm` codes can be used by any number
+/// of registrations and are never marked used; they are disabled only via revoke.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InviteCodeKind {
+    #[default]
+    SingleUse,
+    LongTerm,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InviteCode {
     pub id: String,
@@ -10,6 +23,9 @@ pub struct InviteCode {
     pub used_at: Option<NaiveDateTime>,
     pub used_by: Option<String>,
     pub is_revoked: bool,
+    /// Reuse policy. Defaults to single-use for back-compat with rows that predate this field.
+    #[serde(default)]
+    pub kind: InviteCodeKind,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -61,6 +77,10 @@ pub struct User {
     /// The user's last 3 login records (most recent first), each with timestamp + IP.
     #[serde(default)]
     pub recent_logins: Vec<LoginRecord>,
+    /// The invite code this user registered with, if registration was invite-gated.
+    /// Backend-only (not surfaced via user-facing APIs). Absent on users predating this field.
+    #[serde(default)]
+    pub invite_code: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

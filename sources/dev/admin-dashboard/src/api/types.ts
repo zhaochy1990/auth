@@ -123,6 +123,8 @@ export interface UserAccount {
 }
 
 // Invite Codes
+export type InviteCodeKind = 'single_use' | 'long_term';
+
 export interface InviteCode {
   id: string;
   code: string;
@@ -131,6 +133,7 @@ export interface InviteCode {
   used_at: string | null;
   used_by: string | null;
   is_revoked: boolean;
+  kind: InviteCodeKind;
 }
 
 // Teams

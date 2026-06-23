@@ -3,22 +3,31 @@
   "createBtn": "创建邀请码",
   "table": {
     "code": "邀请码",
+    "type": "类型",
     "createdAt": "创建时间",
     "used": "使用状态",
     "usedBy": "使用者",
     "actions": "操作"
   },
+  "type": {
+    "singleUse": "一次性",
+    "longTerm": "长期"
+  },
   "status": {
     "used": "已使用",
     "unused": "未使用",
+    "active": "有效",
     "revoked": "已撤销"
+  },
+  "create": {
+    "typeLabel": "邀请码类型"
   },
   "actions": {
     "revoke": "撤销"
   },
   "modal": {
     "title": "新邀请码",
-    "description": "将此邀请码分享给新用户，每个邀请码只能使用一次。",
+    "description": "将此邀请码分享给新用户。",
     "warning": "关闭此对话框后将不再显示此邀请码。"
   }
 }

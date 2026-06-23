@@ -532,6 +532,7 @@ pub async fn create_user(
         updated_at: now,
         last_login_at: None,
         recent_logins: Vec::new(),
+        invite_code: None,
     };
     state.repo.users().insert(&user).await?;
 
@@ -720,6 +721,7 @@ pub struct InviteCodeResponse {
     pub used_at: Option<String>,
     pub used_by: Option<String>,
     pub is_revoked: bool,
+    pub kind: crate::db::models::InviteCodeKind,
 }
 
 #[derive(Debug, Deserialize)]
@@ -727,15 +729,23 @@ pub struct ListInviteCodesQuery {
     pub used: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreateInviteCodeQuery {
+    /// Reuse policy for the new code. Defaults to single-use when omitted.
+    #[serde(default)]
+    pub kind: crate::db::models::InviteCodeKind,
+}
+
 pub async fn create_invite_code(
     _admin: AdminAuth,
     user: crate::auth::middleware::AuthenticatedUser,
     State(state): State<AppState>,
+    Query(query): Query<CreateInviteCodeQuery>,
 ) -> Result<Json<InviteCodeResponse>, AppError> {
     let code = state
         .repo
         .invite_codes()
-        .create_invite_code(&user.user_id)
+        .create_invite_code(&user.user_id, query.kind)
         .await?;
     Ok(Json(InviteCodeResponse {
         id: code.id,
@@ -745,6 +755,7 @@ pub async fn create_invite_code(
         used_at: code.used_at.map(|d| d.to_string()),
         used_by: code.used_by,
         is_revoked: code.is_revoked,
+        kind: code.kind,
     }))
 }
 
@@ -768,6 +779,7 @@ pub async fn list_invite_codes(
             used_at: c.used_at.map(|d| d.to_string()),
             used_by: c.used_by,
             is_revoked: c.is_revoked,
+            kind: c.kind,
         })
         .collect();
     Ok(Json(responses))

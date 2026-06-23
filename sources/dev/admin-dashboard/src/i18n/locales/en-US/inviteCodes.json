@@ -3,22 +3,31 @@
   "createBtn": "Create Code",
   "table": {
     "code": "Code",
+    "type": "Type",
     "createdAt": "Created At",
     "used": "Used",
     "usedBy": "Used By",
     "actions": "Actions"
   },
+  "type": {
+    "singleUse": "Single-use",
+    "longTerm": "Long-term"
+  },
   "status": {
     "used": "Used",
     "unused": "Unused",
+    "active": "Active",
     "revoked": "Revoked"
+  },
+  "create": {
+    "typeLabel": "Code type"
   },
   "actions": {
     "revoke": "Revoke"
   },
   "modal": {
     "title": "New Invite Code",
-    "description": "Share this code with the new user. It can only be used once.",
+    "description": "Share this code with the new user.",
     "warning": "This code will not be shown again after you close this dialog."
   }
 }

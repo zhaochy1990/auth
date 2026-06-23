@@ -16,6 +16,7 @@ import type {
   UserAccount,
   Stats,
   InviteCode,
+  InviteCodeKind,
   Team,
   TeamMember,
   TeamMembership,
@@ -81,8 +82,10 @@ export const getStats = () =>
 export const listInviteCodes = () =>
   client.get<InviteCode[]>('/admin/invite-codes').then((r) => r.data);
 
-export const createInviteCode = () =>
-  client.post<InviteCode>('/admin/invite-codes').then((r) => r.data);
+export const createInviteCode = (kind: InviteCodeKind = 'single_use') =>
+  client
+    .post<InviteCode>('/admin/invite-codes', null, { params: { kind } })
+    .then((r) => r.data);
 
 export const revokeInviteCode = (code: string) =>
   client.delete(`/admin/invite-codes/${code}`).then((r) => r.data);
