@@ -80,6 +80,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Check for migrate subcommand: cargo run -- migrate
+    // Idempotent backfill for the long-term invite code feature.
+    if args.len() > 1 && args[1] == "migrate" {
+        println!("=== Auth Service Migration ===\n");
+
+        let kinds = repo.migrate_invite_code_kinds().await?;
+        println!("  Invite codes backfilled with `kind`: {kinds}");
+
+        let users = repo.migrate_user_invite_codes().await?;
+        println!("  Users backfilled with `invite_code`: {users}");
+
+        println!("\n=== Migration complete ===");
+        return Ok(());
+    }
+
     // Initialize JWT manager
     let jwt = auth_service::auth::jwt::JwtManager::new(&config)?;
 

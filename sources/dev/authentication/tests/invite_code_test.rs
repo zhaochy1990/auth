@@ -1,5 +1,6 @@
 mod common;
 
+use auth_service::db::models::InviteCodeKind;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use common::TestApp;
@@ -15,7 +16,7 @@ async fn create_invite_code_fields() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin-user-id")
+        .create_invite_code("admin-user-id", InviteCodeKind::SingleUse)
         .await
         .expect("create should succeed");
 
@@ -28,6 +29,132 @@ async fn create_invite_code_fields() {
     assert!(code.used_by.is_none());
     assert!(!code.is_revoked);
     assert_eq!(code.created_by, "admin-user-id");
+    assert_eq!(code.kind, InviteCodeKind::SingleUse);
+}
+
+#[serial]
+#[tokio::test]
+async fn long_term_code_can_be_used_by_multiple_registrations() {
+    let app = TestApp::new().await;
+    let created = app
+        .admin_create_app("App", &["https://a.com/cb"], &["openid"])
+        .await;
+
+    with_invite_required(|| async {
+        let code = app.admin_create_invite_code_kind("long_term").await;
+
+        // First registration succeeds.
+        app.register_user_with_invite(&created.client_id, "lt1@test.com", "Password1!", &code)
+            .await
+            .assert_status(StatusCode::CREATED);
+
+        // Second registration with the SAME code also succeeds (long-term reuse).
+        app.register_user_with_invite(&created.client_id, "lt2@test.com", "Password1!", &code)
+            .await
+            .assert_status(StatusCode::CREATED);
+
+        // The code must NOT be marked used.
+        let fetched = app
+            .state
+            .repo
+            .invite_codes()
+            .get_invite_code_by_code(&code)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(fetched.kind, InviteCodeKind::LongTerm);
+        assert!(fetched.used_at.is_none(), "long-term code must stay unused");
+        assert!(fetched.used_by.is_none());
+
+        // The user's invite_code must be recorded.
+        let user = app
+            .state
+            .repo
+            .users()
+            .find_by_email("lt1@test.com")
+            .await
+            .unwrap()
+            .expect("user must exist");
+        assert_eq!(user.invite_code.as_deref(), Some(code.as_str()));
+    })
+    .await;
+}
+
+#[serial]
+#[tokio::test]
+async fn revoked_long_term_code_is_rejected() {
+    let app = TestApp::new().await;
+    let created = app
+        .admin_create_app("App", &["https://a.com/cb"], &["openid"])
+        .await;
+
+    with_invite_required(|| async {
+        let code = app.admin_create_invite_code_kind("long_term").await;
+
+        // Revoke the (unused) long-term code via the admin API.
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(format!("/admin/invite-codes/{code}"))
+            .header("Authorization", format!("Bearer {}", app.admin_token))
+            .body(Body::empty())
+            .unwrap();
+        app.request(req).await.assert_status(StatusCode::OK);
+
+        // Registration with the revoked long-term code is rejected.
+        let resp = app
+            .register_user_with_invite(&created.client_id, "rlt@test.com", "Password1!", &code)
+            .await;
+        resp.assert_status(StatusCode::UNAUTHORIZED);
+    })
+    .await;
+}
+
+#[serial]
+#[tokio::test]
+async fn migrate_backfills_kind_and_user_invite_code() {
+    let app = TestApp::new().await;
+    let created = app
+        .admin_create_app("App", &["https://a.com/cb"], &["openid"])
+        .await;
+
+    // Create + consume a single-use code so a used_by linkage exists.
+    std::env::set_var("STRIDE_REQUIRE_INVITE_CODE", "true");
+    let code = app.admin_create_invite_code().await;
+    app.register_user_with_invite(&created.client_id, "mig@test.com", "Password1!", &code)
+        .await
+        .assert_status(StatusCode::CREATED);
+    std::env::remove_var("STRIDE_REQUIRE_INVITE_CODE");
+
+    // Simulate the pre-feature state: the user has no invite_code recorded,
+    // even though the consumed code's `used_by` points at them.
+    let mut user = app
+        .state
+        .repo
+        .users()
+        .find_by_email("mig@test.com")
+        .await
+        .unwrap()
+        .expect("user must exist");
+    user.invite_code = None;
+    app.state.repo.users().update(&user).await.unwrap();
+
+    // Run the migration on a concrete repo handle (same Azurite tables).
+    let repo = app.concrete_repo();
+    let kinds = repo.migrate_invite_code_kinds().await.unwrap();
+    assert!(kinds >= 1, "at least one invite code should be migrated");
+    let users = repo.migrate_user_invite_codes().await.unwrap();
+    assert!(users >= 1, "at least one user should be backfilled");
+
+    // The consuming user now has invite_code stamped from used_by.
+    let user = app
+        .state
+        .repo
+        .users()
+        .find_by_email("mig@test.com")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(user.invite_code.as_deref(), Some(code.as_str()));
 }
 
 #[serial]
@@ -38,14 +165,14 @@ async fn create_invite_codes_are_unique() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin")
+        .create_invite_code("admin", InviteCodeKind::SingleUse)
         .await
         .unwrap();
     let c2 = app
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin")
+        .create_invite_code("admin", InviteCodeKind::SingleUse)
         .await
         .unwrap();
     assert_ne!(c1.code, c2.code);
@@ -59,7 +186,7 @@ async fn mark_invite_code_used_once_then_conflicts() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin")
+        .create_invite_code("admin", InviteCodeKind::SingleUse)
         .await
         .unwrap();
 
@@ -95,7 +222,7 @@ async fn revoke_unused_code_succeeds() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin")
+        .create_invite_code("admin", InviteCodeKind::SingleUse)
         .await
         .unwrap();
 
@@ -125,7 +252,7 @@ async fn revoke_used_code_returns_conflict() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin")
+        .create_invite_code("admin", InviteCodeKind::SingleUse)
         .await
         .unwrap();
 

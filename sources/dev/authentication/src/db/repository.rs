@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use chrono::NaiveDateTime;
 
 use crate::db::models::{
-    Account, AppProvider, Application, AuthorizationCode, InviteCode, RefreshToken, Team,
-    TeamMembership, User,
+    Account, AppProvider, Application, AuthorizationCode, InviteCode, InviteCodeKind, RefreshToken,
+    Team, TeamMembership, User,
 };
 use crate::error::AppError;
 
@@ -89,7 +89,11 @@ pub trait RefreshTokenRepository: Send + Sync {
 
 #[async_trait]
 pub trait InviteCodeRepository: Send + Sync {
-    async fn create_invite_code(&self, created_by: &str) -> Result<InviteCode, AppError>;
+    async fn create_invite_code(
+        &self,
+        created_by: &str,
+        kind: InviteCodeKind,
+    ) -> Result<InviteCode, AppError>;
     async fn get_invite_code_by_code(&self, code: &str) -> Result<Option<InviteCode>, AppError>;
     /// Atomically marks the code used via ETag. Returns Err on race (code already used).
     /// `code` is the RowKey value (the human-readable code string), not the id.

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Copy, Check, Ticket } from 'lucide-react';
 import { listInviteCodes, createInviteCode, revokeInviteCode } from '../../api/admin';
-import type { InviteCode } from '../../api/types';
+import type { InviteCode, InviteCodeKind } from '../../api/types';
 import Spinner from '../../components/ui/Spinner';
 
 export default function InviteCodeListPage() {
@@ -13,6 +13,7 @@ export default function InviteCodeListPage() {
 
   const [newCode, setNewCode] = useState<InviteCode | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [createKind, setCreateKind] = useState<InviteCodeKind>('single_use');
 
   const { data, isLoading } = useQuery({
     queryKey: ['invite-codes'],
@@ -48,8 +49,22 @@ export default function InviteCodeListPage() {
     if (item.is_revoked) {
       return <span className="text-red-500">{t('status.revoked')}</span>;
     }
+    // Long-term codes are never marked used; an un-revoked one is active.
+    if (item.kind === 'long_term') {
+      return <span className="text-green-600">{t('status.active')}</span>;
+    }
     return <span className="text-gray-400">{t('status.unused')}</span>;
   };
+  const renderType = (item: InviteCode) =>
+    item.kind === 'long_term' ? (
+      <span className="inline-flex rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
+        {t('type.longTerm')}
+      </span>
+    ) : (
+      <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+        {t('type.singleUse')}
+      </span>
+    );
 
   if (isLoading) {
     return (
@@ -63,14 +78,25 @@ export default function InviteCodeListPage() {
     <div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900 sm:text-2xl">{t('title')}</h1>
-        <button
-          onClick={() => createMutation.mutate()}
-          disabled={createMutation.isPending}
-          className="flex w-full items-center justify-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
-        >
-          <Plus size={16} />
-          {t('createBtn')}
-        </button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <select
+            value={createKind}
+            onChange={(e) => setCreateKind(e.target.value as InviteCodeKind)}
+            aria-label={t('create.typeLabel')}
+            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
+          >
+            <option value="single_use">{t('type.singleUse')}</option>
+            <option value="long_term">{t('type.longTerm')}</option>
+          </select>
+          <button
+            onClick={() => createMutation.mutate(createKind)}
+            disabled={createMutation.isPending}
+            className="flex w-full items-center justify-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
+          >
+            <Plus size={16} />
+            {t('createBtn')}
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 space-y-3 md:hidden">
@@ -85,7 +111,10 @@ export default function InviteCodeListPage() {
                 <code className="min-w-0 break-all rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-700">
                   {item.code}
                 </code>
-                <div className="shrink-0 text-sm">{renderStatus(item)}</div>
+                <div className="flex shrink-0 items-center gap-2 text-sm">
+                  {renderType(item)}
+                  {renderStatus(item)}
+                </div>
               </div>
 
               <dl className="mt-3 grid grid-cols-1 gap-3 text-sm">
@@ -118,6 +147,7 @@ export default function InviteCodeListPage() {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.code')}</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.type')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.createdAt')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.used')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.usedBy')}</th>
@@ -127,7 +157,7 @@ export default function InviteCodeListPage() {
           <tbody className="divide-y divide-gray-200">
             {(data || []).length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500">
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
                   {tc('status.empty')}
                 </td>
               </tr>
@@ -139,6 +169,7 @@ export default function InviteCodeListPage() {
                       {item.code}
                     </code>
                   </td>
+                  <td className="px-4 py-3">{renderType(item)}</td>
                   <td className="px-4 py-3 text-sm text-gray-500">
                     {new Date(item.created_at).toLocaleDateString()}
                   </td>

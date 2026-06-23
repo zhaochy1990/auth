@@ -131,6 +131,14 @@ impl TestApp {
         }
     }
 
+    /// A fresh concrete repository handle pointing at the same Azurite tables.
+    /// Used to invoke inherent (non-trait) methods such as the migrations.
+    pub fn concrete_repo(&self) -> AzureTableRepository {
+        let conn_str = std::env::var("TEST_STORAGE_CONNECTION_STRING")
+            .unwrap_or_else(|_| AZURITE_CONNECTION_STRING.to_string());
+        AzureTableRepository::new(&conn_str).expect("Failed to create AzureTableRepository")
+    }
+
     pub async fn request(&self, req: Request<Body>) -> TestResponse {
         let resp = self
             .router
@@ -233,6 +241,22 @@ impl TestApp {
         let req = Request::builder()
             .method("POST")
             .uri("/admin/invite-codes")
+            .header("Authorization", format!("Bearer {}", self.admin_token))
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = self.request(req).await;
+        resp.assert_status(StatusCode::OK);
+        let json: serde_json::Value = resp.json();
+        json["code"].as_str().unwrap().to_string()
+    }
+
+    /// Create an invite code of a given kind ("single_use" | "long_term") via the
+    /// admin API. Returns the code string.
+    pub async fn admin_create_invite_code_kind(&self, kind: &str) -> String {
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/admin/invite-codes?kind={kind}"))
             .header("Authorization", format!("Bearer {}", self.admin_token))
             .body(Body::empty())
             .unwrap();
