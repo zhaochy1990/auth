@@ -16,7 +16,7 @@ async fn create_invite_code_fields() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin-user-id", InviteCodeKind::SingleUse)
+        .create_invite_code("admin-user-id", InviteCodeKind::SingleUse, None, None)
         .await
         .expect("create should succeed");
 
@@ -165,14 +165,14 @@ async fn create_invite_codes_are_unique() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin", InviteCodeKind::SingleUse)
+        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None)
         .await
         .unwrap();
     let c2 = app
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin", InviteCodeKind::SingleUse)
+        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None)
         .await
         .unwrap();
     assert_ne!(c1.code, c2.code);
@@ -186,7 +186,7 @@ async fn mark_invite_code_used_once_then_conflicts() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin", InviteCodeKind::SingleUse)
+        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None)
         .await
         .unwrap();
 
@@ -222,7 +222,7 @@ async fn revoke_unused_code_succeeds() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin", InviteCodeKind::SingleUse)
+        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None)
         .await
         .unwrap();
 
@@ -252,7 +252,7 @@ async fn revoke_used_code_returns_conflict() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin", InviteCodeKind::SingleUse)
+        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None)
         .await
         .unwrap();
 

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::models::{
     Account, AppProvider, Application, AuthorizationCode, InviteCode, InviteCodeKind, LoginRecord,
-    RefreshToken, Team, TeamMembership, User,
+    MembershipTier, RefreshToken, Team, TeamMembership, User,
 };
 use crate::db::repository::{
     AccountRepository, AppProviderRepository, ApplicationRepository, AuthCodeRepository,
@@ -213,10 +213,20 @@ struct UserEntity {
     /// Invite code used at registration, if any. Absent on rows predating this field.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     invite_code: Option<String>,
+    /// Membership tier as a snake_case string ("regular" | "vip1"). Defaults to
+    /// "regular" so rows that predate this field deserialize as free users.
+    #[serde(default = "default_membership")]
+    membership: String,
+    /// ISO 8601 expiry of a paid membership; absent when there is no expiry.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    membership_expires_at: Option<String>,
 }
 
 fn default_role() -> String {
     "user".into()
+}
+fn default_membership() -> String {
+    "regular".into()
 }
 fn default_true() -> bool {
     true
@@ -273,6 +283,8 @@ impl UserEntity {
             last_login_at: u.last_login_at.as_ref().map(fmt_dt),
             recent_logins: serialize_logins(&u.recent_logins),
             invite_code: u.invite_code.clone(),
+            membership: u.membership.as_str().into(),
+            membership_expires_at: u.membership_expires_at.as_ref().map(fmt_dt),
         }
     }
     fn to_model(&self) -> User {
@@ -290,6 +302,8 @@ impl UserEntity {
             last_login_at: self.last_login_at.as_deref().map(parse_dt),
             recent_logins: deserialize_logins(self.recent_logins.as_deref()),
             invite_code: self.invite_code.clone(),
+            membership: MembershipTier::from_str_lenient(&self.membership),
+            membership_expires_at: self.membership_expires_at.as_deref().map(parse_dt),
         }
     }
 }
@@ -539,6 +553,13 @@ struct InviteCodeEntity {
     /// "single_use" so rows that predate this field deserialize as single-use.
     #[serde(default = "default_kind")]
     kind: String,
+    /// Membership tier granted on registration ("vip1"), if any. Absent on rows
+    /// predating this field, which grant no membership.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    grants_membership: Option<String>,
+    /// Validity in days of the granted membership; absent means a permanent grant.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    grants_membership_days: Option<i64>,
 }
 
 fn default_kind() -> String {
@@ -571,6 +592,8 @@ impl InviteCodeEntity {
             used_by: c.used_by.clone(),
             is_revoked: c.is_revoked,
             kind: kind_to_str(c.kind),
+            grants_membership: c.grants_membership.map(|t| t.as_str().to_string()),
+            grants_membership_days: c.grants_membership_days,
         }
     }
     fn to_model(&self) -> InviteCode {
@@ -583,6 +606,11 @@ impl InviteCodeEntity {
             used_by: self.used_by.clone(),
             is_revoked: self.is_revoked,
             kind: kind_from_str(&self.kind),
+            grants_membership: self
+                .grants_membership
+                .as_deref()
+                .map(MembershipTier::from_str_lenient),
+            grants_membership_days: self.grants_membership_days,
         }
     }
 }
@@ -1357,6 +1385,8 @@ impl InviteCodeRepository for AzureTableRepository {
         &self,
         created_by: &str,
         kind: InviteCodeKind,
+        grants_membership: Option<MembershipTier>,
+        grants_membership_days: Option<i64>,
     ) -> Result<InviteCode, AppError> {
         let code = InviteCode {
             id: uuid::Uuid::new_v4().to_string(),
@@ -1367,6 +1397,8 @@ impl InviteCodeRepository for AzureTableRepository {
             used_by: None,
             is_revoked: false,
             kind,
+            grants_membership,
+            grants_membership_days,
         };
         let entity = InviteCodeEntity::from_model(&code);
         insert_entity(&self.invite_codes, &entity)

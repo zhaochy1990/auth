@@ -4,6 +4,7 @@ const variants: Record<string, string> = {
   gray: 'bg-gray-100 text-gray-800',
   blue: 'bg-blue-100 text-blue-800',
   yellow: 'bg-yellow-100 text-yellow-800',
+  purple: 'bg-purple-100 text-purple-800',
 };
 
 interface BadgeProps {

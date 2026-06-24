@@ -4,8 +4,9 @@ use uuid::Uuid;
 
 use crate::auth::middleware::AuthenticatedUser;
 use crate::auth::providers;
-use crate::db::models::Account;
+use crate::db::models::{Account, MembershipTier};
 use crate::error::AppError;
+use crate::handlers::resolve_membership;
 use crate::AppState;
 
 // --- Request / Response types ---
@@ -17,6 +18,10 @@ pub struct UserProfileResponse {
     pub name: Option<String>,
     pub avatar_url: Option<String>,
     pub email_verified: bool,
+    /// Effective membership tier (an expired paid tier reads as `regular`).
+    pub membership: MembershipTier,
+    /// ISO 8601 expiry of a paid membership, or null when there is none.
+    pub membership_expires_at: Option<String>,
     pub created_at: String,
 }
 
@@ -44,12 +49,15 @@ pub async fn get_profile(
     user: AuthenticatedUser,
     State(state): State<AppState>,
 ) -> Result<Json<UserProfileResponse>, AppError> {
-    let db_user = state
+    let mut db_user = state
         .repo
         .users()
         .find_by_id(&user.user_id)
         .await?
         .ok_or(AppError::UserNotFound)?;
+
+    // Surface the effective tier, lazily downgrading an expired paid membership.
+    let membership = resolve_membership(state.repo.as_ref(), &mut db_user).await;
 
     Ok(Json(UserProfileResponse {
         id: db_user.id,
@@ -57,6 +65,8 @@ pub async fn get_profile(
         name: db_user.name,
         avatar_url: db_user.avatar_url,
         email_verified: db_user.email_verified,
+        membership,
+        membership_expires_at: db_user.membership_expires_at.map(|d| d.to_string()),
         created_at: db_user.created_at.to_string(),
     }))
 }
@@ -79,16 +89,20 @@ pub async fn update_profile(
     if let Some(avatar_url) = req.avatar_url {
         db_user.avatar_url = Some(avatar_url);
     }
-    db_user.updated_at = chrono::Utc::now().naive_utc();
+    let now = chrono::Utc::now().naive_utc();
+    db_user.updated_at = now;
 
     state.repo.users().update(&db_user).await?;
 
+    let membership = db_user.effective_membership(now);
     Ok(Json(UserProfileResponse {
         id: db_user.id,
         email: db_user.email,
         name: db_user.name,
         avatar_url: db_user.avatar_url,
         email_verified: db_user.email_verified,
+        membership,
+        membership_expires_at: db_user.membership_expires_at.map(|d| d.to_string()),
         created_at: db_user.created_at.to_string(),
     }))
 }

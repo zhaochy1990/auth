@@ -17,6 +17,7 @@ import type {
   Stats,
   InviteCode,
   InviteCodeKind,
+  MembershipTier,
   Team,
   TeamMember,
   TeamMembership,
@@ -82,9 +83,21 @@ export const getStats = () =>
 export const listInviteCodes = () =>
   client.get<InviteCode[]>('/admin/invite-codes').then((r) => r.data);
 
-export const createInviteCode = (kind: InviteCodeKind = 'single_use') =>
+export const createInviteCode = (
+  params: {
+    kind?: InviteCodeKind;
+    grants_membership?: MembershipTier;
+    grants_membership_days?: number;
+  } = {}
+) =>
   client
-    .post<InviteCode>('/admin/invite-codes', null, { params: { kind } })
+    .post<InviteCode>('/admin/invite-codes', null, {
+      params: {
+        kind: params.kind ?? 'single_use',
+        grants_membership: params.grants_membership,
+        grants_membership_days: params.grants_membership_days,
+      },
+    })
     .then((r) => r.data);
 
 export const revokeInviteCode = (code: string) =>

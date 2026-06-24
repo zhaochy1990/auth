@@ -4,6 +4,8 @@
   "table": {
     "code": "Code",
     "type": "Type",
+    "grants": "Grants",
+    "grantDays": "{{days}}d",
     "createdAt": "Created At",
     "used": "Used",
     "usedBy": "Used By",
@@ -13,6 +15,10 @@
     "singleUse": "Single-use",
     "longTerm": "Long-term"
   },
+  "membership": {
+    "regular": "Regular",
+    "vip1": "VIP 1"
+  },
   "status": {
     "used": "Used",
     "unused": "Unused",
@@ -20,7 +26,11 @@
     "revoked": "Revoked"
   },
   "create": {
-    "typeLabel": "Code type"
+    "typeLabel": "Code type",
+    "grantLabel": "Grant membership",
+    "grantNone": "No membership",
+    "grantDaysLabel": "Valid days",
+    "grantDaysPlaceholder": "Days"
   },
   "actions": {
     "revoke": "Revoke"

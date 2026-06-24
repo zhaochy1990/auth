@@ -112,6 +112,14 @@ export default function UserListPage() {
                   </dd>
                 </div>
                 <div>
+                  <dt className="text-xs font-medium text-gray-500">{t('table.membership')}</dt>
+                  <dd className="mt-1">
+                    <Badge variant={user.membership === 'regular' ? 'gray' : 'purple'}>
+                      {t(`membership.${user.membership}`)}
+                    </Badge>
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-xs font-medium text-gray-500">{t('table.createdAt')}</dt>
                   <dd className="mt-1 text-gray-500">{new Date(user.created_at).toLocaleDateString()}</dd>
                 </div>
@@ -136,6 +144,7 @@ export default function UserListPage() {
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.email')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.name')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.role')}</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.membership')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.status')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.createdAt')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.lastLoginAt')}</th>
@@ -144,7 +153,7 @@ export default function UserListPage() {
           <tbody className="divide-y divide-gray-200">
             {users.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
+                <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-500">
                   {tc('status.empty')}
                 </td>
               </tr>
@@ -160,6 +169,11 @@ export default function UserListPage() {
                   <td className="px-4 py-3">
                     <Badge variant={user.role === 'admin' ? 'yellow' : 'gray'}>
                       {t(`role.${user.role}`)}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge variant={user.membership === 'regular' ? 'gray' : 'purple'}>
+                      {t(`membership.${user.membership}`)}
                     </Badge>
                   </td>
                   <td className="px-4 py-3">

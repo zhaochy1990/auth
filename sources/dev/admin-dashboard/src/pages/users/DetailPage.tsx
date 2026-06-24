@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router';
-import { ArrowLeft, Check, Copy, KeyRound, Pencil, Shield, ShieldOff, Trash2, Unlink, X } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Crown, KeyRound, Pencil, Shield, ShieldOff, Trash2, Unlink, X } from 'lucide-react';
 import { getUser, getUserAccounts, updateUser, adminUnlinkAccount, deleteUser, resetUserPassword } from '../../api/admin';
+import type { MembershipTier, UpdateUserRequest } from '../../api/types';
 import StatusBadge from '../../components/shared/StatusBadge';
 import Badge from '../../components/ui/Badge';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
@@ -27,6 +28,9 @@ export default function UserDetailPage() {
   const [nameInput, setNameInput] = useState('');
   const [editingNote, setEditingNote] = useState(false);
   const [noteInput, setNoteInput] = useState('');
+  const [editingMembership, setEditingMembership] = useState(false);
+  const [membershipTierInput, setMembershipTierInput] = useState<MembershipTier>('regular');
+  const [membershipExpiryInput, setMembershipExpiryInput] = useState('');
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
   const [resetPasswordError, setResetPasswordError] = useState('');
   const [copiedUserId, setCopiedUserId] = useState(false);
@@ -79,6 +83,33 @@ export default function UserDetailPage() {
       toast.success(t('detail.updateSuccess'));
     },
   });
+
+  const membershipMutation = useMutation({
+    mutationFn: (data: UpdateUserRequest) => updateUser(id!, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user', id] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setEditingMembership(false);
+      toast.success(t('detail.updateSuccess'));
+    },
+  });
+
+  const startEditMembership = () => {
+    if (!user) return;
+    setMembershipTierInput(user.membership);
+    // membership_expires_at is a naive UTC datetime string ("YYYY-MM-DD HH:MM:SS");
+    // a date input only needs the date part.
+    setMembershipExpiryInput(user.membership_expires_at ? user.membership_expires_at.slice(0, 10) : '');
+    setEditingMembership(true);
+  };
+
+  const saveMembership = () => {
+    const payload: UpdateUserRequest = { membership: membershipTierInput };
+    // Regular tier never carries an expiry; for a paid tier an empty input means
+    // a permanent grant (empty string clears any existing expiry server-side).
+    payload.membership_expires_at = membershipTierInput === 'regular' ? '' : membershipExpiryInput;
+    membershipMutation.mutate(payload);
+  };
 
   const unlinkMutation = useMutation({
     mutationFn: (providerId: string) => adminUnlinkAccount(id!, providerId),
@@ -269,6 +300,88 @@ export default function UserDetailPage() {
             {t('detail.toggleActive')} → {user.is_active ? t('common:actions.disable') : t('common:actions.enable')}
           </button>
         </div>
+      </div>
+
+      {/* Membership */}
+      <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="flex items-center gap-1.5 font-medium text-gray-900">
+            <Crown size={16} className="text-purple-500" />
+            {t('detail.membership.title')}
+          </h2>
+          {!editingMembership && (
+            <button
+              onClick={startEditMembership}
+              className="flex items-center gap-1 self-start text-sm text-gray-500 hover:text-gray-700"
+              title={t('detail.membership.edit')}
+            >
+              <Pencil size={14} />
+              {t('detail.membership.edit')}
+            </button>
+          )}
+        </div>
+
+        {editingMembership ? (
+          <div className="mt-4 flex flex-col gap-4">
+            <div>
+              <label className="text-xs font-medium text-gray-500">{t('detail.membership.tier')}</label>
+              <select
+                value={membershipTierInput}
+                onChange={(e) => setMembershipTierInput(e.target.value as MembershipTier)}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:max-w-xs"
+              >
+                <option value="regular">{t('membership.regular')}</option>
+                <option value="vip1">{t('membership.vip1')}</option>
+              </select>
+            </div>
+            {membershipTierInput !== 'regular' && (
+              <div>
+                <label className="text-xs font-medium text-gray-500">{t('detail.membership.expiresAt')}</label>
+                <input
+                  type="date"
+                  value={membershipExpiryInput}
+                  onChange={(e) => setMembershipExpiryInput(e.target.value)}
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:max-w-xs"
+                />
+                <p className="mt-1 text-xs text-gray-400">{t('detail.membership.expiresHint')}</p>
+              </div>
+            )}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                onClick={() => setEditingMembership(false)}
+                className="rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200"
+              >
+                {t('detail.membership.cancel')}
+              </button>
+              <button
+                onClick={saveMembership}
+                disabled={membershipMutation.isPending}
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {t('detail.membership.save')}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs font-medium text-gray-500">{t('detail.membership.tier')}</dt>
+              <dd className="mt-1">
+                <Badge variant={user.membership === 'regular' ? 'gray' : 'purple'}>
+                  {t(`membership.${user.membership}`)}
+                </Badge>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">{t('detail.membership.expiresAt')}</dt>
+              <dd className="mt-1 text-sm text-gray-900">
+                {user.membership_expires_at
+                  ? new Date(`${user.membership_expires_at}Z`).toLocaleDateString()
+                  : t('detail.membership.noExpiry')}
+              </dd>
+            </div>
+          </dl>
+        )}
       </div>
 
       {/* Admin Note */}

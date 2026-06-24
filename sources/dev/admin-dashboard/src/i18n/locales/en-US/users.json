@@ -6,6 +6,7 @@
     "email": "Email",
     "name": "Name",
     "role": "Role",
+    "membership": "Membership",
     "status": "Status",
     "createdAt": "Created At",
     "lastLoginAt": "Last Login"
@@ -13,6 +14,10 @@
   "role": {
     "user": "User",
     "admin": "Admin"
+  },
+  "membership": {
+    "regular": "Regular",
+    "vip1": "VIP 1"
   },
   "create": {
     "title": "Create User",
@@ -47,6 +52,16 @@
     "unlinkConfirm": "Unlink this account?",
     "changeRole": "Change Role",
     "toggleActive": "Toggle Active",
+    "membership": {
+      "title": "Membership",
+      "edit": "Edit",
+      "tier": "Tier",
+      "expiresAt": "Expires At",
+      "expiresHint": "Leave empty for a permanent membership.",
+      "noExpiry": "No expiry",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
     "updateSuccess": "Updated",
     "unlinkSuccess": "Account unlinked",
     "editName": "Edit name",

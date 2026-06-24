@@ -24,8 +24,9 @@ fn client_ip(headers: &HeaderMap) -> String {
 use crate::auth::oauth2 as oauth2_util;
 use crate::auth::password::{hash_password, validate_password, verify_password};
 use crate::auth::providers;
-use crate::db::models::{Account, User};
+use crate::db::models::{Account, MembershipTier, User};
 use crate::error::AppError;
+use crate::handlers::resolve_membership;
 use crate::AppState;
 
 // --- Request / Response types ---
@@ -141,6 +142,24 @@ pub async fn register(
         }
     }
 
+    // Derive any membership granted by the invite code. A code grants a paid
+    // tier only when `grants_membership` is a paid tier; `grants_membership_days`
+    // (when present) bounds the validity, otherwise the grant is permanent.
+    let granted_tier = invite_code_record
+        .as_ref()
+        .and_then(|c| c.grants_membership)
+        .filter(|t| t.is_paid());
+    let (membership, membership_expires_at) = match granted_tier {
+        Some(tier) => {
+            let expires_at = invite_code_record
+                .as_ref()
+                .and_then(|c| c.grants_membership_days)
+                .map(|days| now + chrono::Duration::days(days));
+            (tier, expires_at)
+        }
+        None => (MembershipTier::Regular, None),
+    };
+
     // Create user
     let user = User {
         id: user_id.clone(),
@@ -156,6 +175,8 @@ pub async fn register(
         last_login_at: None,
         recent_logins: Vec::new(),
         invite_code: invite_code_record.as_ref().map(|c| c.code.clone()),
+        membership,
+        membership_expires_at,
     };
     // If user creation fails, the invite code stays claimed (used) with our user_id
     // but no user exists; admin can revoke if needed. No earlier rollback to perform.
@@ -195,6 +216,7 @@ pub async fn register(
         &client_app.client_id,
         scopes.clone(),
         "user",
+        user.membership,
         user.name.as_deref(),
     ) {
         Ok(t) => t,
@@ -239,7 +261,7 @@ pub async fn login(
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<TokenResponse>, AppError> {
     // Find user by email
-    let user = state
+    let mut user = state
         .repo
         .users()
         .find_by_email(&req.email)
@@ -270,6 +292,9 @@ pub async fn login(
         tracing::warn!(error = %e, user_id = %user.id, "failed to record login history");
     }
 
+    // Resolve effective tier, lazily downgrading an expired paid membership.
+    let membership = resolve_membership(state.repo.as_ref(), &mut user).await;
+
     // Issue tokens
     let scopes = client_app.allowed_scopes.clone();
     let access_token = state.jwt.issue_access_token(
@@ -277,6 +302,7 @@ pub async fn login(
         &client_app.client_id,
         scopes.clone(),
         &user.role,
+        membership,
         user.name.as_deref(),
     )?;
     let refresh_token = oauth2_util::generate_refresh_token();
@@ -335,7 +361,7 @@ pub async fn provider_login(
         .find_by_provider_account(&provider_id, &provider_info.provider_account_id)
         .await?;
 
-    let (user_id, user_role, user_name) = if let Some(mut account) = existing_account {
+    let (user_id, user_role, user_name, membership) = if let Some(mut account) = existing_account {
         // Existing user — update metadata
         account.provider_metadata =
             serde_json::to_string(&provider_info.metadata).unwrap_or_default();
@@ -343,7 +369,7 @@ pub async fn provider_login(
         state.repo.accounts().update(&account).await?;
 
         // Look up user for role and is_active check
-        let user = state
+        let mut user = state
             .repo
             .users()
             .find_by_id(&account.user_id)
@@ -352,9 +378,10 @@ pub async fn provider_login(
         if !user.is_active {
             return Err(AppError::UserDisabled);
         }
-        (account.user_id, user.role, user.name)
+        let membership = resolve_membership(state.repo.as_ref(), &mut user).await;
+        (account.user_id, user.role, user.name, membership)
     } else {
-        // New user
+        // New user — provider sign-ups start on the free tier.
         let user_id = Uuid::new_v4().to_string();
 
         let user = User {
@@ -371,6 +398,8 @@ pub async fn provider_login(
             last_login_at: None,
             recent_logins: Vec::new(),
             invite_code: None,
+            membership: MembershipTier::Regular,
+            membership_expires_at: None,
         };
         state.repo.users().insert(&user).await?;
 
@@ -386,7 +415,12 @@ pub async fn provider_login(
         };
         state.repo.accounts().insert(&account).await?;
 
-        (user_id, "user".to_string(), provider_info.name)
+        (
+            user_id,
+            "user".to_string(),
+            provider_info.name,
+            MembershipTier::Regular,
+        )
     };
 
     // Record login (best-effort).
@@ -402,6 +436,7 @@ pub async fn provider_login(
         &client_app.client_id,
         scopes.clone(),
         &user_role,
+        membership,
         user_name.as_deref(),
     )?;
     let refresh_token = oauth2_util::generate_refresh_token();
@@ -439,7 +474,7 @@ pub async fn refresh(
     .await?;
 
     // Look up user for current role
-    let user = state
+    let mut user = state
         .repo
         .users()
         .find_by_id(&user_id)
@@ -450,11 +485,14 @@ pub async fn refresh(
         return Err(AppError::UserDisabled);
     }
 
+    let membership = resolve_membership(state.repo.as_ref(), &mut user).await;
+
     let access_token = state.jwt.issue_access_token(
         &user_id,
         &client_app.client_id,
         scopes,
         &user.role,
+        membership,
         user.name.as_deref(),
     )?;
 
