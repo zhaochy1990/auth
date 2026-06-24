@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Copy, Check, Ticket } from 'lucide-react';
 import { listInviteCodes, createInviteCode, revokeInviteCode } from '../../api/admin';
-import type { InviteCode, InviteCodeKind } from '../../api/types';
+import type { InviteCode, InviteCodeKind, MembershipTier } from '../../api/types';
+import Badge from '../../components/ui/Badge';
 import Spinner from '../../components/ui/Spinner';
 
 export default function InviteCodeListPage() {
@@ -14,6 +15,8 @@ export default function InviteCodeListPage() {
   const [newCode, setNewCode] = useState<InviteCode | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [createKind, setCreateKind] = useState<InviteCodeKind>('single_use');
+  const [grantTier, setGrantTier] = useState<'none' | MembershipTier>('none');
+  const [grantDays, setGrantDays] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['invite-codes'],
@@ -27,6 +30,16 @@ export default function InviteCodeListPage() {
       queryClient.invalidateQueries({ queryKey: ['invite-codes'] });
     },
   });
+
+  const handleCreate = () => {
+    const isGrant = grantTier !== 'none';
+    const days = grantDays.trim() ? Number(grantDays) : undefined;
+    createMutation.mutate({
+      kind: createKind,
+      grants_membership: isGrant ? grantTier : undefined,
+      grants_membership_days: isGrant && days && days > 0 ? days : undefined,
+    });
+  };
 
   const revokeMutation = useMutation({
     mutationFn: revokeInviteCode,
@@ -55,6 +68,17 @@ export default function InviteCodeListPage() {
     }
     return <span className="text-gray-400">{t('status.unused')}</span>;
   };
+  const renderGrant = (item: InviteCode) =>
+    item.grants_membership ? (
+      <Badge variant="purple">
+        {t(`membership.${item.grants_membership}`)}
+        {item.grants_membership_days
+          ? ` · ${t('table.grantDays', { days: item.grants_membership_days })}`
+          : ''}
+      </Badge>
+    ) : (
+      <span className="text-gray-400">-</span>
+    );
   const renderType = (item: InviteCode) =>
     item.kind === 'long_term' ? (
       <span className="inline-flex rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
@@ -88,8 +112,28 @@ export default function InviteCodeListPage() {
             <option value="single_use">{t('type.singleUse')}</option>
             <option value="long_term">{t('type.longTerm')}</option>
           </select>
+          <select
+            value={grantTier}
+            onChange={(e) => setGrantTier(e.target.value as 'none' | MembershipTier)}
+            aria-label={t('create.grantLabel')}
+            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
+          >
+            <option value="none">{t('create.grantNone')}</option>
+            <option value="vip1">{t('membership.vip1')}</option>
+          </select>
+          {grantTier !== 'none' && (
+            <input
+              type="number"
+              min={1}
+              value={grantDays}
+              onChange={(e) => setGrantDays(e.target.value)}
+              placeholder={t('create.grantDaysPlaceholder')}
+              aria-label={t('create.grantDaysLabel')}
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none sm:w-32"
+            />
+          )}
           <button
-            onClick={() => createMutation.mutate(createKind)}
+            onClick={handleCreate}
             disabled={createMutation.isPending}
             className="flex w-full items-center justify-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
           >
@@ -118,6 +162,10 @@ export default function InviteCodeListPage() {
               </div>
 
               <dl className="mt-3 grid grid-cols-1 gap-3 text-sm">
+                <div>
+                  <dt className="text-xs font-medium text-gray-500">{t('table.grants')}</dt>
+                  <dd className="mt-1">{renderGrant(item)}</dd>
+                </div>
                 <div>
                   <dt className="text-xs font-medium text-gray-500">{t('table.createdAt')}</dt>
                   <dd className="mt-1 text-gray-500">{new Date(item.created_at).toLocaleDateString()}</dd>
@@ -148,6 +196,7 @@ export default function InviteCodeListPage() {
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.code')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.type')}</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.grants')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.createdAt')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.used')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.usedBy')}</th>
@@ -157,7 +206,7 @@ export default function InviteCodeListPage() {
           <tbody className="divide-y divide-gray-200">
             {(data || []).length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
+                <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-500">
                   {tc('status.empty')}
                 </td>
               </tr>
@@ -170,6 +219,7 @@ export default function InviteCodeListPage() {
                     </code>
                   </td>
                   <td className="px-4 py-3">{renderType(item)}</td>
+                  <td className="px-4 py-3">{renderGrant(item)}</td>
                   <td className="px-4 py-3 text-sm text-gray-500">
                     {new Date(item.created_at).toLocaleDateString()}
                   </td>

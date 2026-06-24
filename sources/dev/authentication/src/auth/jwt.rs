@@ -3,6 +3,7 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
+use crate::db::models::MembershipTier;
 use crate::error::AppError;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -14,6 +15,12 @@ pub struct Claims {
     pub iat: i64,    // issued at
     pub scopes: Vec<String>,
     pub role: String,
+    /// Membership tier (entitlement level), embedded so resource servers can
+    /// gate paid features without an extra round-trip. Reflects the effective
+    /// tier at issuance; changes take effect on the next token refresh. Defaults
+    /// to `Regular` for tokens that predate this claim.
+    #[serde(default)]
+    pub membership: MembershipTier,
     /// Display name of the user, when set. Embedded in the access token so
     /// clients can render a name without an extra `/api/users/me` round-trip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -57,12 +64,14 @@ impl JwtManager {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn issue_access_token(
         &self,
         user_id: &str,
         client_id: &str,
         scopes: Vec<String>,
         role: &str,
+        membership: MembershipTier,
         name: Option<&str>,
     ) -> Result<String, AppError> {
         let now = Utc::now().timestamp();
@@ -74,6 +83,7 @@ impl JwtManager {
             iat: now,
             scopes,
             role: role.to_string(),
+            membership,
             name: name.map(|s| s.to_string()),
         };
 

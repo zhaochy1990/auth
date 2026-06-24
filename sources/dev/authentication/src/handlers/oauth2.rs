@@ -6,6 +6,7 @@ use crate::auth::oauth2 as oauth2_util;
 use crate::auth::password::verify_password;
 use crate::db::repository::Repository;
 use crate::error::AppError;
+use crate::handlers::resolve_membership;
 use crate::AppState;
 
 // --- Request / Response types ---
@@ -102,7 +103,7 @@ async fn handle_authorization_code(
     .await?;
 
     // Look up user for role
-    let user = state
+    let mut user = state
         .repo
         .users()
         .find_by_id(&user_id)
@@ -113,11 +114,14 @@ async fn handle_authorization_code(
         return Err(AppError::Forbidden);
     }
 
+    let membership = resolve_membership(state.repo.as_ref(), &mut user).await;
+
     let access_token = state.jwt.issue_access_token(
         &user_id,
         &auth_app.client_id,
         scopes.clone(),
         &user.role,
+        membership,
         user.name.as_deref(),
     )?;
     let refresh_token = oauth2_util::generate_refresh_token();
@@ -175,7 +179,7 @@ async fn handle_refresh_token(
     .await?;
 
     // Look up user for role
-    let user = state
+    let mut user = state
         .repo
         .users()
         .find_by_id(&user_id)
@@ -186,11 +190,14 @@ async fn handle_refresh_token(
         return Err(AppError::Forbidden);
     }
 
+    let membership = resolve_membership(state.repo.as_ref(), &mut user).await;
+
     let access_token = state.jwt.issue_access_token(
         &user_id,
         &auth_app.client_id,
         scopes.clone(),
         &user.role,
+        membership,
         user.name.as_deref(),
     )?;
 
@@ -216,7 +223,7 @@ async fn handle_password_grant(
     ))?;
 
     // Find user by email
-    let user = state
+    let mut user = state
         .repo
         .users()
         .find_by_email(username)
@@ -261,11 +268,14 @@ async fn handle_password_grant(
         return Err(AppError::Forbidden);
     }
 
+    let membership = resolve_membership(state.repo.as_ref(), &mut user).await;
+
     let access_token = state.jwt.issue_access_token(
         &user.id,
         &auth_app.client_id,
         scopes.clone(),
         &user.role,
+        membership,
         user.name.as_deref(),
     )?;
     let refresh_token = oauth2_util::generate_refresh_token();

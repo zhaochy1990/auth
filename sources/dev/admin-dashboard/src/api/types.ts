@@ -64,6 +64,11 @@ export interface AddProviderRequest {
 }
 
 // Users
+
+// Membership tier (entitlement level), independent of `role`. Extend with
+// 'vip2' | 'vip3' as higher tiers are introduced.
+export type MembershipTier = 'regular' | 'vip1';
+
 export interface LoginRecord {
   at: string;
   ip: string;
@@ -76,6 +81,8 @@ export interface User {
   avatar_url: string | null;
   email_verified: boolean;
   role: string;
+  membership: MembershipTier;
+  membership_expires_at: string | null;
   is_active: boolean;
   note: string | null;
   created_at: string;
@@ -94,6 +101,9 @@ export interface UserListResponse {
 export interface UpdateUserRequest {
   name?: string;
   role?: string;
+  membership?: MembershipTier;
+  // ISO date/datetime to set the paid-tier expiry; empty string clears it.
+  membership_expires_at?: string;
   is_active?: boolean;
   note?: string;
 }
@@ -103,6 +113,7 @@ export interface CreateUserRequest {
   password: string;
   name?: string;
   role?: string;
+  membership?: MembershipTier;
 }
 
 export interface ResetUserPasswordRequest {
@@ -134,6 +145,10 @@ export interface InviteCode {
   used_by: string | null;
   is_revoked: boolean;
   kind: InviteCodeKind;
+  // Membership tier granted on registration, if any.
+  grants_membership: MembershipTier | null;
+  // Validity in days of the granted membership; null means permanent.
+  grants_membership_days: number | null;
 }
 
 // Teams
@@ -197,6 +212,8 @@ export interface JwtPayload {
   iat: number;
   scopes: string[];
   role: string;
+  /// Membership tier embedded in the access token.
+  membership?: MembershipTier;
   /// Display name of the user, when set on their profile.
   name?: string;
 }

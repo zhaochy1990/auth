@@ -6,6 +6,7 @@
     "email": "邮箱",
     "name": "姓名",
     "role": "角色",
+    "membership": "会员等级",
     "status": "状态",
     "createdAt": "注册时间",
     "lastLoginAt": "上次登录时间"
@@ -13,6 +14,10 @@
   "role": {
     "user": "普通用户",
     "admin": "管理员"
+  },
+  "membership": {
+    "regular": "普通用户",
+    "vip1": "VIP1 会员"
   },
   "create": {
     "title": "创建用户",
@@ -47,6 +52,16 @@
     "unlinkConfirm": "确定要解除此账号绑定吗？",
     "changeRole": "修改角色",
     "toggleActive": "切换状态",
+    "membership": {
+      "title": "会员等级",
+      "edit": "编辑",
+      "tier": "等级",
+      "expiresAt": "到期时间",
+      "expiresHint": "留空表示永久会员。",
+      "noExpiry": "永久",
+      "save": "保存",
+      "cancel": "取消"
+    },
     "updateSuccess": "更新成功",
     "unlinkSuccess": "解除绑定成功",
     "editName": "编辑姓名",

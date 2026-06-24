@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::auth::middleware::AdminAuth;
 use crate::auth::password::{hash_client_secret, hash_password, validate_password};
-use crate::db::models::{Account, AppProvider, Application, User};
+use crate::db::models::{Account, AppProvider, Application, MembershipTier, User};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -86,6 +86,11 @@ pub struct UserResponse {
     pub avatar_url: Option<String>,
     pub email_verified: bool,
     pub role: String,
+    pub membership: MembershipTier,
+    /// ISO 8601 expiry of a paid membership, or null when there is no expiry.
+    /// Reflects the stored value (not lazily downgraded), so admins can see a
+    /// past expiry until the user's next login triggers the downgrade.
+    pub membership_expires_at: Option<String>,
     pub is_active: bool,
     pub note: Option<String>,
     pub created_at: String,
@@ -100,6 +105,28 @@ pub struct LoginRecordResponse {
     pub ip: String,
 }
 
+/// Parses an admin-supplied membership expiry. Accepts an RFC 3339 datetime
+/// (converted to naive UTC), a naive `YYYY-MM-DDTHH:MM:SS` datetime, or a
+/// date-only `YYYY-MM-DD` (treated as midnight). Stored as naive UTC to match
+/// the rest of the schema.
+fn parse_membership_expiry(s: &str) -> Result<chrono::NaiveDateTime, AppError> {
+    let s = s.trim();
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Ok(dt.naive_utc());
+    }
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
+        return Ok(dt);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        if let Some(dt) = d.and_hms_opt(0, 0, 0) {
+            return Ok(dt);
+        }
+    }
+    Err(AppError::BadRequest(
+        "membership_expires_at must be an ISO 8601 date or datetime".to_string(),
+    ))
+}
+
 fn to_user_response(u: User) -> UserResponse {
     UserResponse {
         id: u.id,
@@ -108,6 +135,8 @@ fn to_user_response(u: User) -> UserResponse {
         avatar_url: u.avatar_url,
         email_verified: u.email_verified,
         role: u.role,
+        membership: u.membership,
+        membership_expires_at: u.membership_expires_at.map(|d| d.to_string()),
         is_active: u.is_active,
         note: u.note,
         created_at: u.created_at.to_string(),
@@ -136,6 +165,11 @@ pub struct UserListResponse {
 pub struct UpdateUserRequest {
     pub name: Option<String>,
     pub role: Option<String>,
+    pub membership: Option<MembershipTier>,
+    /// ISO 8601 / RFC 3339 expiry to set. An empty string clears the expiry
+    /// (permanent grant). Ignored when `membership` is set to `regular`, which
+    /// always clears the expiry.
+    pub membership_expires_at: Option<String>,
     pub is_active: Option<bool>,
     pub note: Option<String>,
 }
@@ -146,6 +180,7 @@ pub struct CreateUserRequest {
     pub password: String,
     pub name: Option<String>,
     pub role: Option<String>,
+    pub membership: Option<MembershipTier>,
 }
 
 #[derive(Deserialize)]
@@ -510,6 +545,7 @@ pub async fn create_user(
             "Role must be 'user' or 'admin'".to_string(),
         ));
     }
+    let membership = req.membership.unwrap_or_default();
 
     let existing = state.repo.users().find_by_email(&req.email).await?;
     if existing.is_some() {
@@ -533,6 +569,8 @@ pub async fn create_user(
         last_login_at: None,
         recent_logins: Vec::new(),
         invite_code: None,
+        membership,
+        membership_expires_at: None,
     };
     state.repo.users().insert(&user).await?;
 
@@ -575,6 +613,22 @@ pub async fn update_user(
             ));
         }
         user.role = role;
+    }
+    if let Some(membership) = req.membership {
+        user.membership = membership;
+        // The free tier never carries an expiry.
+        if !membership.is_paid() {
+            user.membership_expires_at = None;
+        }
+    }
+    if let Some(expires_raw) = req.membership_expires_at {
+        // Empty string clears the expiry (permanent grant). A concrete value only
+        // applies to a paid tier; on a regular tier the expiry stays cleared.
+        if expires_raw.trim().is_empty() {
+            user.membership_expires_at = None;
+        } else if user.membership.is_paid() {
+            user.membership_expires_at = Some(parse_membership_expiry(&expires_raw)?);
+        }
     }
     if let Some(is_active) = req.is_active {
         user.is_active = is_active;
@@ -722,6 +776,8 @@ pub struct InviteCodeResponse {
     pub used_by: Option<String>,
     pub is_revoked: bool,
     pub kind: crate::db::models::InviteCodeKind,
+    pub grants_membership: Option<MembershipTier>,
+    pub grants_membership_days: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -734,6 +790,10 @@ pub struct CreateInviteCodeQuery {
     /// Reuse policy for the new code. Defaults to single-use when omitted.
     #[serde(default)]
     pub kind: crate::db::models::InviteCodeKind,
+    /// Membership tier to grant on registration. Omit (or `regular`) for no grant.
+    pub grants_membership: Option<MembershipTier>,
+    /// Validity in days of the granted membership; omit for a permanent grant.
+    pub grants_membership_days: Option<i64>,
 }
 
 pub async fn create_invite_code(
@@ -742,10 +802,18 @@ pub async fn create_invite_code(
     State(state): State<AppState>,
     Query(query): Query<CreateInviteCodeQuery>,
 ) -> Result<Json<InviteCodeResponse>, AppError> {
+    // Only a paid tier counts as a grant; normalize `regular`/None to "no grant".
+    let grants_membership = query.grants_membership.filter(|t| t.is_paid());
+    let grants_membership_days = grants_membership.and(query.grants_membership_days);
     let code = state
         .repo
         .invite_codes()
-        .create_invite_code(&user.user_id, query.kind)
+        .create_invite_code(
+            &user.user_id,
+            query.kind,
+            grants_membership,
+            grants_membership_days,
+        )
         .await?;
     Ok(Json(InviteCodeResponse {
         id: code.id,
@@ -756,6 +824,8 @@ pub async fn create_invite_code(
         used_by: code.used_by,
         is_revoked: code.is_revoked,
         kind: code.kind,
+        grants_membership: code.grants_membership,
+        grants_membership_days: code.grants_membership_days,
     }))
 }
 
@@ -780,6 +850,8 @@ pub async fn list_invite_codes(
             used_by: c.used_by,
             is_revoked: c.is_revoked,
             kind: c.kind,
+            grants_membership: c.grants_membership,
+            grants_membership_days: c.grants_membership_days,
         })
         .collect();
     Ok(Json(responses))

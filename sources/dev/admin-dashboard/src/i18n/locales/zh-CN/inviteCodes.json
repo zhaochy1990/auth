@@ -4,6 +4,8 @@
   "table": {
     "code": "邀请码",
     "type": "类型",
+    "grants": "授予会员",
+    "grantDays": "{{days}}天",
     "createdAt": "创建时间",
     "used": "使用状态",
     "usedBy": "使用者",
@@ -13,6 +15,10 @@
     "singleUse": "一次性",
     "longTerm": "长期"
   },
+  "membership": {
+    "regular": "普通用户",
+    "vip1": "VIP1 会员"
+  },
   "status": {
     "used": "已使用",
     "unused": "未使用",
@@ -20,7 +26,11 @@
     "revoked": "已撤销"
   },
   "create": {
-    "typeLabel": "邀请码类型"
+    "typeLabel": "邀请码类型",
+    "grantLabel": "授予会员",
+    "grantNone": "不授予会员",
+    "grantDaysLabel": "有效天数",
+    "grantDaysPlaceholder": "天数"
   },
   "actions": {
     "revoke": "撤销"
