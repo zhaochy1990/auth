@@ -1,0 +1,14 @@
+# Vendored dependencies (regenerate with `go mod vendor` before docker build)
+/vendor/
+
+# Binaries
+*.exe
+/auth-service
+/bin/
+
+# Local env / emulator state
+.env
+.azurite-tmp/
+
+# JWT keys — provide at runtime (mounted volume / Azure File Share); never commit
+keys/*.pem

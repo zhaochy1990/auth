@@ -1,0 +1,26 @@
+services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    ports:
+      - "10000:10000"
+      - "10001:10001"
+      - "10002:10002"
+    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0
+
+  auth:
+    build: .
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./keys:/app/keys:ro
+    environment:
+      AZURE_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:10002/devstoreaccount1"
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "3000"
+      JWT_PRIVATE_KEY_PATH: "./keys/private.pem"
+      JWT_PUBLIC_KEY_PATH: "./keys/public.pem"
+      CORS_ALLOWED_ORIGINS: "http://localhost:5173"
+      LOG_LEVEL: "debug"
+      LOG_FORMAT: "json"
+    depends_on:
+      - azurite
