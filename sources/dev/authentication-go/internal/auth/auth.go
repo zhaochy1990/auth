@@ -144,8 +144,10 @@ func (m *JWTManager) IssueAppToken(appID string) (string, error) {
 // AccessTokenExpirySecs exposes the configured access-token TTL.
 func (m *JWTManager) AccessTokenExpirySecs() int64 { return m.accessExpirySecs }
 
-// VerifyAccessToken validates and parses a user access token. Audience is not
-// validated (no expected audience is configured), matching the Rust behavior.
+// VerifyAccessToken validates and parses a user access token. It enforces the
+// issuer and the required claims (sub, aud, exp, iat) — matching the Rust
+// verifier's set_required_spec_claims. The audience value itself is not
+// validated (no expected audience is configured).
 func (m *JWTManager) VerifyAccessToken(token string) (*AccessClaims, error) {
 	claims := &AccessClaims{}
 	_, err := jwt.ParseWithClaims(token, claims, m.keyfunc,
@@ -154,6 +156,11 @@ func (m *JWTManager) VerifyAccessToken(token string) (*AccessClaims, error) {
 		jwt.WithExpirationRequired(),
 	)
 	if err != nil {
+		return nil, apperror.InvalidToken()
+	}
+	// Reject a validly-signed token missing any required claim (sub/aud/iat);
+	// exp is already enforced by WithExpirationRequired.
+	if claims.Sub == "" || claims.Aud == "" || claims.Iat == 0 {
 		return nil, apperror.InvalidToken()
 	}
 	return claims, nil
@@ -257,17 +264,24 @@ func ValidatePassword(password string) error {
 
 // ─── OAuth2 helpers (codes, tokens, PKCE) ────────────────────────────────────
 
-func randomHex(nBytes int) string {
+// RandomHex returns nBytes of crypto-random data, hex-encoded. Single source
+// for the service's random tokens, client secrets, and ids.
+func RandomHex(nBytes int) string {
 	b := make([]byte, nBytes)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
 // GenerateAuthCode returns a cryptographically random authorization code.
-func GenerateAuthCode() string { return randomHex(64) }
+func GenerateAuthCode() string { return RandomHex(64) }
 
 // GenerateRefreshToken returns a cryptographically random refresh token.
-func GenerateRefreshToken() string { return randomHex(32) }
+func GenerateRefreshToken() string { return RandomHex(32) }
+
+// GenerateClientID returns an OAuth2 client_id of the form "app_<24 chars>".
+func GenerateClientID() string {
+	return "app_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:24]
+}
 
 // HashToken hashes a token with SHA-256 for storage.
 func HashToken(token string) string {
@@ -296,7 +310,10 @@ func encodeScopes(scopes []string) string {
 	return string(b)
 }
 
-func decodeScopes(s string) []string {
+// DecodeStringArray unmarshals a JSON string array, returning a non-nil empty
+// slice on error or null (so it always serializes back as []). Shared by scope
+// decoding and the handlers that read stored redirect_uris/allowed_scopes.
+func DecodeStringArray(s string) []string {
 	var out []string
 	if err := json.Unmarshal([]byte(s), &out); err != nil || out == nil {
 		return []string{}
@@ -356,7 +373,7 @@ func ExchangeAuthCode(ctx context.Context, repo repository.Repository, code, app
 	if err := repo.AuthCodes().MarkUsed(ctx, code); err != nil {
 		return "", nil, err
 	}
-	return ac.UserID, decodeScopes(ac.Scopes), nil
+	return ac.UserID, DecodeStringArray(ac.Scopes), nil
 }
 
 // StoreRefreshToken persists a hashed refresh token.
@@ -399,7 +416,7 @@ func RotateRefreshToken(ctx context.Context, repo repository.Repository, token, 
 		return "", "", nil, err
 	}
 	newToken := GenerateRefreshToken()
-	scopes := decodeScopes(stored.Scopes)
+	scopes := DecodeStringArray(stored.Scopes)
 	if err := StoreRefreshToken(ctx, repo, stored.UserID, appID, newToken, scopes, stored.DeviceID, expiryDays); err != nil {
 		return "", "", nil, err
 	}

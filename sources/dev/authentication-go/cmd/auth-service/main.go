@@ -19,9 +19,9 @@ import (
 
 func main() {
 	log := logger.MustGetLogger(&logger.LoggerConfig{
-		Format:      envOr("LOG_FORMAT", "json"),
+		Format:      config.EnvOr("LOG_FORMAT", "json"),
 		ServiceName: "auth-service",
-		Level:       envOr("LOG_LEVEL", "debug"),
+		Level:       config.EnvOr("LOG_LEVEL", "debug"),
 	}).Sugar()
 
 	cfg, err := config.FromEnv()
@@ -123,11 +123,4 @@ func runMigrate(ctx context.Context, repo *aztables.Repository) {
 	fmt.Printf("  Users backfilled with `invite_code`: %d\n", users)
 	fmt.Println()
 	fmt.Println("=== Migration complete ===")
-}
-
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }

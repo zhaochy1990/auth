@@ -224,7 +224,7 @@ func (h *Handler) handlePasswordGrant(c *gin.Context, req *tokenRequest) {
 		middleware.RespondError(c, apperror.ApplicationNotFound())
 		return
 	}
-	allowedScopes := jsonStrArrayOrEmpty(app.AllowedScopes)
+	allowedScopes := auth.DecodeStringArray(app.AllowedScopes)
 
 	var scopes []string
 	if req.Scope != nil {

@@ -7,6 +7,7 @@ package apperror
 import (
 	"errors"
 	"net/http"
+	"strconv"
 )
 
 // Error is a typed application error with an HTTP status and stable error code.
@@ -120,7 +121,7 @@ func TeamTransferTargetNotMember() *Error {
 	return New(http.StatusBadRequest, "team_transfer_target_not_member", "New owner must already be a team member")
 }
 func UserOwnsTeams(n int) *Error {
-	return New(http.StatusConflict, "user_owns_teams", "User still owns "+itoa(n)+" team(s)")
+	return New(http.StatusConflict, "user_owns_teams", "User still owns "+strconv.Itoa(n)+" team(s)")
 }
 func BadRequest(msg string) *Error {
 	return New(http.StatusBadRequest, "bad_request", msg)
@@ -134,25 +135,3 @@ func Internal() *Error {
 // Database wraps a storage-layer failure as a generic 500 (the underlying
 // detail is logged by the caller, never returned to the client).
 func Database(_ string) *Error { return Internal() }
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
-}

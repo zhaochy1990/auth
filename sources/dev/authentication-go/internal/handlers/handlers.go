@@ -7,7 +7,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -84,12 +83,3 @@ func displayDTPtr(t *time.Time) *string {
 }
 
 func strPtr(s string) *string { return &s }
-
-// jsonStrArrayOrEmpty decodes a JSON string array, returning [] on any error.
-func jsonStrArrayOrEmpty(s string) []string {
-	var out []string
-	if err := json.Unmarshal([]byte(s), &out); err != nil || out == nil {
-		return []string{}
-	}
-	return out
-}

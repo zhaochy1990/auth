@@ -6,10 +6,7 @@ package seed
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,12 +37,8 @@ func Bootstrap(ctx context.Context, repo repository.Repository, adminEmail strin
 	if existingApp != nil {
 		appClientID = existingApp.ClientID
 	} else {
-		clientID := "app_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:24]
-		secretBytes := make([]byte, 32)
-		if _, err := rand.Read(secretBytes); err != nil {
-			return nil, err
-		}
-		secret := hex.EncodeToString(secretBytes)
+		clientID := auth.GenerateClientID()
+		secret := auth.RandomHex(32)
 		now := time.Now().UTC()
 		appID := uuid.NewString()
 		redirect, _ := json.Marshal([]string{"http://localhost:5173"})

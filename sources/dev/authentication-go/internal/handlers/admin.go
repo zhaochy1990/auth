@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -240,8 +238,8 @@ func (h *Handler) CreateApplication(c *gin.Context) {
 	if req.AllowedScopes == nil {
 		req.AllowedScopes = []string{}
 	}
-	clientID := generateClientID()
-	secret := generateClientSecret()
+	clientID := auth.GenerateClientID()
+	secret := auth.RandomHex(32)
 	now := time.Now().UTC()
 	id := uuid.NewString()
 	redirectJSON, _ := json.Marshal(req.RedirectURIs)
@@ -286,8 +284,8 @@ func toApplicationResponse(a *domain.Application) applicationResponse {
 		ID:            a.ID,
 		Name:          a.Name,
 		ClientID:      a.ClientID,
-		RedirectURIs:  jsonStrArrayOrEmpty(a.RedirectURIs),
-		AllowedScopes: jsonStrArrayOrEmpty(a.AllowedScopes),
+		RedirectURIs:  auth.DecodeStringArray(a.RedirectURIs),
+		AllowedScopes: auth.DecodeStringArray(a.AllowedScopes),
 		IsActive:      a.IsActive,
 		CreatedAt:     displayDT(a.CreatedAt),
 	}
@@ -406,7 +404,7 @@ func (h *Handler) RotateSecret(c *gin.Context) {
 		middleware.RespondError(c, apperror.ApplicationNotFound())
 		return
 	}
-	secret := generateClientSecret()
+	secret := auth.RandomHex(32)
 	app.ClientSecretHash = auth.HashClientSecret(secret)
 	app.UpdatedAt = time.Now().UTC()
 	if err := h.Repo.Applications().Update(ctx, app); err != nil {
@@ -964,16 +962,6 @@ func (h *Handler) AdminRemoveTeamMember(c *gin.Context) {
 }
 
 // --- Helpers ---
-
-func generateClientID() string {
-	return "app_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:24]
-}
-
-func generateClientSecret() string {
-	b := make([]byte, 32)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}
 
 func parseMembershipExpiry(s string) (time.Time, error) {
 	s = strings.TrimSpace(s)

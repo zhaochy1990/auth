@@ -7,7 +7,6 @@ package middleware
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"sync"
@@ -79,14 +78,6 @@ func bearer(c *gin.Context) (string, bool) {
 	return strings.CutPrefix(h, "Bearer ")
 }
 
-func jsonStrArray(s string) []string {
-	var out []string
-	if err := json.Unmarshal([]byte(s), &out); err != nil {
-		return nil
-	}
-	return out
-}
-
 // Auth bundles the dependencies the auth middlewares need.
 type Auth struct {
 	Repo repository.Repository
@@ -149,7 +140,7 @@ func (a *Auth) ClientApp() gin.HandlerFunc {
 		}
 		c.Set(ctxAppID, app.ID)
 		c.Set(ctxClientID, app.ClientID)
-		c.Set(ctxAllowedScopes, jsonStrArray(app.AllowedScopes))
+		c.Set(ctxAllowedScopes, auth.DecodeStringArray(app.AllowedScopes))
 		c.Next()
 	}
 }

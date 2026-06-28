@@ -1,10 +1,17 @@
 package auth
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/zhaochy1990/auth-service/internal/domain"
 )
 
 func TestValidatePassword(t *testing.T) {
@@ -71,6 +78,45 @@ func TestPasswordRoundtrip(t *testing.T) {
 	}
 	if ok, _ := VerifyPassword("Nope", h); ok {
 		t.Fatal("expected wrong password to fail")
+	}
+}
+
+func TestVerifyAccessTokenRequiredClaims(t *testing.T) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &JWTManager{priv: priv, pub: &priv.PublicKey, issuer: "auth-service", accessExpirySecs: 3600}
+
+	// A fully-formed token verifies.
+	good, err := m.IssueAccessToken("user-1", "client-1", []string{"openid"}, "user", domain.MembershipRegular, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.VerifyAccessToken(good); err != nil {
+		t.Fatalf("valid token rejected: %v", err)
+	}
+
+	// A correctly-signed token missing any required claim (sub/aud/iat) is
+	// rejected — parity with the Rust set_required_spec_claims guard.
+	now := time.Now()
+	base := jwt.MapClaims{
+		"sub": "user-1", "aud": "client-1", "iss": "auth-service",
+		"exp": now.Add(time.Hour).Unix(), "iat": now.Unix(),
+	}
+	for _, missing := range []string{"sub", "aud", "iat"} {
+		claims := jwt.MapClaims{}
+		for k, v := range base {
+			claims[k] = v
+		}
+		delete(claims, missing)
+		signed, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(priv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := m.VerifyAccessToken(signed); err == nil {
+			t.Errorf("token missing %q was accepted", missing)
+		}
 	}
 }
 
