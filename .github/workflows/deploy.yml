@@ -36,6 +36,19 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
 
+      # The Go module replaces the public x library locally; check it out and
+      # vendor so the image builds offline (-mod=vendor).
+      - name: Checkout x dependency
+        uses: actions/checkout@v4
+        with:
+          repository: zhaochy1990/x
+          path: _x
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: sources/dev/authentication-go/go.sum
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -43,9 +56,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
-        working-directory: sources/dev/authentication
+      - name: Build and push Docker image (Go service)
+        working-directory: sources/dev/authentication-go
         run: |
+          go mod edit -replace github.com/zhaochy1990/x="$GITHUB_WORKSPACE/_x"
+          go mod vendor
           docker build \
             --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
             -t ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }} \

@@ -1,0 +1,57 @@
+name: Infra
+
+# Bicep IaC for the Azure resources. Pull requests touching infra/ get a
+# read-only `what-if` preview; an actual apply only happens on a manual
+# workflow_dispatch with "apply" checked.
+on:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/infra.yml'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Apply the deployment (unchecked = what-if only)'
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  RESOURCE_GROUP: rg-auth-prod
+
+jobs:
+  infra:
+    name: Bicep what-if / apply
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: What-if (preview changes)
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          az deployment group what-if \
+            --resource-group "$RESOURCE_GROUP" \
+            --parameters infra/main.bicepparam
+
+      - name: Apply
+        if: github.event_name == 'workflow_dispatch' && inputs.apply
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --parameters infra/main.bicepparam \
+            --query "properties.outputs"
