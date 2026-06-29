@@ -15,6 +15,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -trimpath -o /out/auth-service
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 COPY --from=build /out/auth-service /app/auth-service
+# Version surfaced at /health (passed via --build-arg APP_VERSION at deploy).
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 # JWT keys are NOT baked into the image — mount them at /app/keys at runtime
 # (docker-compose volume locally; Azure File Share in production).
 EXPOSE 3000
