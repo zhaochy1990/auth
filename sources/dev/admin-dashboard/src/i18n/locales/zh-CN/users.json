@@ -19,6 +19,20 @@
     "regular": "普通用户",
     "vip1": "VIP1 会员"
   },
+  "attributes": {
+    "birthday": "生日",
+    "gender": "性别",
+    "heightCm": "身高（cm）",
+    "weightKg": "体重（kg）",
+    "heightPlaceholder": "例如 175",
+    "weightPlaceholder": "例如 65",
+    "unspecified": "未指定",
+    "genderOptions": {
+      "female": "女",
+      "male": "男",
+      "other": "其他"
+    }
+  },
   "create": {
     "title": "创建用户",
     "email": "邮箱",
@@ -59,6 +73,12 @@
       "expiresAt": "到期时间",
       "expiresHint": "留空表示永久会员。",
       "noExpiry": "永久",
+      "save": "保存",
+      "cancel": "取消"
+    },
+    "attributes": {
+      "title": "自定义属性",
+      "edit": "编辑",
       "save": "保存",
       "cancel": "取消"
     },

@@ -71,9 +71,12 @@ type User struct {
 	Role          string // "user" | "admin"
 	IsActive      bool
 	// Note is an admin-only free-form note, never surfaced via user-facing APIs.
-	Note      *string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Note *string
+	// CustomAttributes holds app-specific user profile attributes such as
+	// birthday, gender, height_cm, and weight_kg.
+	CustomAttributes map[string]any
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 	// LastLoginAt is the most recent successful login timestamp.
 	LastLoginAt *time.Time
 	// RecentLogins holds the last 3 login records (most recent first).

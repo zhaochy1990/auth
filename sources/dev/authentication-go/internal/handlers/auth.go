@@ -138,6 +138,7 @@ func (h *Handler) Register(c *gin.Context) {
 		EmailVerified:       false,
 		Role:                "user",
 		IsActive:            true,
+		CustomAttributes:    map[string]any{},
 		CreatedAt:           now,
 		UpdatedAt:           now,
 		InviteCode:          invitedWith,
@@ -333,16 +334,17 @@ func (h *Handler) ProviderLogin(c *gin.Context) {
 	} else {
 		userID = uuid.NewString()
 		user := &domain.User{
-			ID:            userID,
-			Email:         info.Email,
-			Name:          info.Name,
-			AvatarURL:     info.AvatarURL,
-			EmailVerified: false,
-			Role:          "user",
-			IsActive:      true,
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			Membership:    domain.MembershipRegular,
+			ID:               userID,
+			Email:            info.Email,
+			Name:             info.Name,
+			AvatarURL:        info.AvatarURL,
+			EmailVerified:    false,
+			Role:             "user",
+			IsActive:         true,
+			CustomAttributes: map[string]any{},
+			CreatedAt:        now,
+			UpdatedAt:        now,
+			Membership:       domain.MembershipRegular,
 		}
 		if err := h.Repo.Users().Insert(ctx, user); err != nil {
 			middleware.RespondError(c, err)

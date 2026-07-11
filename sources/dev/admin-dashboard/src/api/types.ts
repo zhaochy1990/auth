@@ -74,6 +74,14 @@ export interface LoginRecord {
   ip: string;
 }
 
+export interface UserCustomAttributes {
+  birthday?: string | null;
+  gender?: string | null;
+  height_cm?: number | null;
+  weight_kg?: number | null;
+  [key: string]: unknown;
+}
+
 export interface User {
   id: string;
   email: string | null;
@@ -85,6 +93,7 @@ export interface User {
   membership_expires_at: string | null;
   is_active: boolean;
   note: string | null;
+  custom_attributes: UserCustomAttributes;
   created_at: string;
   updated_at: string;
   last_login_at: string | null;
@@ -106,6 +115,7 @@ export interface UpdateUserRequest {
   membership_expires_at?: string;
   is_active?: boolean;
   note?: string;
+  custom_attributes?: UserCustomAttributes;
 }
 
 export interface CreateUserRequest {
@@ -114,6 +124,7 @@ export interface CreateUserRequest {
   name?: string;
   role?: string;
   membership?: MembershipTier;
+  custom_attributes?: UserCustomAttributes;
 }
 
 export interface ResetUserPasswordRequest {

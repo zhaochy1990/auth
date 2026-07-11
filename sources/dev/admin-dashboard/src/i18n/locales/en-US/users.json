@@ -19,6 +19,20 @@
     "regular": "Regular",
     "vip1": "VIP 1"
   },
+  "attributes": {
+    "birthday": "Birthday",
+    "gender": "Gender",
+    "heightCm": "Height (cm)",
+    "weightKg": "Weight (kg)",
+    "heightPlaceholder": "e.g. 175",
+    "weightPlaceholder": "e.g. 65",
+    "unspecified": "Unspecified",
+    "genderOptions": {
+      "female": "Female",
+      "male": "Male",
+      "other": "Other"
+    }
+  },
   "create": {
     "title": "Create User",
     "email": "Email",
@@ -59,6 +73,12 @@
       "expiresAt": "Expires At",
       "expiresHint": "Leave empty for a permanent membership.",
       "noExpiry": "No expiry",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "attributes": {
+      "title": "Custom Attributes",
+      "edit": "Edit",
       "save": "Save",
       "cancel": "Cancel"
     },

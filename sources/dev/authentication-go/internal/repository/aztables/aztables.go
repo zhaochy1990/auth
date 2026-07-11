@@ -354,6 +354,7 @@ type userEntity struct {
 	Role                string  `json:"role"`
 	IsActive            *bool   `json:"is_active,omitempty"`
 	Note                *string `json:"note,omitempty"`
+	CustomAttributes    string  `json:"custom_attributes"`
 	CreatedAt           string  `json:"created_at"`
 	UpdatedAt           string  `json:"updated_at"`
 	LastLoginAt         *string `json:"last_login_at,omitempty"`
@@ -394,6 +395,28 @@ func deserializeLogins(s *string) []domain.LoginRecord {
 	return out
 }
 
+func serializeCustomAttributes(attributes map[string]any) string {
+	if attributes == nil {
+		return "{}"
+	}
+	b, err := json.Marshal(attributes)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+func deserializeCustomAttributes(s string) map[string]any {
+	if s == "" {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(s), &out); err != nil || out == nil {
+		return map[string]any{}
+	}
+	return out
+}
+
 func userToEntity(u *domain.User) userEntity {
 	membership := string(u.Membership)
 	if membership == "" {
@@ -413,6 +436,7 @@ func userToEntity(u *domain.User) userEntity {
 		Role:                role,
 		IsActive:            boolPtr(u.IsActive),
 		Note:                u.Note,
+		CustomAttributes:    serializeCustomAttributes(u.CustomAttributes),
 		CreatedAt:           fmtDT(u.CreatedAt),
 		UpdatedAt:           fmtDT(u.UpdatedAt),
 		LastLoginAt:         fmtDTPtr(u.LastLoginAt),
@@ -441,6 +465,7 @@ func (e *userEntity) toModel() *domain.User {
 		Role:                role,
 		IsActive:            boolOr(e.IsActive, true),
 		Note:                e.Note,
+		CustomAttributes:    deserializeCustomAttributes(e.CustomAttributes),
 		CreatedAt:           parseDT(e.CreatedAt),
 		UpdatedAt:           parseDT(e.UpdatedAt),
 		LastLoginAt:         parseDTPtr(e.LastLoginAt),

@@ -264,6 +264,41 @@ func TestUserProfile(t *testing.T) {
 		t.Fatalf("unexpected profile: %+v", prof)
 	}
 
+	patch := ta.do(http.MethodPatch, "/api/users/me", map[string]any{
+		"custom_attributes": map[string]any{
+			"birthday":  "1990-01-01",
+			"gender":    "female",
+			"height_cm": 168,
+			"weight_kg": 55.5,
+		},
+	}, ta.bearer(regResp.AccessToken))
+	mustStatus(t, patch, http.StatusOK)
+	var patched struct {
+		CustomAttributes map[string]any `json:"custom_attributes"`
+	}
+	decode(t, patch, &patched)
+	if patched.CustomAttributes["birthday"] != "1990-01-01" || patched.CustomAttributes["height_cm"] != float64(168) {
+		t.Fatalf("custom attributes not applied: %+v", patched.CustomAttributes)
+	}
+
+	patch = ta.do(http.MethodPatch, "/api/users/me", map[string]any{
+		"custom_attributes": map[string]any{
+			"weight_kg": 56.2,
+			"gender":    nil,
+		},
+	}, ta.bearer(regResp.AccessToken))
+	mustStatus(t, patch, http.StatusOK)
+	patched = struct {
+		CustomAttributes map[string]any `json:"custom_attributes"`
+	}{}
+	decode(t, patch, &patched)
+	if patched.CustomAttributes["birthday"] != "1990-01-01" || patched.CustomAttributes["weight_kg"] != 56.2 {
+		t.Fatalf("custom attributes not merged: %+v", patched.CustomAttributes)
+	}
+	if _, ok := patched.CustomAttributes["gender"]; ok {
+		t.Fatalf("gender should have been removed: %+v", patched.CustomAttributes)
+	}
+
 	noauth := ta.do(http.MethodGet, "/api/users/me", nil, nil)
 	mustStatus(t, noauth, http.StatusUnauthorized)
 }
@@ -305,16 +340,26 @@ func TestAdminUsersCRUD(t *testing.T) {
 
 	create := ta.do(http.MethodPost, "/admin/users", map[string]any{
 		"email": "managed@example.com", "password": "Password1!", "name": "Managed", "role": "user", "membership": "vip1",
+		"custom_attributes": map[string]any{
+			"birthday":  "1988-08-08",
+			"gender":    "male",
+			"height_cm": 180,
+			"weight_kg": 72.5,
+		},
 	}, ta.bearer(ta.adminToken))
 	mustStatus(t, create, http.StatusOK)
 	var u struct {
-		ID         string `json:"id"`
-		Role       string `json:"role"`
-		Membership string `json:"membership"`
+		ID               string         `json:"id"`
+		Role             string         `json:"role"`
+		Membership       string         `json:"membership"`
+		CustomAttributes map[string]any `json:"custom_attributes"`
 	}
 	decode(t, create, &u)
 	if u.Role != "user" || u.Membership != "vip1" {
 		t.Fatalf("unexpected created user: %+v", u)
+	}
+	if u.CustomAttributes["birthday"] != "1988-08-08" || u.CustomAttributes["height_cm"] != float64(180) {
+		t.Fatalf("custom attributes not created: %+v", u.CustomAttributes)
 	}
 
 	get := ta.do(http.MethodGet, "/admin/users/"+u.ID, nil, ta.bearer(ta.adminToken))
@@ -322,15 +367,26 @@ func TestAdminUsersCRUD(t *testing.T) {
 
 	upd := ta.do(http.MethodPatch, "/admin/users/"+u.ID, map[string]any{
 		"membership": "regular", "is_active": false,
+		"custom_attributes": map[string]any{
+			"weight_kg": 73.0,
+			"gender":    nil,
+		},
 	}, ta.bearer(ta.adminToken))
 	mustStatus(t, upd, http.StatusOK)
 	var updated struct {
-		Membership string `json:"membership"`
-		IsActive   bool   `json:"is_active"`
+		Membership       string         `json:"membership"`
+		IsActive         bool           `json:"is_active"`
+		CustomAttributes map[string]any `json:"custom_attributes"`
 	}
 	decode(t, upd, &updated)
 	if updated.Membership != "regular" || updated.IsActive {
 		t.Fatalf("update not applied: %+v", updated)
+	}
+	if updated.CustomAttributes["birthday"] != "1988-08-08" || updated.CustomAttributes["weight_kg"] != float64(73) {
+		t.Fatalf("custom attributes not updated: %+v", updated.CustomAttributes)
+	}
+	if _, ok := updated.CustomAttributes["gender"]; ok {
+		t.Fatalf("gender should have been removed: %+v", updated.CustomAttributes)
 	}
 
 	del := ta.do(http.MethodDelete, "/admin/users/"+u.ID, nil, ta.bearer(ta.adminToken))

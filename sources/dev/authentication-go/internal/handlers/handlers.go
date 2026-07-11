@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -83,3 +84,37 @@ func displayDTPtr(t *time.Time) *string {
 }
 
 func strPtr(s string) *string { return &s }
+
+func customAttributesOrEmpty(attributes map[string]any) map[string]any {
+	if attributes == nil {
+		return map[string]any{}
+	}
+	return attributes
+}
+
+func mergeCustomAttributes(target map[string]any, patch map[string]any) map[string]any {
+	if target == nil {
+		target = map[string]any{}
+	}
+	for key, value := range patch {
+		if isNilJSONValue(value) {
+			delete(target, key)
+		} else {
+			target[key] = value
+		}
+	}
+	return target
+}
+
+func isNilJSONValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
