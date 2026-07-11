@@ -69,6 +69,9 @@ export interface AddProviderRequest {
 // 'vip2' | 'vip3' as higher tiers are introduced.
 export type MembershipTier = 'regular' | 'vip1';
 
+// Account classification, independent of role and membership entitlement.
+export type UserType = 'regular' | 'testing';
+
 export interface LoginRecord {
   at: string;
   ip: string;
@@ -89,6 +92,7 @@ export interface User {
   avatar_url: string | null;
   email_verified: boolean;
   role: string;
+  user_type: UserType;
   membership: MembershipTier;
   membership_expires_at: string | null;
   is_active: boolean;
@@ -111,6 +115,7 @@ export interface UpdateUserRequest {
   name?: string;
   role?: string;
   membership?: MembershipTier;
+  user_type?: UserType;
   // ISO date/datetime to set the paid-tier expiry; empty string clears it.
   membership_expires_at?: string;
   is_active?: boolean;
@@ -125,6 +130,7 @@ export interface CreateUserRequest {
   role?: string;
   membership?: MembershipTier;
   custom_attributes?: UserCustomAttributes;
+  user_type?: UserType;
 }
 
 export interface ResetUserPasswordRequest {
@@ -225,6 +231,8 @@ export interface JwtPayload {
   role: string;
   /// Membership tier embedded in the access token.
   membership?: MembershipTier;
+  /// Account classification embedded in the access token.
+  user_type?: UserType;
   /// Display name of the user, when set on their profile.
   name?: string;
 }

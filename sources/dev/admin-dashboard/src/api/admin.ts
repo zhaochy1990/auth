@@ -18,6 +18,7 @@ import type {
   InviteCode,
   InviteCodeKind,
   MembershipTier,
+  UserType,
   Team,
   TeamMember,
   TeamMembership,
@@ -49,7 +50,7 @@ export const removeProvider = (appId: string, providerId: string) =>
   client.delete(`/admin/applications/${appId}/providers/${providerId}`).then((r) => r.data);
 
 // Users
-export const listUsers = (params: { page?: number; per_page?: number; search?: string }) =>
+export const listUsers = (params: { page?: number; per_page?: number; search?: string; user_type?: UserType }) =>
   client.get<UserListResponse>('/admin/users', { params }).then((r) => r.data);
 
 export const createUser = (data: CreateUserRequest) =>

@@ -102,6 +102,7 @@ func Bootstrap(ctx context.Context, repo repository.Repository, adminEmail strin
 			Name:             &name,
 			EmailVerified:    true,
 			Role:             "admin",
+			UserType:         domain.UserTypeRegular,
 			IsActive:         true,
 			CustomAttributes: map[string]any{},
 			CreatedAt:        now,

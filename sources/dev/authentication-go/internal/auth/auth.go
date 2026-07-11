@@ -40,6 +40,7 @@ type AccessClaims struct {
 	Scopes     []string `json:"scopes"`
 	Role       string   `json:"role"`
 	Membership string   `json:"membership"`
+	UserType   string   `json:"user_type"`
 	Name       *string  `json:"name,omitempty"`
 }
 
@@ -58,6 +59,12 @@ func (c AccessClaims) GetAudience() (jwt.ClaimStrings, error)  { return jwt.Clai
 // absent/unknown value as Regular.
 func (c AccessClaims) Tier() domain.MembershipTier {
 	return domain.MembershipFromString(c.Membership)
+}
+
+// Type returns the account usage classification from the claim, treating an
+// absent/unknown value as Regular.
+func (c AccessClaims) Type() domain.UserType {
+	return domain.UserTypeFromString(c.UserType)
 }
 
 // AppClaims is the client-credentials token payload.
@@ -110,7 +117,7 @@ func NewJWTManager(cfg *config.Config) (*JWTManager, error) {
 }
 
 // IssueAccessToken mints a user access token.
-func (m *JWTManager) IssueAccessToken(userID, clientID string, scopes []string, role string, membership domain.MembershipTier, name *string) (string, error) {
+func (m *JWTManager) IssueAccessToken(userID, clientID string, scopes []string, role string, membership domain.MembershipTier, userType domain.UserType, name *string) (string, error) {
 	if scopes == nil {
 		scopes = []string{}
 	}
@@ -118,7 +125,7 @@ func (m *JWTManager) IssueAccessToken(userID, clientID string, scopes []string, 
 	claims := AccessClaims{
 		Sub: userID, Aud: clientID, Iss: m.issuer,
 		Exp: now + m.accessExpirySecs, Iat: now,
-		Scopes: scopes, Role: role, Membership: string(membership), Name: name,
+		Scopes: scopes, Role: role, Membership: string(membership), UserType: string(domain.UserTypeFromString(string(userType))), Name: name,
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	s, err := tok.SignedString(m.priv)

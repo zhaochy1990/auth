@@ -6,6 +6,7 @@
     "email": "邮箱",
     "name": "姓名",
     "role": "角色",
+    "userType": "用户类型",
     "membership": "会员等级",
     "status": "状态",
     "createdAt": "注册时间",
@@ -33,6 +34,11 @@
       "other": "其他"
     }
   },
+  "userType": {
+    "all": "全部类型",
+    "regular": "正常用户",
+    "testing": "测试用户"
+  },
   "create": {
     "title": "创建用户",
     "email": "邮箱",
@@ -42,6 +48,7 @@
     "name": "姓名",
     "namePlaceholder": "可选的显示名称",
     "role": "角色",
+    "userType": "用户类型",
     "submit": "创建",
     "success": "用户创建成功"
   },
@@ -53,6 +60,7 @@
     "email": "邮箱",
     "name": "姓名",
     "role": "角色",
+    "userType": "用户类型",
     "status": "状态",
     "emailVerified": "邮箱已验证",
     "emailNotVerified": "邮箱未验证",
@@ -65,6 +73,7 @@
     "unlinkAccount": "解除绑定",
     "unlinkConfirm": "确定要解除此账号绑定吗？",
     "changeRole": "修改角色",
+    "changeUserType": "修改用户类型",
     "toggleActive": "切换状态",
     "membership": {
       "title": "会员等级",

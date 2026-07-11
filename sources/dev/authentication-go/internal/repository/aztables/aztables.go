@@ -208,6 +208,13 @@ func providerAccountIndexPK(providerID string) string {
 
 func boolPtr(b bool) *bool { return &b }
 
+func defaultUserType(t domain.UserType) domain.UserType {
+	if t.Valid() {
+		return t
+	}
+	return domain.UserTypeRegular
+}
+
 // boolOr defaults a possibly-absent stored bool.
 func boolOr(p *bool, def bool) bool {
 	if p == nil {
@@ -352,6 +359,7 @@ type userEntity struct {
 	AvatarURL           *string `json:"avatar_url,omitempty"`
 	EmailVerified       bool    `json:"email_verified"`
 	Role                string  `json:"role"`
+	UserType            string  `json:"user_type"`
 	IsActive            *bool   `json:"is_active,omitempty"`
 	Note                *string `json:"note,omitempty"`
 	CustomAttributes    string  `json:"custom_attributes"`
@@ -422,6 +430,7 @@ func userToEntity(u *domain.User) userEntity {
 	if membership == "" {
 		membership = string(domain.MembershipRegular)
 	}
+	userType := defaultUserType(u.UserType)
 	role := u.Role
 	if role == "" {
 		role = "user"
@@ -434,6 +443,7 @@ func userToEntity(u *domain.User) userEntity {
 		AvatarURL:           u.AvatarURL,
 		EmailVerified:       u.EmailVerified,
 		Role:                role,
+		UserType:            string(userType),
 		IsActive:            boolPtr(u.IsActive),
 		Note:                u.Note,
 		CustomAttributes:    serializeCustomAttributes(u.CustomAttributes),
@@ -463,6 +473,7 @@ func (e *userEntity) toModel() *domain.User {
 		AvatarURL:           e.AvatarURL,
 		EmailVerified:       e.EmailVerified,
 		Role:                role,
+		UserType:            domain.UserTypeFromString(e.UserType),
 		IsActive:            boolOr(e.IsActive, true),
 		Note:                e.Note,
 		CustomAttributes:    deserializeCustomAttributes(e.CustomAttributes),
@@ -600,10 +611,20 @@ func (r *userRepo) RecordLogin(ctx context.Context, userID, ip string) error {
 	return r.Update(ctx, u)
 }
 
-func (r *userRepo) ListPaginated(ctx context.Context, search string, offset, limit uint64) ([]domain.User, uint64, error) {
+func (r *userRepo) ListPaginated(ctx context.Context, search string, userType *domain.UserType, offset, limit uint64) ([]domain.User, uint64, error) {
 	es, err := queryEntities[userEntity](ctx, r.c, "PartitionKey eq 'user'")
 	if err != nil {
 		return nil, 0, err
+	}
+	if userType != nil {
+		wanted := defaultUserType(*userType)
+		filtered := es[:0]
+		for _, e := range es {
+			if domain.UserTypeFromString(e.UserType) == wanted {
+				filtered = append(filtered, e)
+			}
+		}
+		es = filtered
 	}
 	if search != "" {
 		lower := strings.ToLower(search)

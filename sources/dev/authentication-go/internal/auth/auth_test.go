@@ -89,7 +89,7 @@ func TestVerifyAccessTokenRequiredClaims(t *testing.T) {
 	m := &JWTManager{priv: priv, pub: &priv.PublicKey, issuer: "auth-service", accessExpirySecs: 3600}
 
 	// A fully-formed token verifies.
-	good, err := m.IssueAccessToken("user-1", "client-1", []string{"openid"}, "user", domain.MembershipRegular, nil)
+	good, err := m.IssueAccessToken("user-1", "client-1", []string{"openid"}, "user", domain.MembershipRegular, domain.UserTypeRegular, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
