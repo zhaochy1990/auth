@@ -612,40 +612,55 @@ func (r *userRepo) RecordLogin(ctx context.Context, userID, ip string) error {
 }
 
 func (r *userRepo) ListPaginated(ctx context.Context, search string, userType *domain.UserType, offset, limit uint64) ([]domain.User, uint64, error) {
-	es, err := queryEntities[userEntity](ctx, r.c, "PartitionKey eq 'user'")
-	if err != nil {
-		return nil, 0, err
+	if limit < 1 {
+		limit = 20
 	}
-	if userType != nil {
-		wanted := defaultUserType(*userType)
-		filtered := es[:0]
-		for _, e := range es {
-			if domain.UserTypeFromString(e.UserType) == wanted {
-				filtered = append(filtered, e)
-			}
-		}
-		es = filtered
+	if limit > 100 {
+		limit = 100
 	}
-	if search != "" {
-		lower := strings.ToLower(search)
-		filtered := es[:0]
-		for _, e := range es {
-			emailMatch := e.Email != nil && strings.Contains(strings.ToLower(*e.Email), lower)
-			nameMatch := e.Name != nil && strings.Contains(strings.ToLower(*e.Name), lower)
-			if emailMatch || nameMatch {
-				filtered = append(filtered, e)
-			}
-		}
-		es = filtered
-	}
-	total := uint64(len(es))
-	sort.SliceStable(es, func(i, j int) bool { return es[i].CreatedAt > es[j].CreatedAt })
 
-	out := make([]domain.User, 0)
-	for i := offset; i < uint64(len(es)) && i < offset+limit; i++ {
-		out = append(out, *es[i].toModel())
+	var out []domain.User
+	var total uint64
+	lower := strings.ToLower(strings.TrimSpace(search))
+	filter := "PartitionKey eq 'user'"
+	top := int32(limit)
+	pager := r.c.NewListEntitiesPager(&aztables.ListEntitiesOptions{Filter: &filter, Top: &top})
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, 0, dbErr(err)
+		}
+		for _, raw := range page.Entities {
+			var e userEntity
+			if err := json.Unmarshal(raw, &e); err != nil {
+				return nil, 0, dbErr(err)
+			}
+			if !matchesUserType(&e, userType) || !matchesUserSearch(&e, lower) {
+				continue
+			}
+			if total >= offset && uint64(len(out)) < limit {
+				out = append(out, *e.toModel())
+			}
+			total++
+		}
 	}
 	return out, total, nil
+}
+
+func matchesUserType(e *userEntity, userType *domain.UserType) bool {
+	if userType == nil {
+		return true
+	}
+	return domain.UserTypeFromString(e.UserType) == defaultUserType(*userType)
+}
+func matchesUserSearch(e *userEntity, lower string) bool {
+	if lower == "" {
+		return true
+	}
+	emailMatch := e.Email != nil && strings.Contains(strings.ToLower(*e.Email), lower)
+	nameMatch := e.Name != nil && strings.Contains(strings.ToLower(*e.Name), lower)
+	return emailMatch || nameMatch
 }
 
 // ─── Application ─────────────────────────────────────────────────────────────
