@@ -12,6 +12,12 @@
     "createdAt": "Created At",
     "lastLoginAt": "Last Login"
   },
+  "sort": {
+    "nameAsc": "Name A-Z",
+    "nameDesc": "Name Z-A",
+    "lastLoginDesc": "Last Login Newest",
+    "lastLoginAsc": "Last Login Oldest"
+  },
   "role": {
     "user": "User",
     "admin": "Admin"

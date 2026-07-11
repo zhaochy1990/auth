@@ -12,6 +12,12 @@
     "createdAt": "注册时间",
     "lastLoginAt": "上次登录时间"
   },
+  "sort": {
+    "nameAsc": "姓名 A-Z",
+    "nameDesc": "姓名 Z-A",
+    "lastLoginDesc": "最近登录优先",
+    "lastLoginAsc": "最早登录优先"
+  },
   "role": {
     "user": "普通用户",
     "admin": "管理员"

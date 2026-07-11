@@ -15,6 +15,7 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/middleware"
+	"github.com/zhaochy1990/auth-service/internal/repository"
 )
 
 // --- Request / Response types ---
@@ -466,6 +467,7 @@ func (h *Handler) ListUsers(c *gin.Context) {
 		perPage = 100
 	}
 	offset := (page - 1) * perPage
+	sort := repository.ParseUserListSort(c.Query("sort_by"), c.Query("sort_order"))
 
 	var userType *domain.UserType
 	if raw := strings.TrimSpace(c.Query("user_type")); raw != "" {
@@ -477,7 +479,7 @@ func (h *Handler) ListUsers(c *gin.Context) {
 		userType = &t
 	}
 
-	users, total, err := h.Repo.Users().ListPaginated(c.Request.Context(), c.Query("search"), userType, offset, perPage)
+	users, total, err := h.Repo.Users().ListPaginated(c.Request.Context(), c.Query("search"), userType, sort, offset, perPage)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return

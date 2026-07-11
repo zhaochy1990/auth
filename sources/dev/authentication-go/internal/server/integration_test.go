@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -506,6 +507,71 @@ func writeTestKeyPair(t *testing.T) (string, string) {
 		t.Fatalf("write public key: %v", err)
 	}
 	return privateKeyPath, publicKeyPath
+}
+
+func TestAdminUsersListSortsByNamePinyinBeforePagination(t *testing.T) {
+	ta := newTestApp(t)
+
+	for _, item := range []struct {
+		email string
+		name  string
+	}{
+		{email: "zhang-sort@example.com", name: "张三"},
+		{email: "alice-sort@example.com", name: "Alice"},
+		{email: "li-sort@example.com", name: "李四"},
+		{email: "an-sort@example.com", name: "安安"},
+	} {
+		create := ta.do(http.MethodPost, "/admin/users", map[string]any{
+			"email": item.email, "password": "Password1!", "name": item.name,
+		}, ta.bearer(ta.adminToken))
+		mustStatus(t, create, http.StatusOK)
+	}
+
+	page1 := ta.do(http.MethodGet, "/admin/users?search=-sort%40example.com&page=1&per_page=2", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, page1, http.StatusOK)
+	var first struct {
+		Total uint64 `json:"total"`
+		Users []struct {
+			Name string `json:"name"`
+		} `json:"users"`
+	}
+	decode(t, page1, &first)
+	if first.Total != 4 || len(first.Users) != 2 || first.Users[0].Name != "Alice" || first.Users[1].Name != "安安" {
+		t.Fatalf("unexpected first page: %+v", first)
+	}
+
+	page2 := ta.do(http.MethodGet, "/admin/users?search=-sort%40example.com&page=2&per_page=2", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, page2, http.StatusOK)
+	var second struct {
+		Users []struct {
+			Name string `json:"name"`
+		} `json:"users"`
+	}
+	decode(t, page2, &second)
+	if len(second.Users) != 2 || second.Users[0].Name != "李四" || second.Users[1].Name != "张三" {
+		t.Fatalf("unexpected second page: %+v", second)
+	}
+}
+
+func TestAdminUsersListSortsByLastLogin(t *testing.T) {
+	ta := newTestApp(t)
+
+	ta.registerUser(t, "older-login@example.com")
+	time.Sleep(5 * time.Millisecond)
+	ta.registerUser(t, "newer-login@example.com")
+
+	list := ta.do(http.MethodGet, "/admin/users?search=-login%40example.com&sort_by=last_login_at&sort_order=desc", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, list, http.StatusOK)
+	var body struct {
+		Total uint64 `json:"total"`
+		Users []struct {
+			Email string `json:"email"`
+		} `json:"users"`
+	}
+	decode(t, list, &body)
+	if body.Total != 2 || len(body.Users) != 2 || body.Users[0].Email != "newer-login@example.com" || body.Users[1].Email != "older-login@example.com" {
+		t.Fatalf("unexpected last-login order: %+v", body)
+	}
 }
 
 func TestInviteCodeGatingAndMembershipGrant(t *testing.T) {

@@ -14,6 +14,45 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/domain"
 )
 
+// UserListSortBy selects the server-side ordering used for admin user lists.
+type UserListSortBy string
+
+const (
+	UserListSortByName        UserListSortBy = "name"
+	UserListSortByLastLoginAt UserListSortBy = "last_login_at"
+)
+
+// SortOrder is the direction for server-side list ordering.
+type SortOrder string
+
+const (
+	SortOrderAsc  SortOrder = "asc"
+	SortOrderDesc SortOrder = "desc"
+)
+
+// UserListSort is the complete sort request for admin user lists.
+type UserListSort struct {
+	By    UserListSortBy
+	Order SortOrder
+}
+
+// DefaultUserListSort keeps the admin user list ordered by display name.
+func DefaultUserListSort() UserListSort {
+	return UserListSort{By: UserListSortByName, Order: SortOrderAsc}
+}
+
+// ParseUserListSort normalizes query values, keeping unknown values backward-compatible.
+func ParseUserListSort(sortBy, sortOrder string) UserListSort {
+	sort := DefaultUserListSort()
+	if sortBy == string(UserListSortByLastLoginAt) {
+		sort.By = UserListSortByLastLoginAt
+	}
+	if sortOrder == string(SortOrderDesc) {
+		sort.Order = SortOrderDesc
+	}
+	return sort
+}
+
 // UserRepository persists users.
 type UserRepository interface {
 	FindByID(ctx context.Context, id string) (*domain.User, error)
@@ -23,7 +62,7 @@ type UserRepository interface {
 	DeleteByID(ctx context.Context, id string) error
 	CountAll(ctx context.Context) (uint64, error)
 	CountSince(ctx context.Context, since time.Time) (uint64, error)
-	ListPaginated(ctx context.Context, search string, userType *domain.UserType, offset, limit uint64) ([]domain.User, uint64, error)
+	ListPaginated(ctx context.Context, search string, userType *domain.UserType, sort UserListSort, offset, limit uint64) ([]domain.User, uint64, error)
 	// RecordLogin appends a login record (timestamp + IP), keeping at most the
 	// 3 most recent entries, and updates LastLoginAt.
 	RecordLogin(ctx context.Context, userID, ip string) error
