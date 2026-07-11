@@ -120,6 +120,42 @@ func TestVerifyAccessTokenRequiredClaims(t *testing.T) {
 	}
 }
 
+func TestVerifyAppTokenRequiredClaims(t *testing.T) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &JWTManager{priv: priv, pub: &priv.PublicKey, issuer: "auth-service", accessExpirySecs: 3600}
+
+	good, err := m.IssueAppToken("app-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.VerifyAppToken(good); err != nil {
+		t.Fatalf("valid app token rejected: %v", err)
+	}
+
+	now := time.Now()
+	base := jwt.MapClaims{
+		"sub": "app-1", "iss": "auth-service", "grant_type": "client_credentials",
+		"exp": now.Add(time.Hour).Unix(), "iat": now.Unix(),
+	}
+	for _, missing := range []string{"sub", "iat", "grant_type"} {
+		claims := jwt.MapClaims{}
+		for k, v := range base {
+			claims[k] = v
+		}
+		delete(claims, missing)
+		signed, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(priv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := m.VerifyAppToken(signed); err == nil {
+			t.Errorf("app token missing %q was accepted", missing)
+		}
+	}
+}
+
 func TestVerifyPKCE(t *testing.T) {
 	verifier := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 	sum := sha256.Sum256([]byte(verifier))

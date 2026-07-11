@@ -3,11 +3,17 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -54,11 +60,12 @@ func newTestApp(t *testing.T) *testApp {
 	if err := repo.ClearAllTables(ctx); err != nil {
 		t.Skipf("Azurite unavailable (ClearAllTables): %v", err)
 	}
+	privateKeyPath, publicKeyPath := writeTestKeyPair(t)
 
 	cfg := &config.Config{
 		AzureStorageConnectionString: connString(),
-		JWTPrivateKeyPath:            "../../keys/private.pem",
-		JWTPublicKeyPath:             "../../keys/public.pem",
+		JWTPrivateKeyPath:            privateKeyPath,
+		JWTPublicKeyPath:             publicKeyPath,
 		JWTIssuer:                    "auth-service",
 		JWTAccessTokenExpirySecs:     3600,
 		JWTRefreshTokenExpiryDays:    30,
@@ -409,6 +416,96 @@ func TestAdminUsersCRUD(t *testing.T) {
 
 	getGone := ta.do(http.MethodGet, "/admin/users/"+u.ID, nil, ta.bearer(ta.adminToken))
 	mustStatus(t, getGone, http.StatusNotFound)
+}
+
+func TestListUsersWithAppTokenAndPagination(t *testing.T) {
+	ta := newTestApp(t)
+	if ta.clientSecret == "" {
+		t.Skip("client secret not available")
+	}
+
+	for i := 1; i <= 3; i++ {
+		create := ta.do(http.MethodPost, "/admin/users", map[string]any{
+			"email": "listed" + strconv.Itoa(i) + "@example.com", "password": "Password1!", "role": "user",
+		}, ta.bearer(ta.adminToken))
+		mustStatus(t, create, http.StatusOK)
+	}
+
+	tok := ta.do(http.MethodPost, "/oauth/token", map[string]any{"grant_type": "client_credentials"}, map[string]string{
+		"Authorization": basicAuth(ta.clientID, ta.clientSecret),
+	})
+	mustStatus(t, tok, http.StatusOK)
+	var tr struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+	}
+	decode(t, tok, &tr)
+	if tr.AccessToken == "" || tr.TokenType != "Bearer" {
+		t.Fatalf("bad app token response: %+v", tr)
+	}
+
+	first := ta.do(http.MethodGet, "/admin/users?page=1&per_page=2", nil, ta.bearer(tr.AccessToken))
+	mustStatus(t, first, http.StatusOK)
+	var firstPage struct {
+		Users []struct {
+			ID string `json:"id"`
+		} `json:"users"`
+		Total   uint64 `json:"total"`
+		Page    uint64 `json:"page"`
+		PerPage uint64 `json:"per_page"`
+	}
+	decode(t, first, &firstPage)
+	if len(firstPage.Users) != 2 || firstPage.Total != 4 || firstPage.Page != 1 || firstPage.PerPage != 2 {
+		t.Fatalf("unexpected first page: %+v", firstPage)
+	}
+
+	second := ta.do(http.MethodGet, "/admin/users?page=2&per_page=2", nil, ta.bearer(tr.AccessToken))
+	mustStatus(t, second, http.StatusOK)
+	var secondPage struct {
+		Users []struct {
+			ID string `json:"id"`
+		} `json:"users"`
+		Total   uint64 `json:"total"`
+		Page    uint64 `json:"page"`
+		PerPage uint64 `json:"per_page"`
+	}
+	decode(t, second, &secondPage)
+	if len(secondPage.Users) != 2 || secondPage.Total != 4 || secondPage.Page != 2 || secondPage.PerPage != 2 {
+		t.Fatalf("unexpected second page: %+v", secondPage)
+	}
+	seen := map[string]bool{}
+	for _, u := range firstPage.Users {
+		seen[u.ID] = true
+	}
+	for _, u := range secondPage.Users {
+		if seen[u.ID] {
+			t.Fatalf("pagination returned duplicate user id %q", u.ID)
+		}
+	}
+}
+
+func writeTestKeyPair(t *testing.T) (string, string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa key: %v", err)
+	}
+	pub, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal public key: %v", err)
+	}
+	dir := t.TempDir()
+	privateKeyPath := filepath.Join(dir, "private.pem")
+	publicKeyPath := filepath.Join(dir, "public.pem")
+	privateBlock := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}
+	publicBlock := &pem.Block{Type: "PUBLIC KEY", Bytes: pub}
+	if err := os.WriteFile(privateKeyPath, pem.EncodeToMemory(privateBlock), 0o600); err != nil {
+		t.Fatalf("write private key: %v", err)
+	}
+	if err := os.WriteFile(publicKeyPath, pem.EncodeToMemory(publicBlock), 0o600); err != nil {
+		t.Fatalf("write public key: %v", err)
+	}
+	return privateKeyPath, publicKeyPath
 }
 
 func TestInviteCodeGatingAndMembershipGrant(t *testing.T) {

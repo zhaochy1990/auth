@@ -177,8 +177,12 @@ func (m *JWTManager) VerifyAppToken(token string) (*AppClaims, error) {
 	_, err := jwt.ParseWithClaims(token, claims, m.keyfunc,
 		jwt.WithValidMethods([]string{"RS256"}),
 		jwt.WithIssuer(m.issuer),
+		jwt.WithExpirationRequired(),
 	)
 	if err != nil {
+		return nil, apperror.InvalidToken()
+	}
+	if claims.Sub == "" || claims.Iat == 0 || claims.GrantType != "client_credentials" {
 		return nil, apperror.InvalidToken()
 	}
 	return claims, nil
