@@ -12,7 +12,7 @@ WORKDIR /src
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -trimpath -o /out/auth-service ./cmd/auth-service
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12
 WORKDIR /app
 COPY --from=build /out/auth-service /app/auth-service
 ARG APP_VERSION=dev
