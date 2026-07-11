@@ -5,11 +5,10 @@ Guidance for Claude Code when working in the Go auth service
 
 ## Project Overview
 
-Go + Gin rewrite of the Rust auth microservice (which still lives in
-`../authentication/`). Faithful port: same endpoints, same JSON shapes, same JWT
-(RS256) claims, and drop-in data compatibility with Azure Table Storage (same
-table names, PK/RK schemes, index rows). When in doubt about intended behavior,
-cross-reference the Rust source in `../authentication/src/`.
+Go + Gin authentication/authorization microservice. It preserves the production
+API and storage contracts: same endpoints, same JSON shapes, same JWT (RS256)
+claims, and drop-in data compatibility with Azure Table Storage (same table
+names, PK/RK schemes, index rows).
 
 ## Build, Test, Lint
 
@@ -43,9 +42,8 @@ Layered with a swappable storage adapter (see README for the full tree):
 - `internal/auth` — JWT issue/verify (custom claims so `aud` stays a single
   string and `membership` is a snake_case string), argon2id passwords,
   SHA-256 client secrets (with legacy argon2 fallback), PKCE, OAuth2 helpers.
-- `internal/middleware` — Gin equivalents of the Axum extractors
-  (`AuthenticatedUser`, `ClientApp`, `AuthenticatedApp`, `AdminAuth`), the
-  per-IP sliding-window rate limiter, CORS, and `RespondError`.
+- `internal/middleware` — Gin auth context helpers, the per-IP sliding-window
+  rate limiter, CORS, and `RespondError`.
 - `internal/handlers` — one `*Handler` with methods per endpoint; reads auth
   context via the `middleware` getters.
 - `internal/server` — router wiring and rate-limiter groups.
@@ -56,18 +54,18 @@ Layered with a swappable storage adapter (see README for the full tree):
   code). Handlers call `middleware.RespondError(c, err)`. Never leak DB detail —
   `apperror.Database` maps to a generic 500.
 - **Datetimes:** stored as `2006-01-02T15:04:05.000000` (`fmtDT` in the aztables
-  adapter); API responses use `displayDT` in `handlers`, which reproduces Rust's
-  chrono `NaiveDateTime` Display (space separator, 0/3/6/9 fractional digits).
-- **Nullable JSON:** Rust `Option` without `skip_serializing_if` serializes as
-  `null` → use a Go pointer field **without** `omitempty`. Fields the Rust code
-  skips when `None` → use `omitempty`.
+  adapter); API responses use `displayDT` in `handlers` to preserve the existing
+  display contract (space separator, 0/3/6/9 fractional digits).
+- **Nullable JSON:** fields that are part of the API contract and may be absent
+  should usually be Go pointers without `omitempty`, so they serialize as
+  `null`. Fields intentionally omitted when absent should use `omitempty`.
 - **Membership / invite-kind** are string-typed enums; parse leniently from
   storage (unknown → default) via `domain.MembershipFromString` /
   `InviteKindFromString`.
 - The `/api/users` and `/api/teams` groups intentionally **share** one rate
-  limiter instance (matches the Rust cloned-`Arc` behavior).
-- The `test` provider is gated by `AUTH_ENABLE_TEST_PROVIDERS` (the Go analog of
-  the Rust `test-providers` cargo feature); tests enable it via config.
+  limiter instance.
+- The `test` provider is gated by `AUTH_ENABLE_TEST_PROVIDERS`; tests enable it
+  via config.
 
 ## Dependencies
 

@@ -1,6 +1,6 @@
-// Package config loads service configuration from the environment, mirroring
-// the Rust `Config::from_env`. Only AZURE_STORAGE_CONNECTION_STRING is required;
-// everything else has a sensible default.
+// Package config loads service configuration from the environment. Only
+// AZURE_STORAGE_CONNECTION_STRING is required; everything else has a sensible
+// default.
 package config
 
 import (
@@ -20,8 +20,7 @@ type Config struct {
 	ServerHost                   string
 	ServerPort                   int
 	CORSAllowedOrigins           string
-	// EnableTestProviders gates the "test" auth provider (the Go equivalent of
-	// the Rust `test-providers` cargo feature). Off in production.
+	// EnableTestProviders gates the "test" auth provider. Off in production.
 	EnableTestProviders bool
 }
 

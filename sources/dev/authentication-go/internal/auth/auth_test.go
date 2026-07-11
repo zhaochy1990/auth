@@ -98,7 +98,7 @@ func TestVerifyAccessTokenRequiredClaims(t *testing.T) {
 	}
 
 	// A correctly-signed token missing any required claim (sub/aud/iat) is
-	// rejected — parity with the Rust set_required_spec_claims guard.
+	// rejected.
 	now := time.Now()
 	base := jwt.MapClaims{
 		"sub": "user-1", "aud": "client-1", "iss": "auth-service",

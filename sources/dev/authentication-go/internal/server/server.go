@@ -1,8 +1,6 @@
 // Package server wires the Gin engine: route groups, per-group rate limiters,
-// CORS, and the auth middlewares — mirroring the Rust routes.rs. Note that the
-// /api/users and /api/teams groups intentionally share one rate-limiter
-// instance (matching the Rust code, where the limiter's state is shared via a
-// cloned Arc).
+// CORS, and the auth middlewares. The /api/users and /api/teams groups
+// intentionally share one rate-limiter instance.
 package server
 
 import (
