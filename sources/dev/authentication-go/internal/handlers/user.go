@@ -23,6 +23,7 @@ type userProfileResponse struct {
 	Name                *string               `json:"name"`
 	AvatarURL           *string               `json:"avatar_url"`
 	EmailVerified       bool                  `json:"email_verified"`
+	UserType            domain.UserType       `json:"user_type"`
 	Membership          domain.MembershipTier `json:"membership"`
 	MembershipExpiresAt *string               `json:"membership_expires_at"`
 	CustomAttributes    map[string]any        `json:"custom_attributes"`
@@ -66,6 +67,7 @@ func (h *Handler) GetProfile(c *gin.Context) {
 		Name:                user.Name,
 		AvatarURL:           user.AvatarURL,
 		EmailVerified:       user.EmailVerified,
+		UserType:            domain.UserTypeFromString(string(user.UserType)),
 		Membership:          membership,
 		MembershipExpiresAt: displayDTPtr(user.MembershipExpiresAt),
 		CustomAttributes:    customAttributesOrEmpty(user.CustomAttributes),
@@ -111,6 +113,7 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 		Name:                user.Name,
 		AvatarURL:           user.AvatarURL,
 		EmailVerified:       user.EmailVerified,
+		UserType:            domain.UserTypeFromString(string(user.UserType)),
 		Membership:          user.EffectiveMembership(now),
 		MembershipExpiresAt: displayDTPtr(user.MembershipExpiresAt),
 		CustomAttributes:    customAttributesOrEmpty(user.CustomAttributes),

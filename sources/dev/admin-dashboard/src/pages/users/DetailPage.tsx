@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router';
 import { ArrowLeft, Check, Copy, Crown, KeyRound, Pencil, Shield, ShieldOff, Trash2, Unlink, X } from 'lucide-react';
 import { getUser, getUserAccounts, updateUser, adminUnlinkAccount, deleteUser, resetUserPassword } from '../../api/admin';
-import type { MembershipTier, UpdateUserRequest, UserCustomAttributes } from '../../api/types';
+import type { MembershipTier, UserType, UpdateUserRequest, UserCustomAttributes } from '../../api/types';
 import StatusBadge from '../../components/shared/StatusBadge';
 import Badge from '../../components/ui/Badge';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
@@ -63,6 +63,15 @@ export default function UserDetailPage() {
 
   const activeMutation = useMutation({
     mutationFn: (is_active: boolean) => updateUser(id!, { is_active }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user', id] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success(t('detail.updateSuccess'));
+    },
+  });
+
+  const userTypeMutation = useMutation({
+    mutationFn: (user_type: UserType) => updateUser(id!, { user_type }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user', id] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -316,6 +325,14 @@ export default function UserDetailPage() {
             </dd>
           </div>
           <div>
+            <dt className="text-xs font-medium text-gray-500">{t('detail.userType')}</dt>
+            <dd className="mt-1">
+              <Badge variant={user.user_type === 'testing' ? 'blue' : 'gray'}>
+                {t(`userType.${user.user_type}`)}
+              </Badge>
+            </dd>
+          </div>
+          <div>
             <dt className="text-xs font-medium text-gray-500">{t('detail.status')}</dt>
             <dd className="mt-1">
               <StatusBadge active={user.is_active} />
@@ -340,6 +357,14 @@ export default function UserDetailPage() {
           >
             {user.role === 'admin' ? <ShieldOff size={16} /> : <Shield size={16} />}
             {t('detail.changeRole')} → {user.role === 'admin' ? t('role.user') : t('role.admin')}
+          </button>
+          <button
+            onClick={() => userTypeMutation.mutate(user.user_type === 'testing' ? 'regular' : 'testing')}
+            disabled={userTypeMutation.isPending}
+            className="flex w-full items-center justify-center gap-1 rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50 sm:w-auto"
+          >
+            <Pencil size={16} />
+            {t('detail.changeUserType')} → {user.user_type === 'testing' ? t('userType.regular') : t('userType.testing')}
           </button>
           <button
             onClick={() => activeMutation.mutate(!user.is_active)}

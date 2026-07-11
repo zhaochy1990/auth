@@ -137,6 +137,7 @@ func (h *Handler) Register(c *gin.Context) {
 		Name:                req.Name,
 		EmailVerified:       false,
 		Role:                "user",
+		UserType:            domain.UserTypeRegular,
 		IsActive:            true,
 		CustomAttributes:    map[string]any{},
 		CreatedAt:           now,
@@ -177,7 +178,7 @@ func (h *Handler) Register(c *gin.Context) {
 	_ = h.Repo.Users().RecordLogin(ctx, userID, middleware.ClientIP(c, "unknown"))
 
 	scopes := middleware.AllowedScopes(c)
-	accessToken, err := h.JWT.IssueAccessToken(userID, middleware.ClientID(c), scopes, "user", user.Membership, user.Name)
+	accessToken, err := h.JWT.IssueAccessToken(userID, middleware.ClientID(c), scopes, "user", user.Membership, user.UserType, user.Name)
 	if err != nil {
 		_ = h.Repo.Accounts().DeleteByID(ctx, accountID)
 		_ = h.Repo.Users().DeleteByID(ctx, userID)
@@ -247,7 +248,7 @@ func (h *Handler) Login(c *gin.Context) {
 
 	membership := h.resolveMembership(ctx, user)
 	scopes := middleware.AllowedScopes(c)
-	accessToken, err := h.JWT.IssueAccessToken(user.ID, middleware.ClientID(c), scopes, user.Role, membership, user.Name)
+	accessToken, err := h.JWT.IssueAccessToken(user.ID, middleware.ClientID(c), scopes, user.Role, membership, user.UserType, user.Name)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -303,6 +304,7 @@ func (h *Handler) ProviderLogin(c *gin.Context) {
 	var userID, userRole string
 	var userName *string
 	var membership domain.MembershipTier
+	userType := domain.UserTypeRegular
 
 	existingAccount, err := h.Repo.Accounts().FindByProviderAccount(ctx, providerID, info.ProviderAccountID)
 	if err != nil {
@@ -330,7 +332,7 @@ func (h *Handler) ProviderLogin(c *gin.Context) {
 			return
 		}
 		membership = h.resolveMembership(ctx, user)
-		userID, userRole, userName = user.ID, user.Role, user.Name
+		userID, userRole, userName, userType = user.ID, user.Role, user.Name, domain.UserTypeFromString(string(user.UserType))
 	} else {
 		userID = uuid.NewString()
 		user := &domain.User{
@@ -340,6 +342,7 @@ func (h *Handler) ProviderLogin(c *gin.Context) {
 			AvatarURL:        info.AvatarURL,
 			EmailVerified:    false,
 			Role:             "user",
+			UserType:         domain.UserTypeRegular,
 			IsActive:         true,
 			CustomAttributes: map[string]any{},
 			CreatedAt:        now,
@@ -369,7 +372,7 @@ func (h *Handler) ProviderLogin(c *gin.Context) {
 	_ = h.Repo.Users().RecordLogin(ctx, userID, middleware.ClientIP(c, "unknown"))
 
 	scopes := middleware.AllowedScopes(c)
-	accessToken, err := h.JWT.IssueAccessToken(userID, middleware.ClientID(c), scopes, userRole, membership, userName)
+	accessToken, err := h.JWT.IssueAccessToken(userID, middleware.ClientID(c), scopes, userRole, membership, userType, userName)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -416,7 +419,7 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 	membership := h.resolveMembership(ctx, user)
-	accessToken, err := h.JWT.IssueAccessToken(userID, middleware.ClientID(c), scopes, user.Role, membership, user.Name)
+	accessToken, err := h.JWT.IssueAccessToken(userID, middleware.ClientID(c), scopes, user.Role, membership, user.UserType, user.Name)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return

@@ -23,7 +23,7 @@ type UserRepository interface {
 	DeleteByID(ctx context.Context, id string) error
 	CountAll(ctx context.Context) (uint64, error)
 	CountSince(ctx context.Context, since time.Time) (uint64, error)
-	ListPaginated(ctx context.Context, search string, offset, limit uint64) ([]domain.User, uint64, error)
+	ListPaginated(ctx context.Context, search string, userType *domain.UserType, offset, limit uint64) ([]domain.User, uint64, error)
 	// RecordLogin appends a login record (timestamp + IP), keeping at most the
 	// 3 most recent entries, and updates LastLoginAt.
 	RecordLogin(ctx context.Context, userID, ip string) error

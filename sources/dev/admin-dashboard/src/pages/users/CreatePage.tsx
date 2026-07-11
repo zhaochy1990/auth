@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
 import { ArrowLeft } from 'lucide-react';
 import { createUser } from '../../api/admin';
+import type { UserType } from '../../api/types';
 import Spinner from '../../components/ui/Spinner';
 import toast from 'react-hot-toast';
 import { isAxiosError } from 'axios';
@@ -17,6 +18,7 @@ export default function UserCreatePage() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('user');
+  const [userType, setUserType] = useState<UserType>('regular');
   const [birthday, setBirthday] = useState('');
   const [gender, setGender] = useState('');
   const [heightCm, setHeightCm] = useState('');
@@ -53,6 +55,7 @@ export default function UserCreatePage() {
       password,
       name: name || undefined,
       role,
+      user_type: userType,
       custom_attributes: Object.keys(custom_attributes).length ? custom_attributes : undefined,
     });
   };
@@ -118,6 +121,18 @@ export default function UserCreatePage() {
           >
             <option value="user">{t('role.user')}</option>
             <option value="admin">{t('role.admin')}</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">{t('create.userType')}</label>
+          <select
+            value={userType}
+            onChange={(e) => setUserType(e.target.value as UserType)}
+            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="regular">{t('userType.regular')}</option>
+            <option value="testing">{t('userType.testing')}</option>
           </select>
         </div>
 

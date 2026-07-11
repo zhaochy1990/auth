@@ -79,7 +79,7 @@ func newTestApp(t *testing.T) *testApp {
 	if err != nil || adminUser == nil {
 		t.Fatalf("find admin: %v", err)
 	}
-	adminToken, err := jwtMgr.IssueAccessToken(adminUser.ID, res.AppClientID, []string{"admin"}, "admin", domain.MembershipRegular, nil)
+	adminToken, err := jwtMgr.IssueAccessToken(adminUser.ID, res.AppClientID, []string{"admin"}, "admin", domain.MembershipRegular, domain.UserTypeRegular, nil)
 	if err != nil {
 		t.Fatalf("issue admin token: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestAdminUsersCRUD(t *testing.T) {
 	ta := newTestApp(t)
 
 	create := ta.do(http.MethodPost, "/admin/users", map[string]any{
-		"email": "managed@example.com", "password": "Password1!", "name": "Managed", "role": "user", "membership": "vip1",
+		"email": "managed@example.com", "password": "Password1!", "name": "Managed", "role": "user", "membership": "vip1", "user_type": "testing",
 		"custom_attributes": map[string]any{
 			"birthday":  "1988-08-08",
 			"gender":    "male",
@@ -352,10 +352,11 @@ func TestAdminUsersCRUD(t *testing.T) {
 		ID               string         `json:"id"`
 		Role             string         `json:"role"`
 		Membership       string         `json:"membership"`
+		UserType         string         `json:"user_type"`
 		CustomAttributes map[string]any `json:"custom_attributes"`
 	}
 	decode(t, create, &u)
-	if u.Role != "user" || u.Membership != "vip1" {
+	if u.Role != "user" || u.Membership != "vip1" || u.UserType != "testing" {
 		t.Fatalf("unexpected created user: %+v", u)
 	}
 	if u.CustomAttributes["birthday"] != "1988-08-08" || u.CustomAttributes["height_cm"] != float64(180) {
@@ -365,8 +366,21 @@ func TestAdminUsersCRUD(t *testing.T) {
 	get := ta.do(http.MethodGet, "/admin/users/"+u.ID, nil, ta.bearer(ta.adminToken))
 	mustStatus(t, get, http.StatusOK)
 
+	filtered := ta.do(http.MethodGet, "/admin/users?user_type=testing", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, filtered, http.StatusOK)
+	var list struct {
+		Users []struct {
+			ID       string `json:"id"`
+			UserType string `json:"user_type"`
+		} `json:"users"`
+	}
+	decode(t, filtered, &list)
+	if len(list.Users) != 1 || list.Users[0].ID != u.ID || list.Users[0].UserType != "testing" {
+		t.Fatalf("testing filter did not isolate user: %+v", list.Users)
+	}
+
 	upd := ta.do(http.MethodPatch, "/admin/users/"+u.ID, map[string]any{
-		"membership": "regular", "is_active": false,
+		"membership": "regular", "is_active": false, "user_type": "regular",
 		"custom_attributes": map[string]any{
 			"weight_kg": 73.0,
 			"gender":    nil,
@@ -376,10 +390,11 @@ func TestAdminUsersCRUD(t *testing.T) {
 	var updated struct {
 		Membership       string         `json:"membership"`
 		IsActive         bool           `json:"is_active"`
+		UserType         string         `json:"user_type"`
 		CustomAttributes map[string]any `json:"custom_attributes"`
 	}
 	decode(t, upd, &updated)
-	if updated.Membership != "regular" || updated.IsActive {
+	if updated.Membership != "regular" || updated.IsActive || updated.UserType != "regular" {
 		t.Fatalf("update not applied: %+v", updated)
 	}
 	if updated.CustomAttributes["birthday"] != "1988-08-08" || updated.CustomAttributes["weight_kg"] != float64(73) {

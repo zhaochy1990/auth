@@ -6,6 +6,7 @@
     "email": "Email",
     "name": "Name",
     "role": "Role",
+    "userType": "User Type",
     "membership": "Membership",
     "status": "Status",
     "createdAt": "Created At",
@@ -33,6 +34,11 @@
       "other": "Other"
     }
   },
+  "userType": {
+    "all": "All types",
+    "regular": "Regular",
+    "testing": "Testing"
+  },
   "create": {
     "title": "Create User",
     "email": "Email",
@@ -42,6 +48,7 @@
     "name": "Name",
     "namePlaceholder": "Optional display name",
     "role": "Role",
+    "userType": "User Type",
     "submit": "Create",
     "success": "User created"
   },
@@ -53,6 +60,7 @@
     "email": "Email",
     "name": "Name",
     "role": "Role",
+    "userType": "User Type",
     "status": "Status",
     "emailVerified": "Email verified",
     "emailNotVerified": "Email not verified",
@@ -65,6 +73,7 @@
     "unlinkAccount": "Unlink",
     "unlinkConfirm": "Unlink this account?",
     "changeRole": "Change Role",
+    "changeUserType": "Change User Type",
     "toggleActive": "Toggle Active",
     "membership": {
       "title": "Membership",
