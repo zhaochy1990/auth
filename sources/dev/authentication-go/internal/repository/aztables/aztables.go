@@ -1,8 +1,7 @@
 // Package aztables implements the repository interfaces against Azure Table
-// Storage. It is a faithful port of the Rust `azure_tables.rs`: identical table
-// names, PartitionKey/RowKey schemes, secondary index rows, and ETag-based
-// atomic invite-code consumption — so it is drop-in data-compatible with the
-// existing deployment.
+// Storage. It preserves the production storage contract: table names,
+// PartitionKey/RowKey schemes, secondary index rows, and ETag-based atomic
+// invite-code consumption.
 package aztables
 
 import (
@@ -1449,7 +1448,7 @@ func (r *teamMembershipRepo) DeleteAllByUser(ctx context.Context, userID string)
 	return nil
 }
 
-// ─── Migrations (parity with the Rust `migrate` subcommand) ──────────────────
+// ─── Migrations ──────────────────────────────────────────────────────────────
 
 // MigrateInviteCodeKinds backfills the `kind` field on every invite-code row.
 func (r *Repository) MigrateInviteCodeKinds(ctx context.Context) (int, error) {

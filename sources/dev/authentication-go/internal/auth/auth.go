@@ -1,7 +1,6 @@
 // Package auth holds the security core: JWT (RS256) issuance/verification,
 // password and client-secret hashing, password policy, PKCE, and the OAuth2
-// authorization-code / refresh-token helpers. It mirrors the Rust `auth`
-// module (jwt.rs, password.rs, oauth2.rs).
+// authorization-code / refresh-token helpers.
 package auth
 
 import (
@@ -30,8 +29,8 @@ import (
 
 // ─── JWT ─────────────────────────────────────────────────────────────────────
 
-// AccessClaims is the access-token payload. Field names and shape match the
-// Rust `Claims` (aud is a single string, membership is a snake_case string).
+// AccessClaims is the access-token payload. Field names and shape preserve the
+// public JWT contract: aud is a single string and membership is snake_case.
 type AccessClaims struct {
 	Sub        string   `json:"sub"`
 	Aud        string   `json:"aud"`
@@ -145,9 +144,8 @@ func (m *JWTManager) IssueAppToken(appID string) (string, error) {
 func (m *JWTManager) AccessTokenExpirySecs() int64 { return m.accessExpirySecs }
 
 // VerifyAccessToken validates and parses a user access token. It enforces the
-// issuer and the required claims (sub, aud, exp, iat) — matching the Rust
-// verifier's set_required_spec_claims. The audience value itself is not
-// validated (no expected audience is configured).
+// issuer and the required claims (sub, aud, exp, iat). The audience value itself
+// is not validated (no expected audience is configured).
 func (m *JWTManager) VerifyAccessToken(token string) (*AccessClaims, error) {
 	claims := &AccessClaims{}
 	_, err := jwt.ParseWithClaims(token, claims, m.keyfunc,
@@ -224,7 +222,7 @@ func VerifyClientSecret(secret, hash string) (bool, error) {
 	return VerifyPassword(secret, hash)
 }
 
-// ValidatePassword enforces password complexity. Mirrors the Rust rules.
+// ValidatePassword enforces password complexity.
 func ValidatePassword(password string) error {
 	if len(password) < 8 {
 		return apperror.BadRequest("Password must be at least 8 characters")

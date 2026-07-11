@@ -1,10 +1,10 @@
 # auth-service (Go + Gin)
 
-A Go rewrite of the Rust authentication/authorization microservice, using
-[Gin](https://gin-gonic.com/) and Azure Table Storage. It is a faithful port:
+Authentication/authorization microservice implemented with [Gin](https://gin-gonic.com/)
+and Azure Table Storage. It preserves the production API and storage contracts:
 same endpoints, same JSON request/response shapes, same JWT (RS256) claims, and
-**drop-in data compatibility** with the existing deployment (identical table
-names, partition/row-key schemes, and secondary index rows).
+**drop-in data compatibility** with existing data (identical table names,
+partition/row-key schemes, and secondary index rows).
 
 Implements OAuth2 (authorization-code with PKCE, client-credentials, password,
 and refresh-token grants), JWT access/refresh tokens, pluggable auth providers,

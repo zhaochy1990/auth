@@ -1,8 +1,8 @@
-// Package middleware holds the Gin middleware that ports the Axum extractors:
-// bearer-token user auth, X-Client-Id app resolution, Basic-auth client auth,
-// and admin-role gating — plus the per-IP rate limiter, CORS, and the shared
-// error responder. Handlers read the values these middlewares stash on the
-// gin.Context via the typed getters below.
+// Package middleware holds the Gin middleware for bearer-token user auth,
+// X-Client-Id app resolution, Basic-auth client auth, and admin-role gating,
+// plus the per-IP rate limiter, CORS, and the shared error responder. Handlers
+// read the values these middlewares stash on the gin.Context via the typed
+// getters below.
 package middleware
 
 import (

@@ -1,8 +1,8 @@
 // Package handlers implements the HTTP handlers (business logic) for every
-// endpoint, ported from the Rust `handlers` module. Handlers are methods on
-// *Handler and read authenticated context (user id, app id, scopes) stashed by
-// the middleware. JSON request/response shapes match the Rust types so the
-// existing React dashboard works unchanged.
+// endpoint. Handlers are methods on *Handler and read authenticated context
+// (user id, app id, scopes) stashed by the middleware. JSON request/response
+// shapes preserve the public API contract so the React dashboard works
+// unchanged.
 package handlers
 
 import (
@@ -43,8 +43,8 @@ func (h *Handler) resolveMembership(ctx context.Context, user *domain.User) doma
 	return user.Membership
 }
 
-// requireInviteCode reports whether registration is invite-gated (env flag,
-// read per-request to match the Rust behavior).
+// requireInviteCode reports whether registration is invite-gated. The env flag
+// is read per request so runtime config changes take effect without restart.
 func requireInviteCode() bool {
 	return strings.EqualFold(os.Getenv("STRIDE_REQUIRE_INVITE_CODE"), "true")
 }
@@ -56,8 +56,8 @@ func appVersion() string {
 	return "dev"
 }
 
-// displayDT formats a time the way Rust's chrono NaiveDateTime Display does:
-// "YYYY-MM-DD HH:MM:SS" with an optional fractional part of 3, 6, or 9 digits.
+// displayDT formats a time as "YYYY-MM-DD HH:MM:SS" with an optional
+// fractional part of 3, 6, or 9 digits.
 func displayDT(t time.Time) string {
 	t = t.UTC()
 	base := t.Format("2006-01-02 15:04:05")

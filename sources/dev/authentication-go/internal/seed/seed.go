@@ -1,7 +1,6 @@
-// Package seed bootstraps the Admin Dashboard application and an admin user,
-// ported from the Rust seed.rs. It is idempotent: re-running promotes an
-// existing user or reports already_admin; the client secret is only returned on
-// first creation.
+// Package seed bootstraps the Admin Dashboard application and an admin user. It
+// is idempotent: re-running promotes an existing user or reports already_admin;
+// the client secret is only returned on first creation.
 package seed
 
 import (

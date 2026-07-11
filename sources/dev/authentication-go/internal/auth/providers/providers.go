@@ -1,6 +1,5 @@
-// Package providers implements pluggable external auth providers. The Provider
-// interface and Create factory mirror the Rust `AuthProvider` trait and
-// `create_provider`. Current providers: wechat and test (test is gated).
+// Package providers implements pluggable external auth providers. Current
+// providers: wechat and test (test is gated).
 package providers
 
 import (
@@ -30,7 +29,7 @@ type Provider interface {
 }
 
 // Create builds a provider by id. allowTest enables the "test" provider, which
-// is otherwise rejected (matching the Rust `test-providers` feature gate).
+// is otherwise rejected.
 func Create(providerID string, config json.RawMessage, allowTest bool) (Provider, error) {
 	switch providerID {
 	case "wechat":

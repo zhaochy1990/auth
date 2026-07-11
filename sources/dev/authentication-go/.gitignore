@@ -10,5 +10,8 @@
 .env
 .azurite-tmp/
 
+# Vendored dependencies are generated before Docker builds.
+vendor/
+
 # JWT keys — provide at runtime (mounted volume / Azure File Share); never commit
 keys/*.pem
