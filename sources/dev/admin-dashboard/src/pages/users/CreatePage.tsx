@@ -17,6 +17,10 @@ export default function UserCreatePage() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('user');
+  const [birthday, setBirthday] = useState('');
+  const [gender, setGender] = useState('');
+  const [heightCm, setHeightCm] = useState('');
+  const [weightKg, setWeightKg] = useState('');
   const [error, setError] = useState('');
 
   const mutation = useMutation({
@@ -38,11 +42,18 @@ export default function UserCreatePage() {
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    const custom_attributes: Record<string, string | number> = {};
+    if (birthday) custom_attributes.birthday = birthday;
+    if (gender) custom_attributes.gender = gender;
+    if (heightCm) custom_attributes.height_cm = Number(heightCm);
+    if (weightKg) custom_attributes.weight_kg = Number(weightKg);
+
     mutation.mutate({
       email,
       password,
       name: name || undefined,
       role,
+      custom_attributes: Object.keys(custom_attributes).length ? custom_attributes : undefined,
     });
   };
 
@@ -108,6 +119,55 @@ export default function UserCreatePage() {
             <option value="user">{t('role.user')}</option>
             <option value="admin">{t('role.admin')}</option>
           </select>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">{t('attributes.birthday')}</label>
+            <input
+              type="date"
+              value={birthday}
+              onChange={(e) => setBirthday(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">{t('attributes.gender')}</label>
+            <select
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">{t('attributes.unspecified')}</option>
+              <option value="female">{t('attributes.genderOptions.female')}</option>
+              <option value="male">{t('attributes.genderOptions.male')}</option>
+              <option value="other">{t('attributes.genderOptions.other')}</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">{t('attributes.heightCm')}</label>
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              value={heightCm}
+              onChange={(e) => setHeightCm(e.target.value)}
+              placeholder={t('attributes.heightPlaceholder')}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">{t('attributes.weightKg')}</label>
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              value={weightKg}
+              onChange={(e) => setWeightKg(e.target.value)}
+              placeholder={t('attributes.weightPlaceholder')}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
         </div>
 
         <div className="flex justify-end">

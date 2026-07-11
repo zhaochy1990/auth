@@ -97,15 +97,16 @@ func Bootstrap(ctx context.Context, repo repository.Repository, adminEmail strin
 		name := "Admin"
 		email := adminEmail
 		user := &domain.User{
-			ID:            userID,
-			Email:         &email,
-			Name:          &name,
-			EmailVerified: true,
-			Role:          "admin",
-			IsActive:      true,
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			Membership:    domain.MembershipRegular,
+			ID:               userID,
+			Email:            &email,
+			Name:             &name,
+			EmailVerified:    true,
+			Role:             "admin",
+			IsActive:         true,
+			CustomAttributes: map[string]any{},
+			CreatedAt:        now,
+			UpdatedAt:        now,
+			Membership:       domain.MembershipRegular,
 		}
 		if err := repo.Users().Insert(ctx, user); err != nil {
 			return nil, err

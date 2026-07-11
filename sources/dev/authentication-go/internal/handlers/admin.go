@@ -85,6 +85,7 @@ type userResponse struct {
 	MembershipExpiresAt *string               `json:"membership_expires_at"`
 	IsActive            bool                  `json:"is_active"`
 	Note                *string               `json:"note"`
+	CustomAttributes    map[string]any        `json:"custom_attributes"`
 	CreatedAt           string                `json:"created_at"`
 	UpdatedAt           string                `json:"updated_at"`
 	LastLoginAt         *string               `json:"last_login_at"`
@@ -107,6 +108,7 @@ func toUserResponse(u *domain.User) userResponse {
 		MembershipExpiresAt: displayDTPtr(u.MembershipExpiresAt),
 		IsActive:            u.IsActive,
 		Note:                u.Note,
+		CustomAttributes:    customAttributesOrEmpty(u.CustomAttributes),
 		CreatedAt:           displayDT(u.CreatedAt),
 		UpdatedAt:           displayDT(u.UpdatedAt),
 		LastLoginAt:         displayDTPtr(u.LastLoginAt),
@@ -128,14 +130,16 @@ type updateUserRequest struct {
 	MembershipExpiresAt *string                `json:"membership_expires_at"`
 	IsActive            *bool                  `json:"is_active"`
 	Note                *string                `json:"note"`
+	CustomAttributes    map[string]any         `json:"custom_attributes"`
 }
 
 type createUserRequest struct {
-	Email      string                 `json:"email"`
-	Password   string                 `json:"password"`
-	Name       *string                `json:"name"`
-	Role       *string                `json:"role"`
-	Membership *domain.MembershipTier `json:"membership"`
+	Email            string                 `json:"email"`
+	Password         string                 `json:"password"`
+	Name             *string                `json:"name"`
+	Role             *string                `json:"role"`
+	Membership       *domain.MembershipTier `json:"membership"`
+	CustomAttributes map[string]any         `json:"custom_attributes"`
 }
 
 type resetUserPasswordRequest struct {
@@ -549,7 +553,8 @@ func (h *Handler) CreateUser(c *gin.Context) {
 	userID := uuid.NewString()
 	user := &domain.User{
 		ID: userID, Email: strPtr(req.Email), Name: req.Name, EmailVerified: false,
-		Role: role, IsActive: true, CreatedAt: now, UpdatedAt: now, Membership: membership,
+		Role: role, IsActive: true, CustomAttributes: req.CustomAttributes,
+		CreatedAt: now, UpdatedAt: now, Membership: membership,
 	}
 	if err := h.Repo.Users().Insert(ctx, user); err != nil {
 		middleware.RespondError(c, err)
@@ -627,6 +632,9 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		} else {
 			user.Note = req.Note
 		}
+	}
+	if req.CustomAttributes != nil {
+		user.CustomAttributes = mergeCustomAttributes(user.CustomAttributes, req.CustomAttributes)
 	}
 	user.UpdatedAt = time.Now().UTC()
 	if err := h.Repo.Users().Update(ctx, user); err != nil {
