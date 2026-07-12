@@ -91,6 +91,7 @@ pub struct UserResponse {
     /// Reflects the stored value (not lazily downgraded), so admins can see a
     /// past expiry until the user's next login triggers the downgrade.
     pub membership_expires_at: Option<String>,
+    pub is_test_user: bool,
     pub is_active: bool,
     pub note: Option<String>,
     pub created_at: String,
@@ -137,6 +138,7 @@ fn to_user_response(u: User) -> UserResponse {
         role: u.role,
         membership: u.membership,
         membership_expires_at: u.membership_expires_at.map(|d| d.to_string()),
+        is_test_user: u.is_test_user,
         is_active: u.is_active,
         note: u.note,
         created_at: u.created_at.to_string(),
@@ -170,6 +172,7 @@ pub struct UpdateUserRequest {
     /// (permanent grant). Ignored when `membership` is set to `regular`, which
     /// always clears the expiry.
     pub membership_expires_at: Option<String>,
+    pub is_test_user: Option<bool>,
     pub is_active: Option<bool>,
     pub note: Option<String>,
 }
@@ -181,6 +184,7 @@ pub struct CreateUserRequest {
     pub name: Option<String>,
     pub role: Option<String>,
     pub membership: Option<MembershipTier>,
+    pub is_test_user: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -569,6 +573,7 @@ pub async fn create_user(
         last_login_at: None,
         recent_logins: Vec::new(),
         invite_code: None,
+        is_test_user: req.is_test_user.unwrap_or(false),
         membership,
         membership_expires_at: None,
     };
@@ -629,6 +634,9 @@ pub async fn update_user(
         } else if user.membership.is_paid() {
             user.membership_expires_at = Some(parse_membership_expiry(&expires_raw)?);
         }
+    }
+    if let Some(is_test_user) = req.is_test_user {
+        user.is_test_user = is_test_user;
     }
     if let Some(is_active) = req.is_active {
         user.is_active = is_active;
@@ -778,6 +786,7 @@ pub struct InviteCodeResponse {
     pub kind: crate::db::models::InviteCodeKind,
     pub grants_membership: Option<MembershipTier>,
     pub grants_membership_days: Option<i64>,
+    pub marks_test_user: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -794,6 +803,9 @@ pub struct CreateInviteCodeQuery {
     pub grants_membership: Option<MembershipTier>,
     /// Validity in days of the granted membership; omit for a permanent grant.
     pub grants_membership_days: Option<i64>,
+    /// When true, users created with this code are marked as test users.
+    #[serde(default)]
+    pub marks_test_user: bool,
 }
 
 pub async fn create_invite_code(
@@ -813,6 +825,7 @@ pub async fn create_invite_code(
             query.kind,
             grants_membership,
             grants_membership_days,
+            query.marks_test_user,
         )
         .await?;
     Ok(Json(InviteCodeResponse {
@@ -826,6 +839,7 @@ pub async fn create_invite_code(
         kind: code.kind,
         grants_membership: code.grants_membership,
         grants_membership_days: code.grants_membership_days,
+        marks_test_user: code.marks_test_user,
     }))
 }
 
@@ -852,6 +866,7 @@ pub async fn list_invite_codes(
             kind: c.kind,
             grants_membership: c.grants_membership,
             grants_membership_days: c.grants_membership_days,
+            marks_test_user: c.marks_test_user,
         })
         .collect();
     Ok(Json(responses))

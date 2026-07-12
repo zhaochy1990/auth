@@ -16,7 +16,13 @@ async fn create_invite_code_fields() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin-user-id", InviteCodeKind::SingleUse, None, None)
+        .create_invite_code(
+            "admin-user-id",
+            InviteCodeKind::SingleUse,
+            None,
+            None,
+            false,
+        )
         .await
         .expect("create should succeed");
 
@@ -30,6 +36,7 @@ async fn create_invite_code_fields() {
     assert!(!code.is_revoked);
     assert_eq!(code.created_by, "admin-user-id");
     assert_eq!(code.kind, InviteCodeKind::SingleUse);
+    assert!(!code.marks_test_user);
 }
 
 #[serial]
@@ -76,6 +83,7 @@ async fn long_term_code_can_be_used_by_multiple_registrations() {
             .unwrap()
             .expect("user must exist");
         assert_eq!(user.invite_code.as_deref(), Some(code.as_str()));
+        assert!(!user.is_test_user);
     })
     .await;
 }
@@ -165,14 +173,14 @@ async fn create_invite_codes_are_unique() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None)
+        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None, false)
         .await
         .unwrap();
     let c2 = app
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None)
+        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None, false)
         .await
         .unwrap();
     assert_ne!(c1.code, c2.code);
@@ -186,7 +194,7 @@ async fn mark_invite_code_used_once_then_conflicts() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None)
+        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None, false)
         .await
         .unwrap();
 
@@ -222,7 +230,7 @@ async fn revoke_unused_code_succeeds() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None)
+        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None, false)
         .await
         .unwrap();
 
@@ -252,7 +260,7 @@ async fn revoke_used_code_returns_conflict() {
         .state
         .repo
         .invite_codes()
-        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None)
+        .create_invite_code("admin", InviteCodeKind::SingleUse, None, None, false)
         .await
         .unwrap();
 
@@ -365,6 +373,50 @@ async fn register_with_valid_code_succeeds_and_marks_used() {
             .unwrap();
         assert!(fetched.used_at.is_some());
         assert!(fetched.used_by.is_some());
+    })
+    .await;
+}
+
+#[serial]
+#[tokio::test]
+async fn register_with_test_invite_marks_user_as_test_user() {
+    let app = TestApp::new().await;
+    let created = app
+        .admin_create_app("App", &["https://a.com/cb"], &["openid"])
+        .await;
+
+    with_invite_required(|| async {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/admin/invite-codes?kind=long_term&marks_test_user=true")
+            .header("Authorization", format!("Bearer {}", app.admin_token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.request(req).await;
+        resp.assert_status(StatusCode::OK);
+        let body: serde_json::Value = resp.json();
+        assert_eq!(body["marks_test_user"], true);
+        let code = body["code"].as_str().unwrap().to_string();
+
+        app.register_user_with_invite(
+            &created.client_id,
+            "test-invite@test.com",
+            "Password1!",
+            &code,
+        )
+        .await
+        .assert_status(StatusCode::CREATED);
+
+        let user = app
+            .state
+            .repo
+            .users()
+            .find_by_email("test-invite@test.com")
+            .await
+            .unwrap()
+            .expect("user must exist");
+        assert!(user.is_test_user);
+        assert_eq!(user.invite_code.as_deref(), Some(code.as_str()));
     })
     .await;
 }

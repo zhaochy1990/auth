@@ -112,6 +112,7 @@ pub async fn bootstrap(
             last_login_at: None,
             recent_logins: Vec::new(),
             invite_code: None,
+            is_test_user: false,
             membership: crate::db::models::MembershipTier::Regular,
             membership_expires_at: None,
         };

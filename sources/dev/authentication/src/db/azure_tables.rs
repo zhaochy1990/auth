@@ -213,6 +213,9 @@ struct UserEntity {
     /// Invite code used at registration, if any. Absent on rows predating this field.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     invite_code: Option<String>,
+    /// True for non-production/test accounts. Defaults to false for old rows.
+    #[serde(default)]
+    is_test_user: bool,
     /// Membership tier as a snake_case string ("regular" | "vip1"). Defaults to
     /// "regular" so rows that predate this field deserialize as free users.
     #[serde(default = "default_membership")]
@@ -283,6 +286,7 @@ impl UserEntity {
             last_login_at: u.last_login_at.as_ref().map(fmt_dt),
             recent_logins: serialize_logins(&u.recent_logins),
             invite_code: u.invite_code.clone(),
+            is_test_user: u.is_test_user,
             membership: u.membership.as_str().into(),
             membership_expires_at: u.membership_expires_at.as_ref().map(fmt_dt),
         }
@@ -302,6 +306,7 @@ impl UserEntity {
             last_login_at: self.last_login_at.as_deref().map(parse_dt),
             recent_logins: deserialize_logins(self.recent_logins.as_deref()),
             invite_code: self.invite_code.clone(),
+            is_test_user: self.is_test_user,
             membership: MembershipTier::from_str_lenient(&self.membership),
             membership_expires_at: self.membership_expires_at.as_deref().map(parse_dt),
         }
@@ -560,6 +565,9 @@ struct InviteCodeEntity {
     /// Validity in days of the granted membership; absent means a permanent grant.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     grants_membership_days: Option<i64>,
+    /// True when users registering with this code should be marked as test users.
+    #[serde(default)]
+    marks_test_user: bool,
 }
 
 fn default_kind() -> String {
@@ -594,6 +602,7 @@ impl InviteCodeEntity {
             kind: kind_to_str(c.kind),
             grants_membership: c.grants_membership.map(|t| t.as_str().to_string()),
             grants_membership_days: c.grants_membership_days,
+            marks_test_user: c.marks_test_user,
         }
     }
     fn to_model(&self) -> InviteCode {
@@ -611,6 +620,7 @@ impl InviteCodeEntity {
                 .as_deref()
                 .map(MembershipTier::from_str_lenient),
             grants_membership_days: self.grants_membership_days,
+            marks_test_user: self.marks_test_user,
         }
     }
 }
@@ -1387,6 +1397,7 @@ impl InviteCodeRepository for AzureTableRepository {
         kind: InviteCodeKind,
         grants_membership: Option<MembershipTier>,
         grants_membership_days: Option<i64>,
+        marks_test_user: bool,
     ) -> Result<InviteCode, AppError> {
         let code = InviteCode {
             id: uuid::Uuid::new_v4().to_string(),
@@ -1399,6 +1410,7 @@ impl InviteCodeRepository for AzureTableRepository {
             kind,
             grants_membership,
             grants_membership_days,
+            marks_test_user,
         };
         let entity = InviteCodeEntity::from_model(&code);
         insert_entity(&self.invite_codes, &entity)

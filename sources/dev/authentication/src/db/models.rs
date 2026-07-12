@@ -71,6 +71,10 @@ pub struct InviteCode {
     /// `None` together with a set `grants_membership` means a permanent grant.
     #[serde(default)]
     pub grants_membership_days: Option<i64>,
+    /// Whether users created with this invite code should be marked as test users.
+    /// Defaults to false for invite codes that predate this field.
+    #[serde(default)]
+    pub marks_test_user: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -126,6 +130,10 @@ pub struct User {
     /// Backend-only (not surfaced via user-facing APIs). Absent on users predating this field.
     #[serde(default)]
     pub invite_code: Option<String>,
+    /// Admin-visible marker for non-production/test accounts. Defaults to false
+    /// for users that predate this field.
+    #[serde(default)]
+    pub is_test_user: bool,
     /// Membership tier (entitlement level), independent of `role`. Defaults to
     /// `Regular` for rows that predate this field.
     #[serde(default)]

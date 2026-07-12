@@ -83,6 +83,7 @@ type userResponse struct {
 	Role                string                `json:"role"`
 	Membership          domain.MembershipTier `json:"membership"`
 	MembershipExpiresAt *string               `json:"membership_expires_at"`
+	IsTestUser          bool                  `json:"is_test_user"`
 	IsActive            bool                  `json:"is_active"`
 	Note                *string               `json:"note"`
 	CreatedAt           string                `json:"created_at"`
@@ -105,6 +106,7 @@ func toUserResponse(u *domain.User) userResponse {
 		Role:                u.Role,
 		Membership:          u.Membership,
 		MembershipExpiresAt: displayDTPtr(u.MembershipExpiresAt),
+		IsTestUser:          u.IsTestUser,
 		IsActive:            u.IsActive,
 		Note:                u.Note,
 		CreatedAt:           displayDT(u.CreatedAt),
@@ -126,6 +128,7 @@ type updateUserRequest struct {
 	Role                *string                `json:"role"`
 	Membership          *domain.MembershipTier `json:"membership"`
 	MembershipExpiresAt *string                `json:"membership_expires_at"`
+	IsTestUser          *bool                  `json:"is_test_user"`
 	IsActive            *bool                  `json:"is_active"`
 	Note                *string                `json:"note"`
 }
@@ -136,6 +139,7 @@ type createUserRequest struct {
 	Name       *string                `json:"name"`
 	Role       *string                `json:"role"`
 	Membership *domain.MembershipTier `json:"membership"`
+	IsTestUser *bool                  `json:"is_test_user"`
 }
 
 type resetUserPasswordRequest struct {
@@ -182,6 +186,7 @@ type inviteCodeResponse struct {
 	Kind                 domain.InviteCodeKind `json:"kind"`
 	GrantsMembership     *string               `json:"grants_membership"`
 	GrantsMembershipDays *int64                `json:"grants_membership_days"`
+	MarksTestUser        bool                  `json:"marks_test_user"`
 }
 
 func toInviteCodeResponse(ic *domain.InviteCode) inviteCodeResponse {
@@ -201,6 +206,7 @@ func toInviteCodeResponse(ic *domain.InviteCode) inviteCodeResponse {
 		Kind:                 ic.Kind,
 		GrantsMembership:     grants,
 		GrantsMembershipDays: ic.GrantsMembershipDays,
+		MarksTestUser:        ic.MarksTestUser,
 	}
 }
 
@@ -550,6 +556,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 	user := &domain.User{
 		ID: userID, Email: strPtr(req.Email), Name: req.Name, EmailVerified: false,
 		Role: role, IsActive: true, CreatedAt: now, UpdatedAt: now, Membership: membership,
+		IsTestUser: req.IsTestUser != nil && *req.IsTestUser,
 	}
 	if err := h.Repo.Users().Insert(ctx, user); err != nil {
 		middleware.RespondError(c, err)
@@ -617,6 +624,9 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 			}
 			user.MembershipExpiresAt = &t
 		}
+	}
+	if req.IsTestUser != nil {
+		user.IsTestUser = *req.IsTestUser
 	}
 	if req.IsActive != nil {
 		user.IsActive = *req.IsActive
@@ -788,7 +798,8 @@ func (h *Handler) CreateInviteCode(c *gin.Context) {
 			}
 		}
 	}
-	code, err := h.Repo.InviteCodes().Create(c.Request.Context(), middleware.UserID(c), kind, grants, days)
+	marksTestUser := strings.EqualFold(c.Query("marks_test_user"), "true")
+	code, err := h.Repo.InviteCodes().Create(c.Request.Context(), middleware.UserID(c), kind, grants, days, marksTestUser)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return

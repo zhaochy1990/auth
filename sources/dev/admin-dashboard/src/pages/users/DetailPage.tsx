@@ -65,6 +65,15 @@ export default function UserDetailPage() {
     },
   });
 
+  const testUserMutation = useMutation({
+    mutationFn: (is_test_user: boolean) => updateUser(id!, { is_test_user }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user', id] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success(t('detail.updateSuccess'));
+    },
+  });
+
   const nameMutation = useMutation({
     mutationFn: (name: string) => updateUser(id!, { name }),
     onSuccess: () => {
@@ -273,6 +282,12 @@ export default function UserDetailPage() {
             </dd>
           </div>
           <div>
+            <dt className="text-xs font-medium text-gray-500">{t('detail.testUser')}</dt>
+            <dd className="mt-1">
+              {user.is_test_user ? <Badge variant="yellow">{t('testUser.yes')}</Badge> : <Badge variant="gray">{t('testUser.no')}</Badge>}
+            </dd>
+          </div>
+          <div>
             <dt className="text-xs font-medium text-gray-500">
               {user.email_verified ? t('detail.emailVerified') : t('detail.emailNotVerified')}
             </dt>
@@ -298,6 +313,13 @@ export default function UserDetailPage() {
             className="w-full rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50 sm:w-auto"
           >
             {t('detail.toggleActive')} → {user.is_active ? t('common:actions.disable') : t('common:actions.enable')}
+          </button>
+          <button
+            onClick={() => testUserMutation.mutate(!user.is_test_user)}
+            disabled={testUserMutation.isPending}
+            className="w-full rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50 sm:w-auto"
+          >
+            {t('detail.toggleTestUser')} → {user.is_test_user ? t('testUser.no') : t('testUser.yes')}
           </button>
         </div>
       </div>

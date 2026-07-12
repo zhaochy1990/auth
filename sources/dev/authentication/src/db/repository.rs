@@ -95,6 +95,7 @@ pub trait InviteCodeRepository: Send + Sync {
         kind: InviteCodeKind,
         grants_membership: Option<MembershipTier>,
         grants_membership_days: Option<i64>,
+        marks_test_user: bool,
     ) -> Result<InviteCode, AppError>;
     async fn get_invite_code_by_code(&self, code: &str) -> Result<Option<InviteCode>, AppError>;
     /// Atomically marks the code used via ETag. Returns Err on race (code already used).

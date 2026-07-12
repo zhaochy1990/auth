@@ -7,6 +7,7 @@
     "name": "Name",
     "role": "Role",
     "membership": "Membership",
+    "testUser": "Test User",
     "status": "Status",
     "createdAt": "Created At",
     "lastLoginAt": "Last Login"
@@ -19,6 +20,10 @@
     "regular": "Regular",
     "vip1": "VIP 1"
   },
+  "testUser": {
+    "yes": "Test user",
+    "no": "Not test"
+  },
   "create": {
     "title": "Create User",
     "email": "Email",
@@ -28,6 +33,7 @@
     "name": "Name",
     "namePlaceholder": "Optional display name",
     "role": "Role",
+    "testUser": "Mark as test user",
     "submit": "Create",
     "success": "User created"
   },
@@ -40,6 +46,7 @@
     "name": "Name",
     "role": "Role",
     "status": "Status",
+    "testUser": "Test User",
     "emailVerified": "Email verified",
     "emailNotVerified": "Email not verified",
     "createdAt": "Created At",
@@ -52,6 +59,7 @@
     "unlinkConfirm": "Unlink this account?",
     "changeRole": "Change Role",
     "toggleActive": "Toggle Active",
+    "toggleTestUser": "Toggle Test User",
     "membership": {
       "title": "Membership",
       "edit": "Edit",

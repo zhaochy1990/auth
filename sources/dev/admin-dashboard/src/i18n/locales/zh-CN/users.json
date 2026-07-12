@@ -7,6 +7,7 @@
     "name": "姓名",
     "role": "角色",
     "membership": "会员等级",
+    "testUser": "测试用户",
     "status": "状态",
     "createdAt": "注册时间",
     "lastLoginAt": "上次登录时间"
@@ -19,6 +20,10 @@
     "regular": "普通用户",
     "vip1": "VIP1 会员"
   },
+  "testUser": {
+    "yes": "测试用户",
+    "no": "非测试用户"
+  },
   "create": {
     "title": "创建用户",
     "email": "邮箱",
@@ -28,6 +33,7 @@
     "name": "姓名",
     "namePlaceholder": "可选的显示名称",
     "role": "角色",
+    "testUser": "标记为测试用户",
     "submit": "创建",
     "success": "用户创建成功"
   },
@@ -40,6 +46,7 @@
     "name": "姓名",
     "role": "角色",
     "status": "状态",
+    "testUser": "测试用户",
     "emailVerified": "邮箱已验证",
     "emailNotVerified": "邮箱未验证",
     "createdAt": "注册时间",
@@ -52,6 +59,7 @@
     "unlinkConfirm": "确定要解除此账号绑定吗？",
     "changeRole": "修改角色",
     "toggleActive": "切换状态",
+    "toggleTestUser": "切换测试用户",
     "membership": {
       "title": "会员等级",
       "edit": "编辑",

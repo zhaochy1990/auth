@@ -17,6 +17,7 @@ export default function InviteCodeListPage() {
   const [createKind, setCreateKind] = useState<InviteCodeKind>('single_use');
   const [grantTier, setGrantTier] = useState<'none' | MembershipTier>('none');
   const [grantDays, setGrantDays] = useState('');
+  const [marksTestUser, setMarksTestUser] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['invite-codes'],
@@ -38,6 +39,7 @@ export default function InviteCodeListPage() {
       kind: createKind,
       grants_membership: isGrant ? grantTier : undefined,
       grants_membership_days: isGrant && days && days > 0 ? days : undefined,
+      marks_test_user: marksTestUser,
     });
   };
 
@@ -76,6 +78,12 @@ export default function InviteCodeListPage() {
           ? ` · ${t('table.grantDays', { days: item.grants_membership_days })}`
           : ''}
       </Badge>
+    ) : (
+      <span className="text-gray-400">-</span>
+    );
+  const renderTestUserMark = (item: InviteCode) =>
+    item.marks_test_user ? (
+      <Badge variant="yellow">{t('testUser.yes')}</Badge>
     ) : (
       <span className="text-gray-400">-</span>
     );
@@ -132,6 +140,15 @@ export default function InviteCodeListPage() {
               className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none sm:w-32"
             />
           )}
+          <label className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={marksTestUser}
+              onChange={(e) => setMarksTestUser(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>{t('create.testUserLabel')}</span>
+          </label>
           <button
             onClick={handleCreate}
             disabled={createMutation.isPending}
@@ -167,6 +184,10 @@ export default function InviteCodeListPage() {
                   <dd className="mt-1">{renderGrant(item)}</dd>
                 </div>
                 <div>
+                  <dt className="text-xs font-medium text-gray-500">{t('table.testUser')}</dt>
+                  <dd className="mt-1">{renderTestUserMark(item)}</dd>
+                </div>
+                <div>
                   <dt className="text-xs font-medium text-gray-500">{t('table.createdAt')}</dt>
                   <dd className="mt-1 text-gray-500">{new Date(item.created_at).toLocaleDateString()}</dd>
                 </div>
@@ -197,6 +218,7 @@ export default function InviteCodeListPage() {
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.code')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.type')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.grants')}</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.testUser')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.createdAt')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.used')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.usedBy')}</th>
@@ -206,7 +228,7 @@ export default function InviteCodeListPage() {
           <tbody className="divide-y divide-gray-200">
             {(data || []).length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-500">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
                   {tc('status.empty')}
                 </td>
               </tr>
@@ -220,6 +242,7 @@ export default function InviteCodeListPage() {
                   </td>
                   <td className="px-4 py-3">{renderType(item)}</td>
                   <td className="px-4 py-3">{renderGrant(item)}</td>
+                  <td className="px-4 py-3">{renderTestUserMark(item)}</td>
                   <td className="px-4 py-3 text-sm text-gray-500">
                     {new Date(item.created_at).toLocaleDateString()}
                   </td>

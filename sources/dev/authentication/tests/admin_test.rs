@@ -621,6 +621,7 @@ async fn reset_password_user_without_password_account() {
         last_login_at: None,
         recent_logins: Vec::new(),
         invite_code: None,
+        is_test_user: false,
         membership: auth_service::db::models::MembershipTier::Regular,
         membership_expires_at: None,
     };

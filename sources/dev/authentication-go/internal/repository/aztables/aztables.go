@@ -360,6 +360,7 @@ type userEntity struct {
 	LastLoginAt         *string `json:"last_login_at,omitempty"`
 	RecentLogins        *string `json:"recent_logins,omitempty"`
 	InviteCode          *string `json:"invite_code,omitempty"`
+	IsTestUser          bool    `json:"is_test_user"`
 	Membership          string  `json:"membership"`
 	MembershipExpiresAt *string `json:"membership_expires_at,omitempty"`
 }
@@ -419,6 +420,7 @@ func userToEntity(u *domain.User) userEntity {
 		LastLoginAt:         fmtDTPtr(u.LastLoginAt),
 		RecentLogins:        serializeLogins(u.RecentLogins),
 		InviteCode:          u.InviteCode,
+		IsTestUser:          u.IsTestUser,
 		Membership:          membership,
 		MembershipExpiresAt: fmtDTPtr(u.MembershipExpiresAt),
 	}
@@ -447,6 +449,7 @@ func (e *userEntity) toModel() *domain.User {
 		LastLoginAt:         parseDTPtr(e.LastLoginAt),
 		RecentLogins:        deserializeLogins(e.RecentLogins),
 		InviteCode:          e.InviteCode,
+		IsTestUser:          e.IsTestUser,
 		Membership:          domain.MembershipFromString(membership),
 		MembershipExpiresAt: parseDTPtr(e.MembershipExpiresAt),
 	}
@@ -1145,6 +1148,7 @@ type inviteCodeEntity struct {
 	Kind                 string  `json:"kind"`
 	GrantsMembership     *string `json:"grants_membership,omitempty"`
 	GrantsMembershipDays *int64  `json:"grants_membership_days,omitempty"`
+	MarksTestUser        bool    `json:"marks_test_user"`
 }
 
 func inviteCodeToEntity(c *domain.InviteCode) inviteCodeEntity {
@@ -1161,7 +1165,7 @@ func inviteCodeToEntity(c *domain.InviteCode) inviteCodeEntity {
 		PartitionKey: "invite_code", RowKey: c.Code, ID: c.ID, CreatedBy: c.CreatedBy,
 		CreatedAt: fmtDT(c.CreatedAt), UsedAt: fmtDTPtr(c.UsedAt), UsedBy: c.UsedBy,
 		IsRevoked: c.IsRevoked, Kind: kind, GrantsMembership: grants,
-		GrantsMembershipDays: c.GrantsMembershipDays,
+		GrantsMembershipDays: c.GrantsMembershipDays, MarksTestUser: c.MarksTestUser,
 	}
 }
 
@@ -1175,17 +1179,17 @@ func (e *inviteCodeEntity) toModel() *domain.InviteCode {
 		ID: e.ID, Code: e.RowKey, CreatedBy: e.CreatedBy, CreatedAt: parseDT(e.CreatedAt),
 		UsedAt: parseDTPtr(e.UsedAt), UsedBy: e.UsedBy, IsRevoked: e.IsRevoked,
 		Kind: domain.InviteKindFromString(e.Kind), GrantsMembership: grants,
-		GrantsMembershipDays: e.GrantsMembershipDays,
+		GrantsMembershipDays: e.GrantsMembershipDays, MarksTestUser: e.MarksTestUser,
 	}
 }
 
 type inviteCodeRepo struct{ c *aztables.Client }
 
-func (r *inviteCodeRepo) Create(ctx context.Context, createdBy string, kind domain.InviteCodeKind, grants *domain.MembershipTier, grantDays *int64) (*domain.InviteCode, error) {
+func (r *inviteCodeRepo) Create(ctx context.Context, createdBy string, kind domain.InviteCodeKind, grants *domain.MembershipTier, grantDays *int64, marksTestUser bool) (*domain.InviteCode, error) {
 	code := &domain.InviteCode{
 		ID: newUUID(), Code: generateInviteCode(), CreatedBy: createdBy,
 		CreatedAt: time.Now().UTC(), IsRevoked: false, Kind: kind,
-		GrantsMembership: grants, GrantsMembershipDays: grantDays,
+		GrantsMembership: grants, GrantsMembershipDays: grantDays, MarksTestUser: marksTestUser,
 	}
 	e := inviteCodeToEntity(code)
 	if err := addEntity(ctx, r.c, &e); err != nil {

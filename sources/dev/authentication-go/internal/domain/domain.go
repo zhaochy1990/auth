@@ -81,6 +81,8 @@ type User struct {
 	// InviteCode is the code this user registered with, if invite-gated.
 	// Backend-only (not surfaced via user-facing APIs).
 	InviteCode *string
+	// IsTestUser marks non-production/test accounts for admin and downstream use.
+	IsTestUser bool
 	// Membership is the stored entitlement tier, independent of Role.
 	Membership MembershipTier
 	// MembershipExpiresAt is when a paid membership lapses. Nil means no expiry
@@ -182,6 +184,8 @@ type InviteCode struct {
 	// GrantsMembershipDays bounds the granted membership's validity (in days),
 	// counted from registration. Nil with a set GrantsMembership = permanent.
 	GrantsMembershipDays *int64
+	// MarksTestUser marks users created with this invite code as test users.
+	MarksTestUser bool
 }
 
 // Team is a user-owned group.

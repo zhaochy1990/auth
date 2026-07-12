@@ -5,6 +5,7 @@
     "code": "邀请码",
     "type": "类型",
     "grants": "授予会员",
+    "testUser": "测试用户",
     "grantDays": "{{days}}天",
     "createdAt": "创建时间",
     "used": "使用状态",
@@ -19,6 +20,9 @@
     "regular": "普通用户",
     "vip1": "VIP1 会员"
   },
+  "testUser": {
+    "yes": "测试用户"
+  },
   "status": {
     "used": "已使用",
     "unused": "未使用",
@@ -29,6 +33,7 @@
     "typeLabel": "邀请码类型",
     "grantLabel": "授予会员",
     "grantNone": "不授予会员",
+    "testUserLabel": "标记注册用户为测试用户",
     "grantDaysLabel": "有效天数",
     "grantDaysPlaceholder": "天数"
   },

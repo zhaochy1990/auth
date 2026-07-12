@@ -17,6 +17,7 @@ export default function UserCreatePage() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('user');
+  const [isTestUser, setIsTestUser] = useState(false);
   const [error, setError] = useState('');
 
   const mutation = useMutation({
@@ -43,6 +44,7 @@ export default function UserCreatePage() {
       password,
       name: name || undefined,
       role,
+      is_test_user: isTestUser,
     });
   };
 
@@ -109,6 +111,16 @@ export default function UserCreatePage() {
             <option value="admin">{t('role.admin')}</option>
           </select>
         </div>
+
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={isTestUser}
+            onChange={(e) => setIsTestUser(e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <span>{t('create.testUser')}</span>
+        </label>
 
         <div className="flex justify-end">
           <button

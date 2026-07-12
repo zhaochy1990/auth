@@ -83,6 +83,7 @@ export interface User {
   role: string;
   membership: MembershipTier;
   membership_expires_at: string | null;
+  is_test_user: boolean;
   is_active: boolean;
   note: string | null;
   created_at: string;
@@ -104,6 +105,7 @@ export interface UpdateUserRequest {
   membership?: MembershipTier;
   // ISO date/datetime to set the paid-tier expiry; empty string clears it.
   membership_expires_at?: string;
+  is_test_user?: boolean;
   is_active?: boolean;
   note?: string;
 }
@@ -114,6 +116,7 @@ export interface CreateUserRequest {
   name?: string;
   role?: string;
   membership?: MembershipTier;
+  is_test_user?: boolean;
 }
 
 export interface ResetUserPasswordRequest {
@@ -149,6 +152,8 @@ export interface InviteCode {
   grants_membership: MembershipTier | null;
   // Validity in days of the granted membership; null means permanent.
   grants_membership_days: number | null;
+  // Whether users created with this code are marked as test users.
+  marks_test_user: boolean;
 }
 
 // Teams

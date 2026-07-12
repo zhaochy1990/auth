@@ -175,6 +175,9 @@ pub async fn register(
         last_login_at: None,
         recent_logins: Vec::new(),
         invite_code: invite_code_record.as_ref().map(|c| c.code.clone()),
+        is_test_user: invite_code_record
+            .as_ref()
+            .is_some_and(|c| c.marks_test_user),
         membership,
         membership_expires_at,
     };
@@ -398,6 +401,7 @@ pub async fn provider_login(
             last_login_at: None,
             recent_logins: Vec::new(),
             invite_code: None,
+            is_test_user: false,
             membership: MembershipTier::Regular,
             membership_expires_at: None,
         };

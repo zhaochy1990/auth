@@ -120,6 +120,12 @@ export default function UserListPage() {
                   </dd>
                 </div>
                 <div>
+                  <dt className="text-xs font-medium text-gray-500">{t('table.testUser')}</dt>
+                  <dd className="mt-1">
+                    {user.is_test_user ? <Badge variant="yellow">{t('testUser.yes')}</Badge> : '-'}
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-xs font-medium text-gray-500">{t('table.createdAt')}</dt>
                   <dd className="mt-1 text-gray-500">{new Date(user.created_at).toLocaleDateString()}</dd>
                 </div>
@@ -145,6 +151,7 @@ export default function UserListPage() {
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.name')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.role')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.membership')}</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.testUser')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.status')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.createdAt')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.lastLoginAt')}</th>
@@ -153,7 +160,7 @@ export default function UserListPage() {
           <tbody className="divide-y divide-gray-200">
             {users.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-500">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
                   {tc('status.empty')}
                 </td>
               </tr>
@@ -175,6 +182,9 @@ export default function UserListPage() {
                     <Badge variant={user.membership === 'regular' ? 'gray' : 'purple'}>
                       {t(`membership.${user.membership}`)}
                     </Badge>
+                  </td>
+                  <td className="px-4 py-3">
+                    {user.is_test_user ? <Badge variant="yellow">{t('testUser.yes')}</Badge> : <span className="text-gray-400">-</span>}
                   </td>
                   <td className="px-4 py-3">
                     <button

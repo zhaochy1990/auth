@@ -388,6 +388,42 @@ func TestInviteCodeGatingAndMembershipGrant(t *testing.T) {
 	mustStatus(t, reuse, http.StatusConflict)
 }
 
+func TestInviteCodeMarksRegisteredUserAsTestUser(t *testing.T) {
+	ta := newTestApp(t)
+
+	mk := ta.do(http.MethodPost, "/admin/invite-codes?kind=long_term&marks_test_user=true", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, mk, http.StatusOK)
+	var code struct {
+		Code          string `json:"code"`
+		MarksTestUser bool   `json:"marks_test_user"`
+	}
+	decode(t, mk, &code)
+	if code.Code == "" || !code.MarksTestUser {
+		t.Fatalf("unexpected invite code: %+v", code)
+	}
+
+	t.Setenv("STRIDE_REQUIRE_INVITE_CODE", "true")
+
+	ok := ta.do(http.MethodPost, "/api/auth/register", map[string]any{
+		"email": "test-invite@example.com", "password": "Password1!", "invite_code": code.Code,
+	}, ta.clientHeaders())
+	mustStatus(t, ok, http.StatusCreated)
+	var reg struct {
+		UserID string `json:"user_id"`
+	}
+	decode(t, ok, &reg)
+
+	get := ta.do(http.MethodGet, "/admin/users/"+reg.UserID, nil, ta.bearer(ta.adminToken))
+	mustStatus(t, get, http.StatusOK)
+	var user struct {
+		IsTestUser bool `json:"is_test_user"`
+	}
+	decode(t, get, &user)
+	if !user.IsTestUser {
+		t.Fatalf("registered user was not marked as test user: %+v", user)
+	}
+}
+
 func TestTeamsFlow(t *testing.T) {
 	ta := newTestApp(t)
 

@@ -141,6 +141,7 @@ func (h *Handler) Register(c *gin.Context) {
 		CreatedAt:           now,
 		UpdatedAt:           now,
 		InviteCode:          invitedWith,
+		IsTestUser:          inviteRecord != nil && inviteRecord.MarksTestUser,
 		Membership:          membership,
 		MembershipExpiresAt: membershipExpires,
 	}
