@@ -148,6 +148,9 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 	if _, err := r.db.ExecContext(ctx, "UPDATE auth_users SET custom_attributes = '{}' WHERE custom_attributes IS NULL OR custom_attributes = ''"); err != nil {
 		return err
 	}
+	if _, err := r.db.ExecContext(ctx, "ALTER TABLE auth_users MODIFY COLUMN custom_attributes TEXT NOT NULL"); err != nil {
+		return err
+	}
 	if err := r.ensureColumn(ctx, "auth_invite_codes", "grants_user_type", "VARCHAR(32) NULL AFTER grants_membership_days"); err != nil {
 		return err
 	}

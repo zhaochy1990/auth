@@ -16,14 +16,14 @@ Monorepo with two applications:
 
 ```bash
 go build ./...              # Build everything
-go test ./... -count=1      # All tests; server suite needs Azurite
-go test ./internal/auth/    # Pure unit tests, no Azurite
+go test ./... -count=1      # All tests; server suite needs MySQL
+go test ./internal/auth/    # Pure unit tests, no MySQL
 go vet ./...                # Static checks
 gofmt -l .                  # Check formatting; empty output means clean
 go run ./cmd/auth-service seed admin@example.com MyPassword1!  # Bootstrap admin user
 ```
 
-Integration tests require Azurite (Azure Storage emulator) running on port 10002. Start with `docker compose up azurite` from the backend directory. The tests generate and read JWT keys from `keys/private.pem` and `keys/public.pem`; CI creates ephemeral keys before running tests.
+Integration tests require MySQL running on `127.0.0.1:3306` by default. Start with `docker compose up -d mysql` from the backend directory. Override the endpoint with `TEST_MYSQL_DSN`.
 
 The backend module uses a local `replace` for `github.com/zhaochy1990/x`. Docker builds use vendored dependencies:
 
@@ -57,13 +57,13 @@ Release is automated: CI pass on `main` -> Release workflow calculates next vers
 
 ## CI/CD Architecture
 
-- **CI** (`ci.yml`): Uses path filtering - backend jobs run when `sources/dev/authentication-go/**` changes, frontend jobs run when `sources/dev/admin-dashboard/**` changes. Backend CI runs `gofmt`, `go vet`, Azurite-backed tests, and Docker dry-run builds.
+- **CI** (`ci.yml`): Uses path filtering - backend jobs run when `sources/dev/authentication-go/**` changes, frontend jobs run when `sources/dev/admin-dashboard/**` changes. Backend CI runs `gofmt`, `go vet`, MySQL-backed tests, and Docker dry-run builds.
 - **Release** (`release.yml`): Triggers after CI succeeds on `main`. Auto-bumps version and creates annotated tag.
 - **Deploy** (`deploy.yml`): Triggers on `v*` tags. Backend -> Go Docker build -> GHCR -> Azure Container Apps. Frontend -> Vite build -> Azure Static Web Apps.
 
 ## Deployment Topology
 
-- **Backend**: Docker container on Azure Container Apps, pulling from GHCR (`ghcr.io/<owner>/auth-backend`). Uses Azure Table Storage for data persistence. JWT keys stored in Azure File Share mounted into the container.
+- **Backend**: Docker container on Azure Container Apps, pulling from GHCR (`ghcr.io/<owner>/auth-backend`). Uses MySQL for data persistence; the Azure Table adapter is retained only as a legacy migration/rollback source. JWT keys are mounted into the container.
 - **Frontend**: Azure Static Web Apps (SPA with `navigationFallback` rewrite to `index.html`).
 - **Auth**: GitHub OIDC federated credentials for Azure (no stored Azure secrets in GitHub).
 
