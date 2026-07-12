@@ -4,11 +4,14 @@ package mysql
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +28,14 @@ import (
 )
 
 const inviteAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+const tencentTLSConfigName = "auth-service-tencent-ca"
+
+// Options controls MySQL connection setup.
+type Options struct {
+	TLSCAPEM  string
+	TLSCAPath string
+}
 
 // Repository is the MySQL implementation of repository.Repository.
 type Repository struct {
@@ -54,7 +65,12 @@ var dataTables = []string{
 
 // New opens a MySQL repository, verifies connectivity, and ensures the schema.
 func New(ctx context.Context, dsn string) (*Repository, error) {
-	normalized, err := normalizeDSN(dsn)
+	return NewWithOptions(ctx, dsn, Options{})
+}
+
+// NewWithOptions opens a MySQL repository with optional connection settings.
+func NewWithOptions(ctx context.Context, dsn string, opts Options) (*Repository, error) {
+	normalized, err := normalizeDSN(dsn, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +102,7 @@ func New(ctx context.Context, dsn string) (*Repository, error) {
 	return r, nil
 }
 
-func normalizeDSN(raw string) (string, error) {
+func normalizeDSN(raw string, opts Options) (string, error) {
 	if strings.Contains(raw, "://") {
 		u, err := url.Parse(raw)
 		if err != nil {
@@ -109,12 +125,15 @@ func normalizeDSN(raw string) (string, error) {
 				cfg.Params[k] = values[len(values)-1]
 			}
 		}
+		if err := applyTLSConfig(cfg, opts); err != nil {
+			return "", err
+		}
 		return cfg.FormatDSN(), nil
 	}
-	return ensureDriverDSN(raw)
+	return ensureDriverDSN(raw, opts)
 }
 
-func ensureDriverDSN(raw string) (string, error) {
+func ensureDriverDSN(raw string, opts Options) (string, error) {
 	cfg, err := mysqldriver.ParseDSN(raw)
 	if err != nil {
 		return "", err
@@ -127,7 +146,46 @@ func ensureDriverDSN(raw string) (string, error) {
 	if _, ok := cfg.Params["charset"]; !ok {
 		cfg.Params["charset"] = "utf8mb4"
 	}
+	if err := applyTLSConfig(cfg, opts); err != nil {
+		return "", err
+	}
 	return cfg.FormatDSN(), nil
+}
+
+func applyTLSConfig(cfg *mysqldriver.Config, opts Options) error {
+	pem, err := tlsCAPEM(opts)
+	if err != nil {
+		return err
+	}
+	if len(pem) == 0 {
+		return nil
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return fmt.Errorf("read MySQL TLS CA: no PEM certificates found")
+	}
+	if err := mysqldriver.RegisterTLSConfig(tencentTLSConfigName, &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}); err != nil {
+		return fmt.Errorf("register MySQL TLS config: %w", err)
+	}
+	cfg.TLSConfig = tencentTLSConfigName
+	return nil
+}
+
+func tlsCAPEM(opts Options) ([]byte, error) {
+	if strings.TrimSpace(opts.TLSCAPEM) != "" {
+		return []byte(opts.TLSCAPEM), nil
+	}
+	if strings.TrimSpace(opts.TLSCAPath) == "" {
+		return nil, nil
+	}
+	pem, err := os.ReadFile(opts.TLSCAPath)
+	if err != nil {
+		return nil, fmt.Errorf("read MySQL TLS CA: %w", err)
+	}
+	return pem, nil
 }
 
 // Close closes the underlying database pool.

@@ -81,6 +81,7 @@ jobs:
       - name: Configure backend storage secrets
         env:
           MYSQL_DSN: ${{ secrets.MYSQL_DSN }}
+          MYSQL_TLS_CA_PEM: ${{ secrets.MYSQL_TLS_CA_PEM }}
         run: |
           if [ -z "$MYSQL_DSN" ]; then
             echo "::error::production secret MYSQL_DSN is required for the MySQL backend"
@@ -90,14 +91,27 @@ jobs:
             --name ${{ env.BACKEND_APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --secrets mysql-dsn="$MYSQL_DSN"
+          if [ -n "$MYSQL_TLS_CA_PEM" ]; then
+            az containerapp secret set \
+              --name ${{ env.BACKEND_APP_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --secrets mysql-tls-ca-pem="$MYSQL_TLS_CA_PEM"
+          fi
 
       - name: Deploy to Container Apps
         run: |
+          env_vars=(STORAGE_BACKEND=mysql MYSQL_DSN=secretref:mysql-dsn)
+          if az containerapp secret show \
+            --name ${{ env.BACKEND_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --secret-name mysql-tls-ca-pem >/dev/null 2>&1; then
+            env_vars+=(MYSQL_TLS_CA_PEM=secretref:mysql-tls-ca-pem)
+          fi
           az containerapp update \
             --name ${{ env.BACKEND_APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --image ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }} \
-            --set-env-vars STORAGE_BACKEND=mysql MYSQL_DSN=secretref:mysql-dsn
+            --set-env-vars "${env_vars[@]}"
 
       - name: Health check
         run: |

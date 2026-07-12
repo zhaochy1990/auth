@@ -12,6 +12,8 @@ type Config struct {
 	StorageBackend               string
 	AzureStorageConnectionString string
 	MySQLDSN                     string
+	MySQLTLSCAPEM                string
+	MySQLTLSCAPath               string
 	JWTPrivateKeyPath            string
 	JWTPublicKeyPath             string
 	JWTIssuer                    string
@@ -43,6 +45,8 @@ func FromEnv() (*Config, error) {
 	}
 	conn := os.Getenv("AZURE_STORAGE_CONNECTION_STRING")
 	mysqlDSN := os.Getenv("MYSQL_DSN")
+	mysqlTLSCAPEM := os.Getenv("MYSQL_TLS_CA_PEM")
+	mysqlTLSCAPath := os.Getenv("MYSQL_TLS_CA_PATH")
 	switch backend {
 	case StorageBackendAzureTable:
 		if conn == "" {
@@ -59,6 +63,8 @@ func FromEnv() (*Config, error) {
 		StorageBackend:               backend,
 		AzureStorageConnectionString: conn,
 		MySQLDSN:                     mysqlDSN,
+		MySQLTLSCAPEM:                mysqlTLSCAPEM,
+		MySQLTLSCAPath:               mysqlTLSCAPath,
 		JWTPrivateKeyPath:            EnvOr("JWT_PRIVATE_KEY_PATH", "keys/private.pem"),
 		JWTPublicKeyPath:             EnvOr("JWT_PUBLIC_KEY_PATH", "keys/public.pem"),
 		JWTIssuer:                    EnvOr("JWT_ISSUER", "auth-service"),

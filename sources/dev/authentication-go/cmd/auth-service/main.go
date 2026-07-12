@@ -151,6 +151,8 @@ func runMigrateStorage(ctx context.Context, args []string) {
 	clearTarget := hasArg(args[3:], "--clear-target")
 	azureConn := os.Getenv("AZURE_STORAGE_CONNECTION_STRING")
 	mysqlDSN := os.Getenv("MYSQL_DSN")
+	mysqlTLSCAPEM := os.Getenv("MYSQL_TLS_CA_PEM")
+	mysqlTLSCAPath := os.Getenv("MYSQL_TLS_CA_PATH")
 	if azureConn == "" {
 		fmt.Println("AZURE_STORAGE_CONNECTION_STRING is required")
 		os.Exit(2)
@@ -180,7 +182,7 @@ func runMigrateStorage(ctx context.Context, args []string) {
 		return
 	}
 
-	target, err := mysqlrepo.New(ctx, mysqlDSN)
+	target, err := mysqlrepo.NewWithOptions(ctx, mysqlDSN, mysqlrepo.Options{TLSCAPEM: mysqlTLSCAPEM, TLSCAPath: mysqlTLSCAPath})
 	if err != nil {
 		fmt.Println("failed to open MySQL target:", err)
 		os.Exit(1)

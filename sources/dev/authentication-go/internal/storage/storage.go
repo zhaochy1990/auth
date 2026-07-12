@@ -24,7 +24,7 @@ func Open(ctx context.Context, cfg *config.Config) (repository.Repository, error
 		}
 		return repo, nil
 	case config.StorageBackendMySQL:
-		return mysqlrepo.New(ctx, cfg.MySQLDSN)
+		return mysqlrepo.NewWithOptions(ctx, cfg.MySQLDSN, mysqlrepo.Options{TLSCAPEM: cfg.MySQLTLSCAPEM, TLSCAPath: cfg.MySQLTLSCAPath})
 	default:
 		return nil, fmt.Errorf("unsupported storage backend %q", cfg.StorageBackend)
 	}

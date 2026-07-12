@@ -101,13 +101,20 @@ auth_user:secret@tcp(host:3306)/auth?tls=true&parseTime=true&loc=UTC
 The service normalizes DSNs to enable `parseTime=true`, UTC timestamps, and
 `utf8mb4` by default.
 
-Deployment expects the production GitHub Environment secret `MYSQL_DSN` to be
-set before the release tag is deployed. The deploy workflow stores it as an
-Azure Container Apps secret and sets:
+If Tencent Cloud requires a custom CA, set either `MYSQL_TLS_CA_PEM` to the PEM
+contents or `MYSQL_TLS_CA_PATH` to a local PEM file. When either is present, the
+service registers a named MySQL TLS configuration and uses it in the normalized
+DSN, so certificate verification stays enabled.
+
+Deployment expects the production GitHub Environment secret `MYSQL_DSN` to be set
+before the release tag is deployed. If the Tencent instance requires a custom CA,
+also set `MYSQL_TLS_CA_PEM`. The deploy workflow stores these as Azure Container
+Apps secrets and sets:
 
 ```text
 STORAGE_BACKEND=mysql
 MYSQL_DSN=secretref:mysql-dsn
+MYSQL_TLS_CA_PEM=secretref:mysql-tls-ca-pem  # only when configured
 ```
 
 Cutover checklist:
@@ -116,7 +123,8 @@ Cutover checklist:
 2. Confirm network access from the migration runner and Azure Container Apps.
 3. Run a dry-run export from Azure Tables and record the exported counts.
 4. Rehearse the import against local MySQL with `--clear-target`.
-5. Set the production GitHub Environment secret `MYSQL_DSN` to the Tencent DSN.
+5. Set the production GitHub Environment secret `MYSQL_DSN` to the Tencent DSN,
+   and `MYSQL_TLS_CA_PEM` if the Tencent instance requires a custom CA.
 6. During the cutover window, run the import against Tencent MySQL.
 7. Confirm exported and imported counts match in the migration output.
 8. Deploy the release and verify `/health`, admin login, and admin list APIs.
@@ -140,6 +148,8 @@ docker compose up --build
 |----------|----------|---------|
 | `STORAGE_BACKEND` | No | `mysql` when `MYSQL_DSN` exists, otherwise `azure_table` |
 | `MYSQL_DSN` | When MySQL | - |
+| `MYSQL_TLS_CA_PEM` | No | - |
+| `MYSQL_TLS_CA_PATH` | No | - |
 | `AZURE_STORAGE_CONNECTION_STRING` | When `azure_table` or migration source | - |
 | `JWT_PRIVATE_KEY_PATH` | No | `keys/private.pem` |
 | `JWT_PUBLIC_KEY_PATH` | No | `keys/public.pem` |
