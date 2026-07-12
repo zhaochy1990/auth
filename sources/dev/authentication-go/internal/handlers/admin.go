@@ -191,6 +191,7 @@ type inviteCodeResponse struct {
 	Kind                 domain.InviteCodeKind `json:"kind"`
 	GrantsMembership     *string               `json:"grants_membership"`
 	GrantsMembershipDays *int64                `json:"grants_membership_days"`
+	GrantsUserType       *domain.UserType      `json:"grants_user_type"`
 }
 
 func toInviteCodeResponse(ic *domain.InviteCode) inviteCodeResponse {
@@ -210,6 +211,7 @@ func toInviteCodeResponse(ic *domain.InviteCode) inviteCodeResponse {
 		Kind:                 ic.Kind,
 		GrantsMembership:     grants,
 		GrantsMembershipDays: ic.GrantsMembershipDays,
+		GrantsUserType:       ic.GrantsUserType,
 	}
 }
 
@@ -827,7 +829,18 @@ func (h *Handler) CreateInviteCode(c *gin.Context) {
 			}
 		}
 	}
-	code, err := h.Repo.InviteCodes().Create(c.Request.Context(), middleware.UserID(c), kind, grants, days)
+	var grantsUserType *domain.UserType
+	if raw := strings.TrimSpace(c.Query("grants_user_type")); raw != "" {
+		t := domain.UserType(raw)
+		if !t.Valid() {
+			middleware.RespondError(c, apperror.BadRequest("grants_user_type must be 'regular' or 'testing'"))
+			return
+		}
+		if t != domain.UserTypeRegular {
+			grantsUserType = &t
+		}
+	}
+	code, err := h.Repo.InviteCodes().Create(c.Request.Context(), middleware.UserID(c), kind, grants, days, grantsUserType)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return

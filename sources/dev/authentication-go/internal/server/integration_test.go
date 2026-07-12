@@ -622,6 +622,69 @@ func TestInviteCodeGatingAndMembershipGrant(t *testing.T) {
 	mustStatus(t, reuse, http.StatusConflict)
 }
 
+func TestInviteCodeGrantsTestingUserType(t *testing.T) {
+	ta := newTestApp(t)
+
+	mk := ta.do(http.MethodPost, "/admin/invite-codes?kind=long_term&grants_user_type=testing", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, mk, http.StatusOK)
+	var code struct {
+		Code           string  `json:"code"`
+		Kind           string  `json:"kind"`
+		GrantsUserType *string `json:"grants_user_type"`
+	}
+	decode(t, mk, &code)
+	if code.Code == "" || code.Kind != "long_term" || code.GrantsUserType == nil || *code.GrantsUserType != "testing" {
+		t.Fatalf("unexpected invite code: %+v", code)
+	}
+
+	t.Setenv("STRIDE_REQUIRE_INVITE_CODE", "true")
+
+	ok := ta.do(http.MethodPost, "/api/auth/register", map[string]any{
+		"email": "testing-invite@example.com", "password": "Password1!", "invite_code": code.Code,
+	}, ta.clientHeaders())
+	mustStatus(t, ok, http.StatusCreated)
+	var reg struct {
+		UserID      string `json:"user_id"`
+		AccessToken string `json:"access_token"`
+	}
+	decode(t, ok, &reg)
+
+	claims, err := ta.jwt.VerifyAccessToken(reg.AccessToken)
+	if err != nil {
+		t.Fatalf("verify access token: %v", err)
+	}
+	if claims.Type() != domain.UserTypeTesting {
+		t.Fatalf("token user_type = %q, want testing", claims.UserType)
+	}
+
+	get := ta.do(http.MethodGet, "/admin/users/"+reg.UserID, nil, ta.bearer(ta.adminToken))
+	mustStatus(t, get, http.StatusOK)
+	var user struct {
+		UserType string `json:"user_type"`
+	}
+	decode(t, get, &user)
+	if user.UserType != "testing" {
+		t.Fatalf("registered user type = %q, want testing", user.UserType)
+	}
+}
+
+func TestInviteCodeUserTypeGrantValidation(t *testing.T) {
+	ta := newTestApp(t)
+
+	regular := ta.do(http.MethodPost, "/admin/invite-codes?grants_user_type=regular", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, regular, http.StatusOK)
+	var code struct {
+		GrantsUserType *string `json:"grants_user_type"`
+	}
+	decode(t, regular, &code)
+	if code.GrantsUserType != nil {
+		t.Fatalf("regular user type should not be stored as an invite grant: %+v", code)
+	}
+
+	invalid := ta.do(http.MethodPost, "/admin/invite-codes?grants_user_type=employee", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, invalid, http.StatusBadRequest)
+}
+
 func TestTeamsFlow(t *testing.T) {
 	ta := newTestApp(t)
 

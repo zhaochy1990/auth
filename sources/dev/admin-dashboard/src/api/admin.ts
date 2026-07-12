@@ -96,6 +96,7 @@ export const createInviteCode = (
     kind?: InviteCodeKind;
     grants_membership?: MembershipTier;
     grants_membership_days?: number;
+    grants_user_type?: UserType;
   } = {}
 ) =>
   client
@@ -104,6 +105,7 @@ export const createInviteCode = (
         kind: params.kind ?? 'single_use',
         grants_membership: params.grants_membership,
         grants_membership_days: params.grants_membership_days,
+        grants_user_type: params.grants_user_type,
       },
     })
     .then((r) => r.data);

@@ -166,6 +166,8 @@ export interface InviteCode {
   grants_membership: MembershipTier | null;
   // Validity in days of the granted membership; null means permanent.
   grants_membership_days: number | null;
+  // User type assigned on registration, if any.
+  grants_user_type: UserType | null;
 }
 
 // Teams

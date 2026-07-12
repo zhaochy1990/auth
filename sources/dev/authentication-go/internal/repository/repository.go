@@ -118,7 +118,7 @@ type RefreshTokenRepository interface {
 
 // InviteCodeRepository persists invite codes.
 type InviteCodeRepository interface {
-	Create(ctx context.Context, createdBy string, kind domain.InviteCodeKind, grants *domain.MembershipTier, grantDays *int64) (*domain.InviteCode, error)
+	Create(ctx context.Context, createdBy string, kind domain.InviteCodeKind, grants *domain.MembershipTier, grantDays *int64, grantsUserType *domain.UserType) (*domain.InviteCode, error)
 	GetByCode(ctx context.Context, code string) (*domain.InviteCode, error)
 	// MarkUsed atomically marks the code used (compare-and-swap on the store's
 	// optimistic concurrency token). Returns an "already used" error on a race.
