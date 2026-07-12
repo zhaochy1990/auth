@@ -191,6 +191,16 @@ func runMigrateStorage(ctx context.Context, args []string) {
 	if clearTarget {
 		err = target.ReplaceWithSnapshot(ctx, *data)
 	} else {
+		counts, err := target.SnapshotCounts(ctx)
+		if err != nil {
+			fmt.Println("failed to count MySQL target:", err)
+			os.Exit(1)
+		}
+		if !countsEmpty(counts) {
+			fmt.Println("MySQL target is not empty; use --clear-target for an atomic replacement during a planned cutover")
+			printCounts("existing", counts)
+			os.Exit(1)
+		}
 		err = target.ImportSnapshot(ctx, *data)
 	}
 	if err != nil {
@@ -224,6 +234,15 @@ func compareCounts(want, got map[string]int) error {
 		}
 	}
 	return nil
+}
+
+func countsEmpty(counts map[string]int) bool {
+	for _, n := range counts {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func hasArg(args []string, want string) bool {

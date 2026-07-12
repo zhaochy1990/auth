@@ -80,12 +80,13 @@ Import into MySQL:
 ```bash
 AZURE_STORAGE_CONNECTION_STRING="..." \
 MYSQL_DSN="mysql://user:password@tcp-host:3306/auth" \
-go run ./cmd/auth-service migrate-storage azure-to-mysql --clear-target
+go run ./cmd/auth-service migrate-storage azure-to-mysql
 ```
 
-`--clear-target` deletes target MySQL rows and imports the snapshot in one
-transaction. If the import fails, the target rows are rolled back. Use it only
-for a fresh rehearsal or planned cutover window.
+Without `--clear-target`, the command requires every target MySQL table to be
+empty before importing. `--clear-target` deletes target MySQL rows and imports
+the snapshot in one transaction. If the import fails, the target rows are rolled
+back. Use it only for a fresh rehearsal or planned cutover window.
 
 ## Tencent Cloud MySQL
 
