@@ -49,14 +49,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The Go backend depends on github.com/zhaochy1990/x through a local
-      # replace. Vendor it before Docker build so the image context is complete.
-      - name: Checkout x dependency
-        uses: actions/checkout@v4
-        with:
-          repository: zhaochy1990/x
-          path: _x
-
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
@@ -71,8 +63,6 @@ jobs:
       - name: Build and push Docker image
         working-directory: sources/dev/authentication-go
         run: |
-          go mod edit -replace github.com/zhaochy1990/x="$GITHUB_WORKSPACE/_x"
-          go mod vendor
           docker build \
             --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
             -t ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }} \
@@ -88,12 +78,26 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Configure backend storage secrets
+        env:
+          MYSQL_DSN: ${{ secrets.MYSQL_DSN }}
+        run: |
+          if [ -z "$MYSQL_DSN" ]; then
+            echo "::error::production secret MYSQL_DSN is required for the MySQL backend"
+            exit 1
+          fi
+          az containerapp secret set \
+            --name ${{ env.BACKEND_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --secrets mysql-dsn="$MYSQL_DSN"
+
       - name: Deploy to Container Apps
         run: |
           az containerapp update \
             --name ${{ env.BACKEND_APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}
+            --image ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }} \
+            --set-env-vars STORAGE_BACKEND=mysql MYSQL_DSN=secretref:mysql-dsn
 
       - name: Health check
         run: |

@@ -100,6 +100,28 @@ auth_user:secret@tcp(host:3306)/auth?tls=true&parseTime=true&loc=UTC
 The service normalizes DSNs to enable `parseTime=true`, UTC timestamps, and
 `utf8mb4` by default.
 
+Deployment expects the production GitHub Environment secret `MYSQL_DSN` to be
+set before the release tag is deployed. The deploy workflow stores it as an
+Azure Container Apps secret and sets:
+
+```text
+STORAGE_BACKEND=mysql
+MYSQL_DSN=secretref:mysql-dsn
+```
+
+Cutover checklist:
+
+1. Create the Tencent Cloud MySQL database and application user.
+2. Confirm network access from the migration runner and Azure Container Apps.
+3. Run a dry-run export from Azure Tables and record the exported counts.
+4. Rehearse the import against local MySQL with `--clear-target`.
+5. Set the production GitHub Environment secret `MYSQL_DSN` to the Tencent DSN.
+6. During the cutover window, run the import against Tencent MySQL.
+7. Confirm exported and imported counts match in the migration output.
+8. Deploy the release and verify `/health`, admin login, and admin list APIs.
+9. Keep the Azure Table connection available only for rollback until the cutover
+   is accepted.
+
 ## Docker
 
 The module uses a local `replace` for the sibling `x` library. Build images from
