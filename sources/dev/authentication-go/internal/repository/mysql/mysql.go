@@ -41,6 +41,17 @@ type Repository struct {
 	membershipRepo *teamMembershipRepo
 }
 
+type dbConn interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+var dataTables = []string{
+	"auth_team_memberships", "auth_refresh_tokens", "auth_auth_codes", "auth_accounts",
+	"auth_app_providers", "auth_invite_codes", "auth_teams", "auth_users", "auth_applications",
+}
+
 // New opens a MySQL repository, verifies connectivity, and ensures the schema.
 func New(ctx context.Context, dsn string) (*Repository, error) {
 	normalized, err := normalizeDSN(dsn)
@@ -169,12 +180,12 @@ func (r *Repository) ensureColumn(ctx context.Context, table, column, definition
 
 // ClearAllTables removes all data. It is intended for integration tests only.
 func (r *Repository) ClearAllTables(ctx context.Context) error {
-	tables := []string{
-		"auth_team_memberships", "auth_refresh_tokens", "auth_auth_codes", "auth_accounts",
-		"auth_app_providers", "auth_invite_codes", "auth_teams", "auth_users", "auth_applications",
-	}
-	for _, table := range tables {
-		if _, err := r.db.ExecContext(ctx, "DELETE FROM "+table); err != nil {
+	return clearTables(ctx, r.db)
+}
+
+func clearTables(ctx context.Context, db dbConn) error {
+	for _, table := range dataTables {
+		if _, err := db.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return err
 		}
 	}
@@ -543,7 +554,7 @@ func isDuplicate(err error) bool {
 
 const userColumns = `id, email, name, avatar_url, email_verified, role, user_type, is_active, note, custom_attributes, created_at, updated_at, last_login_at, recent_logins, invite_code, membership, membership_expires_at`
 
-type userRepo struct{ db *sql.DB }
+type userRepo struct{ db dbConn }
 
 func scanUser(s rowScanner) (*domain.User, error) {
 	var u domain.User
@@ -730,7 +741,7 @@ func (r *userRepo) RecordLogin(ctx context.Context, userID, ip string) error {
 
 const appColumns = `id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, created_at, updated_at`
 
-type appRepo struct{ db *sql.DB }
+type appRepo struct{ db dbConn }
 
 func scanApp(s rowScanner) (*domain.Application, error) {
 	var a domain.Application
@@ -820,7 +831,7 @@ func (r *appRepo) CountActive(ctx context.Context) (uint64, error) {
 
 const accountColumns = `id, user_id, provider_id, provider_account_id, credential, provider_metadata, created_at, updated_at`
 
-type accountRepo struct{ db *sql.DB }
+type accountRepo struct{ db dbConn }
 
 func scanAccount(s rowScanner) (*domain.Account, error) {
 	var a domain.Account
@@ -899,7 +910,7 @@ func (r *accountRepo) DeleteAllByUser(ctx context.Context, userID string) error 
 
 const appProviderColumns = `id, app_id, provider_id, config, is_active, created_at`
 
-type appProviderRepo struct{ db *sql.DB }
+type appProviderRepo struct{ db dbConn }
 
 func scanAppProvider(s rowScanner) (*domain.AppProvider, error) {
 	var p domain.AppProvider
@@ -947,7 +958,7 @@ func (r *appProviderRepo) DeleteByID(ctx context.Context, id string) error {
 
 const authCodeColumns = `code, app_id, user_id, redirect_uri, scopes, code_challenge, code_challenge_method, expires_at, used, created_at`
 
-type authCodeRepo struct{ db *sql.DB }
+type authCodeRepo struct{ db dbConn }
 
 func scanAuthCode(s rowScanner) (*domain.AuthorizationCode, error) {
 	var c domain.AuthorizationCode
@@ -987,7 +998,7 @@ func (r *authCodeRepo) DeleteAllByUser(ctx context.Context, userID string) error
 
 const refreshTokenColumns = `id, user_id, app_id, token_hash, scopes, device_id, expires_at, revoked, created_at`
 
-type refreshTokenRepo struct{ db *sql.DB }
+type refreshTokenRepo struct{ db dbConn }
 
 func scanRefreshToken(s rowScanner) (*domain.RefreshToken, error) {
 	var t domain.RefreshToken
@@ -1026,7 +1037,7 @@ func (r *refreshTokenRepo) DeleteAllByUser(ctx context.Context, userID string) e
 
 const inviteCodeColumns = `id, code, created_by, created_at, used_at, used_by, is_revoked, kind, grants_membership, grants_membership_days, grants_user_type`
 
-type inviteCodeRepo struct{ db *sql.DB }
+type inviteCodeRepo struct{ db dbConn }
 
 func scanInviteCode(s rowScanner) (*domain.InviteCode, error) {
 	var c domain.InviteCode
@@ -1176,7 +1187,7 @@ func (r *inviteCodeRepo) Revoke(ctx context.Context, code string) error {
 
 const teamColumns = `id, name, description, owner_user_id, is_open, created_at, updated_at`
 
-type teamRepo struct{ db *sql.DB }
+type teamRepo struct{ db dbConn }
 
 func scanTeam(s rowScanner) (*domain.Team, error) {
 	var t domain.Team
@@ -1246,7 +1257,7 @@ func (r *teamRepo) DeleteByID(ctx context.Context, id string) error {
 
 const teamMembershipColumns = `team_id, user_id, role, joined_at`
 
-type teamMembershipRepo struct{ db *sql.DB }
+type teamMembershipRepo struct{ db dbConn }
 
 func scanTeamMembership(s rowScanner) (*domain.TeamMembership, error) {
 	var m domain.TeamMembership
@@ -1320,57 +1331,103 @@ func (r *teamMembershipRepo) DeleteAllByUser(ctx context.Context, userID string)
 	return dbErr(err)
 }
 
-// ImportSnapshot inserts exported rows into an empty MySQL schema.
+// ReplaceWithSnapshot clears existing rows and imports the snapshot in one
+// transaction. If any row fails to import, the target data is left unchanged.
+func (r *Repository) ReplaceWithSnapshot(ctx context.Context, data snapshot.Data) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := clearTables(ctx, tx); err != nil {
+		return fmt.Errorf("clear target: %w", err)
+	}
+	if err := importSnapshot(ctx, tx, data); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ImportSnapshot inserts exported rows into an empty MySQL schema atomically.
 func (r *Repository) ImportSnapshot(ctx context.Context, data snapshot.Data) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := importSnapshot(ctx, tx, data); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func importSnapshot(ctx context.Context, db dbConn, data snapshot.Data) error {
+	apps := &appRepo{db: db}
+	users := &userRepo{db: db}
+	appProviders := &appProviderRepo{db: db}
+	accounts := &accountRepo{db: db}
+	authCodes := &authCodeRepo{db: db}
+	refreshTokens := &refreshTokenRepo{db: db}
+	teams := &teamRepo{db: db}
+	teamMemberships := &teamMembershipRepo{db: db}
+
 	for i := range data.Applications {
-		if err := r.Applications().Insert(ctx, &data.Applications[i]); err != nil {
+		if err := apps.Insert(ctx, &data.Applications[i]); err != nil {
 			return fmt.Errorf("applications: %w", err)
 		}
 	}
 	for i := range data.Users {
-		if err := r.Users().Insert(ctx, &data.Users[i]); err != nil {
+		if err := users.Insert(ctx, &data.Users[i]); err != nil {
 			return fmt.Errorf("users: %w", err)
 		}
 	}
 	for i := range data.AppProviders {
-		if err := r.AppProviders().Insert(ctx, &data.AppProviders[i]); err != nil {
+		if err := appProviders.Insert(ctx, &data.AppProviders[i]); err != nil {
 			return fmt.Errorf("app_providers: %w", err)
 		}
 	}
 	for i := range data.Accounts {
-		if err := r.Accounts().Insert(ctx, &data.Accounts[i]); err != nil {
+		if err := accounts.Insert(ctx, &data.Accounts[i]); err != nil {
 			return fmt.Errorf("accounts: %w", err)
 		}
 	}
 	for i := range data.AuthCodes {
-		if err := r.AuthCodes().Insert(ctx, &data.AuthCodes[i]); err != nil {
+		if err := authCodes.Insert(ctx, &data.AuthCodes[i]); err != nil {
 			return fmt.Errorf("auth_codes: %w", err)
 		}
 	}
 	for i := range data.RefreshTokens {
-		if err := r.RefreshTokens().Insert(ctx, &data.RefreshTokens[i]); err != nil {
+		if err := refreshTokens.Insert(ctx, &data.RefreshTokens[i]); err != nil {
 			return fmt.Errorf("refresh_tokens: %w", err)
 		}
 	}
 	for i := range data.InviteCodes {
-		if err := r.insertInviteCode(ctx, &data.InviteCodes[i]); err != nil {
+		if err := insertInviteCode(ctx, db, &data.InviteCodes[i]); err != nil {
 			return fmt.Errorf("invite_codes: %w", err)
 		}
 	}
 	for i := range data.Teams {
-		if err := r.Teams().Insert(ctx, &data.Teams[i]); err != nil {
+		if err := teams.Insert(ctx, &data.Teams[i]); err != nil {
 			return fmt.Errorf("teams: %w", err)
 		}
 	}
 	for i := range data.TeamMemberships {
-		if err := r.TeamMemberships().Insert(ctx, &data.TeamMemberships[i]); err != nil {
+		if err := teamMemberships.Insert(ctx, &data.TeamMemberships[i]); err != nil {
 			return fmt.Errorf("team_memberships: %w", err)
 		}
 	}
 	return nil
 }
 
-func (r *Repository) insertInviteCode(ctx context.Context, c *domain.InviteCode) error {
+func insertInviteCode(ctx context.Context, db dbConn, c *domain.InviteCode) error {
 	var grants *string
 	if c.GrantsMembership != nil {
 		v := string(*c.GrantsMembership)
@@ -1380,7 +1437,7 @@ func (r *Repository) insertInviteCode(ctx context.Context, c *domain.InviteCode)
 	if kind == "" {
 		kind = domain.InviteSingleUse
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_invite_codes (id, code, created_by, created_at, used_at, used_by, is_revoked, kind, grants_membership, grants_membership_days, grants_user_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, c.ID, c.Code, c.CreatedBy, c.CreatedAt.UTC(), nullTime(c.UsedAt), nullString(c.UsedBy), c.IsRevoked, string(kind), nullString(grants), nullInt64(c.GrantsMembershipDays), nullString(userTypeString(c.GrantsUserType)))
+	_, err := db.ExecContext(ctx, `INSERT INTO auth_invite_codes (id, code, created_by, created_at, used_at, used_by, is_revoked, kind, grants_membership, grants_membership_days, grants_user_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, c.ID, c.Code, c.CreatedBy, c.CreatedAt.UTC(), nullTime(c.UsedAt), nullString(c.UsedBy), c.IsRevoked, string(kind), nullString(grants), nullInt64(c.GrantsMembershipDays), nullString(userTypeString(c.GrantsUserType)))
 	return dbErr(err)
 }
 

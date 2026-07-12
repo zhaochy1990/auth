@@ -83,8 +83,9 @@ MYSQL_DSN="mysql://user:password@tcp-host:3306/auth" \
 go run ./cmd/auth-service migrate-storage azure-to-mysql --clear-target
 ```
 
-`--clear-target` deletes target MySQL rows before import. Use it only for a
-fresh rehearsal or planned cutover window.
+`--clear-target` deletes target MySQL rows and imports the snapshot in one
+transaction. If the import fails, the target rows are rolled back. Use it only
+for a fresh rehearsal or planned cutover window.
 
 ## Tencent Cloud MySQL
 

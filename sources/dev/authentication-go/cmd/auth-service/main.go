@@ -187,12 +187,11 @@ func runMigrateStorage(ctx context.Context, args []string) {
 	}
 	defer target.Close()
 	if clearTarget {
-		if err := target.ClearAllTables(ctx); err != nil {
-			fmt.Println("failed to clear MySQL target:", err)
-			os.Exit(1)
-		}
+		err = target.ReplaceWithSnapshot(ctx, *data)
+	} else {
+		err = target.ImportSnapshot(ctx, *data)
 	}
-	if err := target.ImportSnapshot(ctx, *data); err != nil {
+	if err != nil {
 		fmt.Println("failed to import MySQL snapshot:", err)
 		os.Exit(1)
 	}

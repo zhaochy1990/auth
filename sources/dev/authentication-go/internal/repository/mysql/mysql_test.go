@@ -178,3 +178,46 @@ func TestImportSnapshotPreservesMigrationFields(t *testing.T) {
 		t.Fatalf("invite usage not preserved: %+v", gotInvite)
 	}
 }
+
+func TestReplaceWithSnapshotRollsBackOnImportFailure(t *testing.T) {
+	repo, ctx := newTestRepository(t)
+
+	createdAt := time.Date(2026, 7, 12, 9, 0, 0, 0, time.UTC)
+	existing := domain.Application{
+		ID: "existing-app", Name: "Existing App", ClientID: "existing-client", ClientSecretHash: "secret-hash",
+		RedirectURIs: `[]`, AllowedScopes: `[]`, IsActive: true, CreatedAt: createdAt, UpdatedAt: createdAt,
+	}
+	if err := repo.Applications().Insert(ctx, &existing); err != nil {
+		t.Fatalf("seed existing application: %v", err)
+	}
+
+	bad := snapshot.Data{Applications: []domain.Application{
+		{
+			ID: "new-app-1", Name: "New App 1", ClientID: "duplicate-client", ClientSecretHash: "secret-hash",
+			RedirectURIs: `[]`, AllowedScopes: `[]`, IsActive: true, CreatedAt: createdAt, UpdatedAt: createdAt,
+		},
+		{
+			ID: "new-app-2", Name: "New App 2", ClientID: "duplicate-client", ClientSecretHash: "secret-hash",
+			RedirectURIs: `[]`, AllowedScopes: `[]`, IsActive: true, CreatedAt: createdAt, UpdatedAt: createdAt,
+		},
+	}}
+
+	if err := repo.ReplaceWithSnapshot(ctx, bad); err == nil {
+		t.Fatal("expected replace to fail on duplicate client_id")
+	}
+
+	counts, err := repo.SnapshotCounts(ctx)
+	if err != nil {
+		t.Fatalf("snapshot counts: %v", err)
+	}
+	if counts["applications"] != 1 {
+		t.Fatalf("applications count after rollback = %d, want 1", counts["applications"])
+	}
+	got, err := repo.Applications().FindByID(ctx, existing.ID)
+	if err != nil || got == nil {
+		t.Fatalf("existing application was not preserved: app=%+v err=%v", got, err)
+	}
+	if got.ClientID != existing.ClientID {
+		t.Fatalf("existing application changed after rollback: %+v", got)
+	}
+}
