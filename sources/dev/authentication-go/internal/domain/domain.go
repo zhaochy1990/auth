@@ -211,6 +211,8 @@ type InviteCode struct {
 	// GrantsMembershipDays bounds the granted membership's validity (in days),
 	// counted from registration. Nil with a set GrantsMembership = permanent.
 	GrantsMembershipDays *int64
+	// GrantsUserType, when set, classifies users registered with this code.
+	GrantsUserType *UserType
 }
 
 // Team is a user-owned group.

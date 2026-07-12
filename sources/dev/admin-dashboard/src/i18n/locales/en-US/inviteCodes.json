@@ -5,6 +5,7 @@
     "code": "Code",
     "type": "Type",
     "grants": "Grants",
+    "userType": "User Type Grant",
     "grantDays": "{{days}}d",
     "createdAt": "Created At",
     "used": "Used",
@@ -19,6 +20,10 @@
     "regular": "Regular",
     "vip1": "VIP 1"
   },
+  "userType": {
+    "regular": "Regular",
+    "testing": "Testing"
+  },
   "status": {
     "used": "Used",
     "unused": "Unused",
@@ -29,6 +34,7 @@
     "typeLabel": "Code type",
     "grantLabel": "Grant membership",
     "grantNone": "No membership",
+    "testingUserLabel": "Register users as testing",
     "grantDaysLabel": "Valid days",
     "grantDaysPlaceholder": "Days"
   },

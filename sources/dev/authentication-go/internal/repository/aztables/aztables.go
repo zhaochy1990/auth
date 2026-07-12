@@ -1414,6 +1414,7 @@ type inviteCodeEntity struct {
 	Kind                 string  `json:"kind"`
 	GrantsMembership     *string `json:"grants_membership,omitempty"`
 	GrantsMembershipDays *int64  `json:"grants_membership_days,omitempty"`
+	GrantsUserType       *string `json:"grants_user_type,omitempty"`
 }
 
 func inviteCodeToEntity(c *domain.InviteCode) inviteCodeEntity {
@@ -1426,11 +1427,16 @@ func inviteCodeToEntity(c *domain.InviteCode) inviteCodeEntity {
 		v := string(*c.GrantsMembership)
 		grants = &v
 	}
+	var grantsUserType *string
+	if t := normalizeInviteCodeGrantUserType(c.GrantsUserType); t != nil {
+		v := string(*t)
+		grantsUserType = &v
+	}
 	return inviteCodeEntity{
 		PartitionKey: "invite_code", RowKey: c.Code, ID: c.ID, CreatedBy: c.CreatedBy,
 		CreatedAt: fmtDT(c.CreatedAt), UsedAt: fmtDTPtr(c.UsedAt), UsedBy: c.UsedBy,
 		IsRevoked: c.IsRevoked, Kind: kind, GrantsMembership: grants,
-		GrantsMembershipDays: c.GrantsMembershipDays,
+		GrantsMembershipDays: c.GrantsMembershipDays, GrantsUserType: grantsUserType,
 	}
 }
 
@@ -1440,21 +1446,37 @@ func (e *inviteCodeEntity) toModel() *domain.InviteCode {
 		t := domain.MembershipFromString(*e.GrantsMembership)
 		grants = &t
 	}
+	var grantsUserType *domain.UserType
+	if e.GrantsUserType != nil {
+		t := domain.UserType(*e.GrantsUserType)
+		grantsUserType = normalizeInviteCodeGrantUserType(&t)
+	}
 	return &domain.InviteCode{
 		ID: e.ID, Code: e.RowKey, CreatedBy: e.CreatedBy, CreatedAt: parseDT(e.CreatedAt),
 		UsedAt: parseDTPtr(e.UsedAt), UsedBy: e.UsedBy, IsRevoked: e.IsRevoked,
 		Kind: domain.InviteKindFromString(e.Kind), GrantsMembership: grants,
-		GrantsMembershipDays: e.GrantsMembershipDays,
+		GrantsMembershipDays: e.GrantsMembershipDays, GrantsUserType: grantsUserType,
 	}
+}
+
+func normalizeInviteCodeGrantUserType(t *domain.UserType) *domain.UserType {
+	if t == nil {
+		return nil
+	}
+	v := domain.UserTypeFromString(string(*t))
+	if v == domain.UserTypeRegular {
+		return nil
+	}
+	return &v
 }
 
 type inviteCodeRepo struct{ c *aztables.Client }
 
-func (r *inviteCodeRepo) Create(ctx context.Context, createdBy string, kind domain.InviteCodeKind, grants *domain.MembershipTier, grantDays *int64) (*domain.InviteCode, error) {
+func (r *inviteCodeRepo) Create(ctx context.Context, createdBy string, kind domain.InviteCodeKind, grants *domain.MembershipTier, grantDays *int64, grantsUserType *domain.UserType) (*domain.InviteCode, error) {
 	code := &domain.InviteCode{
 		ID: newUUID(), Code: generateInviteCode(), CreatedBy: createdBy,
 		CreatedAt: time.Now().UTC(), IsRevoked: false, Kind: kind,
-		GrantsMembership: grants, GrantsMembershipDays: grantDays,
+		GrantsMembership: grants, GrantsMembershipDays: grantDays, GrantsUserType: grantsUserType,
 	}
 	e := inviteCodeToEntity(code)
 	if err := addEntity(ctx, r.c, &e); err != nil {

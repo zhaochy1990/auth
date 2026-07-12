@@ -127,8 +127,12 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 
 	var invitedWith *string
+	userType := domain.UserTypeRegular
 	if inviteRecord != nil {
 		invitedWith = strPtr(inviteRecord.Code)
+		if inviteRecord.GrantsUserType != nil {
+			userType = domain.UserTypeFromString(string(*inviteRecord.GrantsUserType))
+		}
 	}
 
 	user := &domain.User{
@@ -137,7 +141,7 @@ func (h *Handler) Register(c *gin.Context) {
 		Name:                req.Name,
 		EmailVerified:       false,
 		Role:                "user",
-		UserType:            domain.UserTypeRegular,
+		UserType:            userType,
 		IsActive:            true,
 		CustomAttributes:    map[string]any{},
 		CreatedAt:           now,
