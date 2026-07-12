@@ -23,6 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout x dependency
+        uses: actions/checkout@v4
+        with:
+          repository: zhaochy1990/x
+          path: _x
+
       - name: Determine version
         id: version
         run: |
@@ -44,8 +50,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
-        working-directory: sources/dev/authentication
+        working-directory: sources/dev/authentication-go
         run: |
+          go mod edit -replace github.com/zhaochy1990/x="$GITHUB_WORKSPACE/_x"
+          go mod vendor
           docker build \
             --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
             -t ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }} \

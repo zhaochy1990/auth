@@ -1,6 +1,4 @@
-// Package config loads service configuration from the environment, mirroring
-// the Rust `Config::from_env`. Only AZURE_STORAGE_CONNECTION_STRING is required;
-// everything else has a sensible default.
+// Package config loads service configuration from the environment.
 package config
 
 import (
@@ -11,7 +9,9 @@ import (
 
 // Config holds all runtime configuration.
 type Config struct {
+	StorageBackend               string
 	AzureStorageConnectionString string
+	MySQLDSN                     string
 	JWTPrivateKeyPath            string
 	JWTPublicKeyPath             string
 	JWTIssuer                    string
@@ -25,15 +25,41 @@ type Config struct {
 	EnableTestProviders bool
 }
 
-// FromEnv builds a Config from environment variables. Returns an error only
-// when the one required variable is missing.
+const (
+	StorageBackendAzureTable = "azure_table"
+	StorageBackendMySQL      = "mysql"
+)
+
+// FromEnv builds a Config from environment variables. Storage defaults to
+// MySQL when MYSQL_DSN is present, otherwise Azure Tables for rollback
+// compatibility during the migration window.
 func FromEnv() (*Config, error) {
+	backend := EnvOr("STORAGE_BACKEND", "")
+	if backend == "" {
+		if os.Getenv("MYSQL_DSN") != "" {
+			backend = StorageBackendMySQL
+		} else {
+			backend = StorageBackendAzureTable
+		}
+	}
 	conn := os.Getenv("AZURE_STORAGE_CONNECTION_STRING")
-	if conn == "" {
-		return nil, fmt.Errorf("AZURE_STORAGE_CONNECTION_STRING is required")
+	mysqlDSN := os.Getenv("MYSQL_DSN")
+	switch backend {
+	case StorageBackendAzureTable:
+		if conn == "" {
+			return nil, fmt.Errorf("AZURE_STORAGE_CONNECTION_STRING is required when STORAGE_BACKEND=azure_table")
+		}
+	case StorageBackendMySQL:
+		if mysqlDSN == "" {
+			return nil, fmt.Errorf("MYSQL_DSN is required when STORAGE_BACKEND=mysql")
+		}
+	default:
+		return nil, fmt.Errorf("unsupported STORAGE_BACKEND %q", backend)
 	}
 	return &Config{
+		StorageBackend:               backend,
 		AzureStorageConnectionString: conn,
+		MySQLDSN:                     mysqlDSN,
 		JWTPrivateKeyPath:            EnvOr("JWT_PRIVATE_KEY_PATH", "keys/private.pem"),
 		JWTPublicKeyPath:             EnvOr("JWT_PUBLIC_KEY_PATH", "keys/public.pem"),
 		JWTIssuer:                    EnvOr("JWT_ISSUER", "auth-service"),

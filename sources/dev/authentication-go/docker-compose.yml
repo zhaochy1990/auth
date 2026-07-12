@@ -1,11 +1,22 @@
 services:
-  azurite:
-    image: mcr.microsoft.com/azure-storage/azurite
+  mysql:
+    image: mysql:8.4
     ports:
-      - "10000:10000"
-      - "10001:10001"
-      - "10002:10002"
-    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: auth
+      MYSQL_USER: auth
+      MYSQL_PASSWORD: auth_password
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uauth", "-pauth_password"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   auth:
     build: .
@@ -14,7 +25,8 @@ services:
     volumes:
       - ./keys:/app/keys:ro
     environment:
-      AZURE_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:10002/devstoreaccount1"
+      STORAGE_BACKEND: "mysql"
+      MYSQL_DSN: "mysql://auth:auth_password@mysql:3306/auth"
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "3000"
       JWT_PRIVATE_KEY_PATH: "./keys/private.pem"
@@ -23,4 +35,8 @@ services:
       LOG_LEVEL: "debug"
       LOG_FORMAT: "json"
     depends_on:
-      - azurite
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql-data:

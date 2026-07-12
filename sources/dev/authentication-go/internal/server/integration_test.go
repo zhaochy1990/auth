@@ -3,11 +3,16 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -15,25 +20,27 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/config"
 	"github.com/zhaochy1990/auth-service/internal/domain"
-	"github.com/zhaochy1990/auth-service/internal/repository/aztables"
+	mysqlrepo "github.com/zhaochy1990/auth-service/internal/repository/mysql"
 	"github.com/zhaochy1990/auth-service/internal/seed"
 	"github.com/zhaochy1990/auth-service/internal/server"
 )
 
-const azuriteConnString = "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1"
+const defaultTestMySQLDSN = "mysql://auth:auth_password@127.0.0.1:3306/auth_test"
 
-func connString() string {
-	if v := os.Getenv("TEST_STORAGE_CONNECTION_STRING"); v != "" {
+func testMySQLDSN() string {
+	if v := os.Getenv("TEST_MYSQL_DSN"); v != "" {
 		return v
 	}
-	return azuriteConnString
+	return defaultTestMySQLDSN
 }
+
+func explicitTestMySQLDSN() bool { return os.Getenv("TEST_MYSQL_DSN") != "" }
 
 func init() { gin.SetMode(gin.TestMode) }
 
 type testApp struct {
 	t            *testing.T
-	repo         *aztables.Repository
+	repo         *mysqlrepo.Repository
 	engine       *gin.Engine
 	cfg          *config.Config
 	jwt          *auth.JWTManager
@@ -47,23 +54,31 @@ func newTestApp(t *testing.T) *testApp {
 	t.Helper()
 	ctx := context.Background()
 
-	repo, err := aztables.New(connString())
+	repo, err := mysqlrepo.New(ctx, testMySQLDSN())
 	if err != nil {
-		t.Skipf("Azurite unavailable (NewRepository): %v", err)
+		if explicitTestMySQLDSN() {
+			t.Fatalf("MySQL unavailable (NewRepository): %v", err)
+		}
+		t.Skipf("MySQL unavailable (NewRepository): %v", err)
 	}
 	if err := repo.ClearAllTables(ctx); err != nil {
-		t.Skipf("Azurite unavailable (ClearAllTables): %v", err)
+		if explicitTestMySQLDSN() {
+			t.Fatalf("MySQL unavailable (ClearAllTables): %v", err)
+		}
+		t.Skipf("MySQL unavailable (ClearAllTables): %v", err)
 	}
+	privateKeyPath, publicKeyPath := writeTestKeys(t)
 
 	cfg := &config.Config{
-		AzureStorageConnectionString: connString(),
-		JWTPrivateKeyPath:            "../../keys/private.pem",
-		JWTPublicKeyPath:             "../../keys/public.pem",
-		JWTIssuer:                    "auth-service",
-		JWTAccessTokenExpirySecs:     3600,
-		JWTRefreshTokenExpiryDays:    30,
-		CORSAllowedOrigins:           "*",
-		EnableTestProviders:          true,
+		StorageBackend:            config.StorageBackendMySQL,
+		MySQLDSN:                  testMySQLDSN(),
+		JWTPrivateKeyPath:         privateKeyPath,
+		JWTPublicKeyPath:          publicKeyPath,
+		JWTIssuer:                 "auth-service",
+		JWTAccessTokenExpirySecs:  3600,
+		JWTRefreshTokenExpiryDays: 30,
+		CORSAllowedOrigins:        "*",
+		EnableTestProviders:       true,
 	}
 	jwtMgr, err := auth.NewJWTManager(cfg)
 	if err != nil {
@@ -100,6 +115,30 @@ func newTestApp(t *testing.T) *testApp {
 		adminUserID:  adminUser.ID,
 		adminToken:   adminToken,
 	}
+}
+
+func writeTestKeys(t *testing.T) (string, string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa key: %v", err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal public key: %v", err)
+	}
+	dir := t.TempDir()
+	privatePath := filepath.Join(dir, "private.pem")
+	publicPath := filepath.Join(dir, "public.pem")
+	privatePEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER})
+	if err := os.WriteFile(privatePath, privatePEM, 0o600); err != nil {
+		t.Fatalf("write private key: %v", err)
+	}
+	if err := os.WriteFile(publicPath, publicPEM, 0o600); err != nil {
+		t.Fatalf("write public key: %v", err)
+	}
+	return privatePath, publicPath
 }
 
 func (ta *testApp) do(method, path string, body any, headers map[string]string) *httptest.ResponseRecorder {
