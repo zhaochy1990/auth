@@ -15,6 +15,7 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/middleware"
+	"github.com/zhaochy1990/auth-service/internal/repository"
 )
 
 // --- Request / Response types ---
@@ -81,10 +82,12 @@ type userResponse struct {
 	AvatarURL           *string               `json:"avatar_url"`
 	EmailVerified       bool                  `json:"email_verified"`
 	Role                string                `json:"role"`
+	UserType            domain.UserType       `json:"user_type"`
 	Membership          domain.MembershipTier `json:"membership"`
 	MembershipExpiresAt *string               `json:"membership_expires_at"`
 	IsActive            bool                  `json:"is_active"`
 	Note                *string               `json:"note"`
+	CustomAttributes    map[string]any        `json:"custom_attributes"`
 	CreatedAt           string                `json:"created_at"`
 	UpdatedAt           string                `json:"updated_at"`
 	LastLoginAt         *string               `json:"last_login_at"`
@@ -103,10 +106,12 @@ func toUserResponse(u *domain.User) userResponse {
 		AvatarURL:           u.AvatarURL,
 		EmailVerified:       u.EmailVerified,
 		Role:                u.Role,
+		UserType:            domain.UserTypeFromString(string(u.UserType)),
 		Membership:          u.Membership,
 		MembershipExpiresAt: displayDTPtr(u.MembershipExpiresAt),
 		IsActive:            u.IsActive,
 		Note:                u.Note,
+		CustomAttributes:    customAttributesOrEmpty(u.CustomAttributes),
 		CreatedAt:           displayDT(u.CreatedAt),
 		UpdatedAt:           displayDT(u.UpdatedAt),
 		LastLoginAt:         displayDTPtr(u.LastLoginAt),
@@ -125,17 +130,21 @@ type updateUserRequest struct {
 	Name                *string                `json:"name"`
 	Role                *string                `json:"role"`
 	Membership          *domain.MembershipTier `json:"membership"`
+	UserType            *domain.UserType       `json:"user_type"`
 	MembershipExpiresAt *string                `json:"membership_expires_at"`
 	IsActive            *bool                  `json:"is_active"`
 	Note                *string                `json:"note"`
+	CustomAttributes    map[string]any         `json:"custom_attributes"`
 }
 
 type createUserRequest struct {
-	Email      string                 `json:"email"`
-	Password   string                 `json:"password"`
-	Name       *string                `json:"name"`
-	Role       *string                `json:"role"`
-	Membership *domain.MembershipTier `json:"membership"`
+	Email            string                 `json:"email"`
+	Password         string                 `json:"password"`
+	Name             *string                `json:"name"`
+	Role             *string                `json:"role"`
+	Membership       *domain.MembershipTier `json:"membership"`
+	CustomAttributes map[string]any         `json:"custom_attributes"`
+	UserType         *domain.UserType       `json:"user_type"`
 }
 
 type resetUserPasswordRequest struct {
@@ -182,6 +191,7 @@ type inviteCodeResponse struct {
 	Kind                 domain.InviteCodeKind `json:"kind"`
 	GrantsMembership     *string               `json:"grants_membership"`
 	GrantsMembershipDays *int64                `json:"grants_membership_days"`
+	GrantsUserType       *domain.UserType      `json:"grants_user_type"`
 }
 
 func toInviteCodeResponse(ic *domain.InviteCode) inviteCodeResponse {
@@ -201,6 +211,7 @@ func toInviteCodeResponse(ic *domain.InviteCode) inviteCodeResponse {
 		Kind:                 ic.Kind,
 		GrantsMembership:     grants,
 		GrantsMembershipDays: ic.GrantsMembershipDays,
+		GrantsUserType:       ic.GrantsUserType,
 	}
 }
 
@@ -458,8 +469,19 @@ func (h *Handler) ListUsers(c *gin.Context) {
 		perPage = 100
 	}
 	offset := (page - 1) * perPage
+	sort := repository.ParseUserListSort(c.Query("sort_by"), c.Query("sort_order"))
 
-	users, total, err := h.Repo.Users().ListPaginated(c.Request.Context(), c.Query("search"), offset, perPage)
+	var userType *domain.UserType
+	if raw := strings.TrimSpace(c.Query("user_type")); raw != "" {
+		t := domain.UserType(raw)
+		if !t.Valid() {
+			middleware.RespondError(c, apperror.BadRequest("user_type must be 'regular' or 'testing'"))
+			return
+		}
+		userType = &t
+	}
+
+	users, total, err := h.Repo.Users().ListPaginated(c.Request.Context(), c.Query("search"), userType, sort, offset, perPage)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -535,6 +557,14 @@ func (h *Handler) CreateUser(c *gin.Context) {
 	if req.Membership != nil {
 		membership = domain.MembershipFromString(string(*req.Membership))
 	}
+	userType := domain.UserTypeRegular
+	if req.UserType != nil {
+		if !req.UserType.Valid() {
+			middleware.RespondError(c, apperror.BadRequest("user_type must be 'regular' or 'testing'"))
+			return
+		}
+		userType = *req.UserType
+	}
 	ctx := c.Request.Context()
 	existing, err := h.Repo.Users().FindByEmail(ctx, req.Email)
 	if err != nil {
@@ -549,7 +579,8 @@ func (h *Handler) CreateUser(c *gin.Context) {
 	userID := uuid.NewString()
 	user := &domain.User{
 		ID: userID, Email: strPtr(req.Email), Name: req.Name, EmailVerified: false,
-		Role: role, IsActive: true, CreatedAt: now, UpdatedAt: now, Membership: membership,
+		Role: role, UserType: userType, IsActive: true, CustomAttributes: req.CustomAttributes,
+		CreatedAt: now, UpdatedAt: now, Membership: membership,
 	}
 	if err := h.Repo.Users().Insert(ctx, user); err != nil {
 		middleware.RespondError(c, err)
@@ -599,6 +630,13 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		}
 		user.Role = *req.Role
 	}
+	if req.UserType != nil {
+		if !req.UserType.Valid() {
+			middleware.RespondError(c, apperror.BadRequest("user_type must be 'regular' or 'testing'"))
+			return
+		}
+		user.UserType = *req.UserType
+	}
 	if req.Membership != nil {
 		m := domain.MembershipFromString(string(*req.Membership))
 		user.Membership = m
@@ -627,6 +665,9 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		} else {
 			user.Note = req.Note
 		}
+	}
+	if req.CustomAttributes != nil {
+		user.CustomAttributes = mergeCustomAttributes(user.CustomAttributes, req.CustomAttributes)
 	}
 	user.UpdatedAt = time.Now().UTC()
 	if err := h.Repo.Users().Update(ctx, user); err != nil {
@@ -788,7 +829,18 @@ func (h *Handler) CreateInviteCode(c *gin.Context) {
 			}
 		}
 	}
-	code, err := h.Repo.InviteCodes().Create(c.Request.Context(), middleware.UserID(c), kind, grants, days)
+	var grantsUserType *domain.UserType
+	if raw := strings.TrimSpace(c.Query("grants_user_type")); raw != "" {
+		t := domain.UserType(raw)
+		if !t.Valid() {
+			middleware.RespondError(c, apperror.BadRequest("grants_user_type must be 'regular' or 'testing'"))
+			return
+		}
+		if t != domain.UserTypeRegular {
+			grantsUserType = &t
+		}
+	}
+	code, err := h.Repo.InviteCodes().Create(c.Request.Context(), middleware.UserID(c), kind, grants, days, grantsUserType)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return

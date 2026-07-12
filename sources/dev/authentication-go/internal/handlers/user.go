@@ -23,14 +23,17 @@ type userProfileResponse struct {
 	Name                *string               `json:"name"`
 	AvatarURL           *string               `json:"avatar_url"`
 	EmailVerified       bool                  `json:"email_verified"`
+	UserType            domain.UserType       `json:"user_type"`
 	Membership          domain.MembershipTier `json:"membership"`
 	MembershipExpiresAt *string               `json:"membership_expires_at"`
+	CustomAttributes    map[string]any        `json:"custom_attributes"`
 	CreatedAt           string                `json:"created_at"`
 }
 
 type updateProfileRequest struct {
-	Name      *string `json:"name"`
-	AvatarURL *string `json:"avatar_url"`
+	Name             *string        `json:"name"`
+	AvatarURL        *string        `json:"avatar_url"`
+	CustomAttributes map[string]any `json:"custom_attributes"`
 }
 
 type accountResponse struct {
@@ -64,8 +67,10 @@ func (h *Handler) GetProfile(c *gin.Context) {
 		Name:                user.Name,
 		AvatarURL:           user.AvatarURL,
 		EmailVerified:       user.EmailVerified,
+		UserType:            domain.UserTypeFromString(string(user.UserType)),
 		Membership:          membership,
 		MembershipExpiresAt: displayDTPtr(user.MembershipExpiresAt),
+		CustomAttributes:    customAttributesOrEmpty(user.CustomAttributes),
 		CreatedAt:           displayDT(user.CreatedAt),
 	})
 }
@@ -93,6 +98,9 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	if req.AvatarURL != nil {
 		user.AvatarURL = req.AvatarURL
 	}
+	if req.CustomAttributes != nil {
+		user.CustomAttributes = mergeCustomAttributes(user.CustomAttributes, req.CustomAttributes)
+	}
 	now := time.Now().UTC()
 	user.UpdatedAt = now
 	if err := h.Repo.Users().Update(ctx, user); err != nil {
@@ -105,8 +113,10 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 		Name:                user.Name,
 		AvatarURL:           user.AvatarURL,
 		EmailVerified:       user.EmailVerified,
+		UserType:            domain.UserTypeFromString(string(user.UserType)),
 		Membership:          user.EffectiveMembership(now),
 		MembershipExpiresAt: displayDTPtr(user.MembershipExpiresAt),
+		CustomAttributes:    customAttributesOrEmpty(user.CustomAttributes),
 		CreatedAt:           displayDT(user.CreatedAt),
 	})
 }

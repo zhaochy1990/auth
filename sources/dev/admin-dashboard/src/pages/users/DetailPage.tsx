@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router';
 import { ArrowLeft, Check, Copy, Crown, KeyRound, Pencil, Shield, ShieldOff, Trash2, Unlink, X } from 'lucide-react';
 import { getUser, getUserAccounts, updateUser, adminUnlinkAccount, deleteUser, resetUserPassword } from '../../api/admin';
-import type { MembershipTier, UpdateUserRequest } from '../../api/types';
+import type { MembershipTier, UserType, UpdateUserRequest, UserCustomAttributes } from '../../api/types';
 import StatusBadge from '../../components/shared/StatusBadge';
 import Badge from '../../components/ui/Badge';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
@@ -31,6 +31,11 @@ export default function UserDetailPage() {
   const [editingMembership, setEditingMembership] = useState(false);
   const [membershipTierInput, setMembershipTierInput] = useState<MembershipTier>('regular');
   const [membershipExpiryInput, setMembershipExpiryInput] = useState('');
+  const [editingAttributes, setEditingAttributes] = useState(false);
+  const [birthdayInput, setBirthdayInput] = useState('');
+  const [genderInput, setGenderInput] = useState('');
+  const [heightCmInput, setHeightCmInput] = useState('');
+  const [weightKgInput, setWeightKgInput] = useState('');
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
   const [resetPasswordError, setResetPasswordError] = useState('');
   const [copiedUserId, setCopiedUserId] = useState(false);
@@ -58,6 +63,15 @@ export default function UserDetailPage() {
 
   const activeMutation = useMutation({
     mutationFn: (is_active: boolean) => updateUser(id!, { is_active }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user', id] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success(t('detail.updateSuccess'));
+    },
+  });
+
+  const userTypeMutation = useMutation({
+    mutationFn: (user_type: UserType) => updateUser(id!, { user_type }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user', id] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -94,6 +108,16 @@ export default function UserDetailPage() {
     },
   });
 
+  const attributesMutation = useMutation({
+    mutationFn: (custom_attributes: UserCustomAttributes) => updateUser(id!, { custom_attributes }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user', id] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setEditingAttributes(false);
+      toast.success(t('detail.updateSuccess'));
+    },
+  });
+
   const startEditMembership = () => {
     if (!user) return;
     setMembershipTierInput(user.membership);
@@ -109,6 +133,27 @@ export default function UserDetailPage() {
     // a permanent grant (empty string clears any existing expiry server-side).
     payload.membership_expires_at = membershipTierInput === 'regular' ? '' : membershipExpiryInput;
     membershipMutation.mutate(payload);
+  };
+
+  const stringInputValue = (value: unknown) => (value == null ? '' : String(value));
+
+  const startEditAttributes = () => {
+    if (!user) return;
+    const attributes = user.custom_attributes ?? {};
+    setBirthdayInput(stringInputValue(attributes.birthday));
+    setGenderInput(stringInputValue(attributes.gender));
+    setHeightCmInput(stringInputValue(attributes.height_cm));
+    setWeightKgInput(stringInputValue(attributes.weight_kg));
+    setEditingAttributes(true);
+  };
+
+  const saveAttributes = () => {
+    attributesMutation.mutate({
+      birthday: birthdayInput || null,
+      gender: genderInput || null,
+      height_cm: heightCmInput ? Number(heightCmInput) : null,
+      weight_kg: weightKgInput ? Number(weightKgInput) : null,
+    });
   };
 
   const unlinkMutation = useMutation({
@@ -174,6 +219,19 @@ export default function UserDetailPage() {
     await navigator.clipboard.writeText(user.id);
     setCopiedUserId(true);
     setTimeout(() => setCopiedUserId(false), 2000);
+  };
+
+  const attributes = user.custom_attributes ?? {};
+  const formatAttribute = (value: unknown, unit = '') => {
+    if (value == null || value === '') return '-';
+    return `${value}${unit}`;
+  };
+  const formatGender = (value: unknown) => {
+    if (value == null || value === '') return '-';
+    const gender = String(value);
+    return ['female', 'male', 'other'].includes(gender)
+      ? t(`attributes.genderOptions.${gender}`)
+      : gender;
   };
 
   return (
@@ -267,6 +325,14 @@ export default function UserDetailPage() {
             </dd>
           </div>
           <div>
+            <dt className="text-xs font-medium text-gray-500">{t('detail.userType')}</dt>
+            <dd className="mt-1">
+              <Badge variant={user.user_type === 'testing' ? 'blue' : 'gray'}>
+                {t(`userType.${user.user_type}`)}
+              </Badge>
+            </dd>
+          </div>
+          <div>
             <dt className="text-xs font-medium text-gray-500">{t('detail.status')}</dt>
             <dd className="mt-1">
               <StatusBadge active={user.is_active} />
@@ -293,6 +359,14 @@ export default function UserDetailPage() {
             {t('detail.changeRole')} → {user.role === 'admin' ? t('role.user') : t('role.admin')}
           </button>
           <button
+            onClick={() => userTypeMutation.mutate(user.user_type === 'testing' ? 'regular' : 'testing')}
+            disabled={userTypeMutation.isPending}
+            className="flex w-full items-center justify-center gap-1 rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50 sm:w-auto"
+          >
+            <Pencil size={16} />
+            {t('detail.changeUserType')} → {user.user_type === 'testing' ? t('userType.regular') : t('userType.testing')}
+          </button>
+          <button
             onClick={() => activeMutation.mutate(!user.is_active)}
             disabled={activeMutation.isPending}
             className="w-full rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50 sm:w-auto"
@@ -300,6 +374,106 @@ export default function UserDetailPage() {
             {t('detail.toggleActive')} → {user.is_active ? t('common:actions.disable') : t('common:actions.enable')}
           </button>
         </div>
+      </div>
+
+      {/* Custom Attributes */}
+      <div className="mt-6 rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="font-medium text-gray-900">{t('detail.attributes.title')}</h2>
+          {!editingAttributes && (
+            <button
+              onClick={startEditAttributes}
+              className="flex items-center gap-1 self-start text-sm text-gray-500 hover:text-gray-700"
+              title={t('detail.attributes.edit')}
+            >
+              <Pencil size={14} />
+              {t('detail.attributes.edit')}
+            </button>
+          )}
+        </div>
+
+        {editingAttributes ? (
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-medium text-gray-500">{t('attributes.birthday')}</label>
+              <input
+                type="date"
+                value={birthdayInput}
+                onChange={(e) => setBirthdayInput(e.target.value)}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500">{t('attributes.gender')}</label>
+              <select
+                value={genderInput}
+                onChange={(e) => setGenderInput(e.target.value)}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">{t('attributes.unspecified')}</option>
+                <option value="female">{t('attributes.genderOptions.female')}</option>
+                <option value="male">{t('attributes.genderOptions.male')}</option>
+                <option value="other">{t('attributes.genderOptions.other')}</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500">{t('attributes.heightCm')}</label>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={heightCmInput}
+                onChange={(e) => setHeightCmInput(e.target.value)}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500">{t('attributes.weightKg')}</label>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={weightKgInput}
+                onChange={(e) => setWeightKgInput(e.target.value)}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:justify-end">
+              <button
+                onClick={() => setEditingAttributes(false)}
+                className="rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200"
+              >
+                {t('detail.attributes.cancel')}
+              </button>
+              <button
+                onClick={saveAttributes}
+                disabled={attributesMutation.isPending}
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {t('detail.attributes.save')}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs font-medium text-gray-500">{t('attributes.birthday')}</dt>
+              <dd className="mt-1 text-sm text-gray-900">{formatAttribute(attributes.birthday)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">{t('attributes.gender')}</dt>
+              <dd className="mt-1 text-sm text-gray-900">{formatGender(attributes.gender)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">{t('attributes.heightCm')}</dt>
+              <dd className="mt-1 text-sm text-gray-900">{formatAttribute(attributes.height_cm, ' cm')}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">{t('attributes.weightKg')}</dt>
+              <dd className="mt-1 text-sm text-gray-900">{formatAttribute(attributes.weight_kg, ' kg')}</dd>
+            </div>
+          </dl>
+        )}
       </div>
 
       {/* Membership */}

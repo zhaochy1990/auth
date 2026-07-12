@@ -1,8 +1,8 @@
-// Package middleware holds the Gin middleware that ports the Axum extractors:
-// bearer-token user auth, X-Client-Id app resolution, Basic-auth client auth,
-// and admin-role gating — plus the per-IP rate limiter, CORS, and the shared
-// error responder. Handlers read the values these middlewares stash on the
-// gin.Context via the typed getters below.
+// Package middleware holds the Gin middleware for bearer-token user auth,
+// X-Client-Id app resolution, Basic-auth client auth, and admin-role gating,
+// plus the per-IP rate limiter, CORS, and the shared error responder. Handlers
+// read the values these middlewares stash on the gin.Context via the typed
+// getters below.
 package middleware
 
 import (
@@ -192,6 +192,22 @@ func (a *Auth) AuthenticatedApp() gin.HandlerFunc {
 	}
 }
 
+// AppTokenAuth requires a Bearer token issued via the client_credentials grant.
+func (a *Auth) AppTokenAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token, ok := bearer(c)
+		if !ok {
+			RespondError(c, apperror.Unauthorized())
+			return
+		}
+		if err := a.authenticateAppToken(c, token); err != nil {
+			RespondError(c, err)
+			return
+		}
+		c.Next()
+	}
+}
+
 // AdminAuth requires an active admin user with a Bearer token carrying the
 // admin role.
 func (a *Auth) AdminAuth() gin.HandlerFunc {
@@ -201,35 +217,91 @@ func (a *Auth) AdminAuth() gin.HandlerFunc {
 			RespondError(c, apperror.Unauthorized())
 			return
 		}
-		claims, err := a.JWT.VerifyAccessToken(token)
-		if err != nil {
+		if err := a.authenticateAdminToken(c, token); err != nil {
 			RespondError(c, err)
 			return
 		}
-		if claims.Role != "admin" {
-			RespondError(c, apperror.Forbidden())
-			return
-		}
-		user, err := a.Repo.Users().FindByID(c.Request.Context(), claims.Sub)
-		if err != nil {
-			RespondError(c, err)
-			return
-		}
-		if user == nil {
+		c.Next()
+	}
+}
+
+// AdminOrAppTokenAuth accepts either an admin user Bearer token or an active
+// application Bearer token minted with the client_credentials grant.
+func (a *Auth) AdminOrAppTokenAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token, ok := bearer(c)
+		if !ok {
 			RespondError(c, apperror.Unauthorized())
 			return
 		}
-		if !user.IsActive {
-			RespondError(c, apperror.UserDisabled())
+
+		if claims, err := a.JWT.VerifyAccessToken(token); err == nil {
+			if err := a.authorizeAdminClaims(c, claims); err != nil {
+				RespondError(c, err)
+				return
+			}
+			c.Next()
 			return
 		}
-		if user.Role != "admin" {
-			RespondError(c, apperror.Forbidden())
+
+		if err := a.authenticateAppToken(c, token); err != nil {
+			RespondError(c, err)
 			return
 		}
-		c.Set(ctxUserID, claims.Sub)
 		c.Next()
 	}
+}
+
+func (a *Auth) authenticateAdminToken(c *gin.Context, token string) error {
+	claims, err := a.JWT.VerifyAccessToken(token)
+	if err != nil {
+		return err
+	}
+	return a.authorizeAdminClaims(c, claims)
+}
+
+func (a *Auth) authorizeAdminClaims(c *gin.Context, claims *auth.AccessClaims) error {
+	if claims.Role != "admin" {
+		return apperror.Forbidden()
+	}
+	user, err := a.Repo.Users().FindByID(c.Request.Context(), claims.Sub)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		return apperror.Unauthorized()
+	}
+	if !user.IsActive {
+		return apperror.UserDisabled()
+	}
+	if user.Role != "admin" {
+		return apperror.Forbidden()
+	}
+	c.Set(ctxUserID, claims.Sub)
+	c.Set(ctxClientID, claims.Aud)
+	c.Set(ctxScopes, claims.Scopes)
+	return nil
+}
+
+func (a *Auth) authenticateAppToken(c *gin.Context, token string) error {
+	claims, err := a.JWT.VerifyAppToken(token)
+	if err != nil {
+		return err
+	}
+	app, err := a.Repo.Applications().FindByID(c.Request.Context(), claims.Sub)
+	if err != nil {
+		return err
+	}
+	if app == nil {
+		return apperror.ApplicationNotFound()
+	}
+	if !app.IsActive {
+		return apperror.ApplicationNotActive()
+	}
+	c.Set(ctxAppID, app.ID)
+	c.Set(ctxClientID, app.ClientID)
+	c.Set(ctxAllowedScopes, auth.DecodeStringArray(app.AllowedScopes))
+	return nil
 }
 
 // --- Rate limiter (per-key sliding window) ---

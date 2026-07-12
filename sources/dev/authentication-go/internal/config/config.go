@@ -20,8 +20,7 @@ type Config struct {
 	ServerHost                   string
 	ServerPort                   int
 	CORSAllowedOrigins           string
-	// EnableTestProviders gates the "test" auth provider (the Go equivalent of
-	// the Rust `test-providers` cargo feature). Off in production.
+	// EnableTestProviders gates the "test" auth provider. Off in production.
 	EnableTestProviders bool
 }
 

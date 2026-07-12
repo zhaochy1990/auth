@@ -1,8 +1,6 @@
 // Package server wires the Gin engine: route groups, per-group rate limiters,
-// CORS, and the auth middlewares — mirroring the Rust routes.rs. Note that the
-// /api/users and /api/teams groups intentionally share one rate-limiter
-// instance (matching the Rust code, where the limiter's state is shared via a
-// cloned Arc).
+// CORS, and the auth middlewares. The /api/users and /api/teams groups
+// intentionally share one rate-limiter instance.
 package server
 
 import (
@@ -89,6 +87,14 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		teams.GET("/:team_id/members", h.ListMembers)
 	}
 
+	// Admin-compatible read endpoints that can also be called by application
+	// Bearer tokens minted with client_credentials.
+	adminRead := r.Group("/admin")
+	adminRead.Use(adminLimiter.Middleware(), am.AdminOrAppTokenAuth())
+	{
+		adminRead.GET("/users", h.ListUsers)
+	}
+
 	// Admin endpoints (Bearer with admin role).
 	admin := r.Group("/admin")
 	admin.Use(adminLimiter.Middleware(), am.AdminAuth())
@@ -100,7 +106,6 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		admin.POST("/applications/:id/providers", h.AddProvider)
 		admin.DELETE("/applications/:id/providers/:provider_id", h.RemoveProvider)
 		admin.POST("/applications/:id/rotate-secret", h.RotateSecret)
-		admin.GET("/users", h.ListUsers)
 		admin.POST("/users", h.CreateUser)
 		admin.GET("/users/:id", h.GetUser)
 		admin.PATCH("/users/:id", h.UpdateUser)

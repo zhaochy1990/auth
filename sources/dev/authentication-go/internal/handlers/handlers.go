@@ -1,14 +1,15 @@
 // Package handlers implements the HTTP handlers (business logic) for every
-// endpoint, ported from the Rust `handlers` module. Handlers are methods on
-// *Handler and read authenticated context (user id, app id, scopes) stashed by
-// the middleware. JSON request/response shapes match the Rust types so the
-// existing React dashboard works unchanged.
+// endpoint. Handlers are methods on *Handler and read authenticated context
+// (user id, app id, scopes) stashed by the middleware. JSON request/response
+// shapes preserve the public API contract so the React dashboard works
+// unchanged.
 package handlers
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -43,8 +44,8 @@ func (h *Handler) resolveMembership(ctx context.Context, user *domain.User) doma
 	return user.Membership
 }
 
-// requireInviteCode reports whether registration is invite-gated (env flag,
-// read per-request to match the Rust behavior).
+// requireInviteCode reports whether registration is invite-gated. The env flag
+// is read per request so runtime config changes take effect without restart.
 func requireInviteCode() bool {
 	return strings.EqualFold(os.Getenv("STRIDE_REQUIRE_INVITE_CODE"), "true")
 }
@@ -56,8 +57,8 @@ func appVersion() string {
 	return "dev"
 }
 
-// displayDT formats a time the way Rust's chrono NaiveDateTime Display does:
-// "YYYY-MM-DD HH:MM:SS" with an optional fractional part of 3, 6, or 9 digits.
+// displayDT formats a time as "YYYY-MM-DD HH:MM:SS" with an optional
+// fractional part of 3, 6, or 9 digits.
 func displayDT(t time.Time) string {
 	t = t.UTC()
 	base := t.Format("2006-01-02 15:04:05")
@@ -83,3 +84,37 @@ func displayDTPtr(t *time.Time) *string {
 }
 
 func strPtr(s string) *string { return &s }
+
+func customAttributesOrEmpty(attributes map[string]any) map[string]any {
+	if attributes == nil {
+		return map[string]any{}
+	}
+	return attributes
+}
+
+func mergeCustomAttributes(target map[string]any, patch map[string]any) map[string]any {
+	if target == nil {
+		target = map[string]any{}
+	}
+	for key, value := range patch {
+		if isNilJSONValue(value) {
+			delete(target, key)
+		} else {
+			target[key] = value
+		}
+	}
+	return target
+}
+
+func isNilJSONValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}

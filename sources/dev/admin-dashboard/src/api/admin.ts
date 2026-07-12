@@ -18,6 +18,7 @@ import type {
   InviteCode,
   InviteCodeKind,
   MembershipTier,
+  UserType,
   Team,
   TeamMember,
   TeamMembership,
@@ -49,7 +50,14 @@ export const removeProvider = (appId: string, providerId: string) =>
   client.delete(`/admin/applications/${appId}/providers/${providerId}`).then((r) => r.data);
 
 // Users
-export const listUsers = (params: { page?: number; per_page?: number; search?: string }) =>
+export const listUsers = (params: {
+  page?: number;
+  per_page?: number;
+  search?: string;
+  user_type?: UserType;
+  sort_by?: 'name' | 'last_login_at';
+  sort_order?: 'asc' | 'desc';
+}) =>
   client.get<UserListResponse>('/admin/users', { params }).then((r) => r.data);
 
 export const createUser = (data: CreateUserRequest) =>
@@ -88,6 +96,7 @@ export const createInviteCode = (
     kind?: InviteCodeKind;
     grants_membership?: MembershipTier;
     grants_membership_days?: number;
+    grants_user_type?: UserType;
   } = {}
 ) =>
   client
@@ -96,6 +105,7 @@ export const createInviteCode = (
         kind: params.kind ?? 'single_use',
         grants_membership: params.grants_membership,
         grants_membership_days: params.grants_membership_days,
+        grants_user_type: params.grants_user_type,
       },
     })
     .then((r) => r.data);

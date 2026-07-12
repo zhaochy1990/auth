@@ -1,7 +1,7 @@
 // Package apperror defines the application's typed error model and its mapping
-// to HTTP responses. It mirrors the Rust `AppError` enum: each variant carries
-// an HTTP status, a stable machine-readable `error` type string, and a
-// human-readable message. The JSON body shape is always {"error","message"}.
+// to HTTP responses. Each variant carries an HTTP status, a stable
+// machine-readable `error` type string, and a human-readable message. The JSON
+// body shape is always {"error","message"}.
 package apperror
 
 import (
@@ -34,7 +34,7 @@ func As(err error) (*Error, bool) {
 	return Internal(), false
 }
 
-// --- Variants (1:1 with the Rust AppError enum) ---
+// --- Variants ---
 
 func InvalidCredentials() *Error {
 	return New(http.StatusUnauthorized, "invalid_credentials", "Invalid credentials")

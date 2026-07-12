@@ -132,6 +132,12 @@ func runMigrate(ctx context.Context, repo repository.Repository) {
 		os.Exit(1)
 	}
 	fmt.Printf("  Users backfilled with `invite_code`: %d\n", users)
+	sortIndexes, err := azRepo.MigrateUserSortIndexes(ctx)
+	if err != nil {
+		fmt.Println("migration failed:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("  Users indexed for admin list sorting: %d\n", sortIndexes)
 	fmt.Println()
 	fmt.Println("=== Migration complete ===")
 }

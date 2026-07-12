@@ -10,6 +10,7 @@ require (
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
+	github.com/mozillazg/go-pinyin v0.21.0
 	github.com/zhaochy1990/x v0.0.0-00010101000000-000000000000
 )
 

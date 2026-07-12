@@ -32,6 +32,30 @@ func MembershipFromString(s string) MembershipTier {
 // IsPaid reports whether this is a paid tier (anything other than Regular).
 func (t MembershipTier) IsPaid() bool { return t != MembershipRegular && t != "" }
 
+// UserType classifies account usage, independent of Role and Membership.
+// Regular is the default for all historical users; Testing marks accounts whose
+// data should be treated as non-production/test data by downstream systems.
+type UserType string
+
+const (
+	UserTypeRegular UserType = "regular"
+	UserTypeTesting UserType = "testing"
+)
+
+// UserTypeFromString parses the snake_case representation, falling back to
+// Regular so old/foreign rows never fail to deserialize.
+func UserTypeFromString(s string) UserType {
+	switch s {
+	case string(UserTypeTesting):
+		return UserTypeTesting
+	default:
+		return UserTypeRegular
+	}
+}
+
+// Valid reports whether this value is a supported user type.
+func (t UserType) Valid() bool { return t == UserTypeRegular || t == UserTypeTesting }
+
 // InviteCodeKind is the reuse policy of an invite code.
 //
 // SingleUse codes are consumed by the first successful registration and then
@@ -69,11 +93,16 @@ type User struct {
 	AvatarURL     *string
 	EmailVerified bool
 	Role          string // "user" | "admin"
-	IsActive      bool
+	// UserType classifies whether this is a normal account or a testing account.
+	UserType UserType
+	IsActive bool
 	// Note is an admin-only free-form note, never surfaced via user-facing APIs.
-	Note      *string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Note *string
+	// CustomAttributes holds app-specific user profile attributes such as
+	// birthday, gender, height_cm, and weight_kg.
+	CustomAttributes map[string]any
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 	// LastLoginAt is the most recent successful login timestamp.
 	LastLoginAt *time.Time
 	// RecentLogins holds the last 3 login records (most recent first).
@@ -182,6 +211,8 @@ type InviteCode struct {
 	// GrantsMembershipDays bounds the granted membership's validity (in days),
 	// counted from registration. Nil with a set GrantsMembership = permanent.
 	GrantsMembershipDays *int64
+	// GrantsUserType, when set, classifies users registered with this code.
+	GrantsUserType *UserType
 }
 
 // Team is a user-owned group.

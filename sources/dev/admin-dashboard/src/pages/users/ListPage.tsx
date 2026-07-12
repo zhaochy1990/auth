@@ -2,11 +2,22 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { ArrowDownAZ, ArrowDownZA, ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { listUsers, updateUser } from '../../api/admin';
+import type { UserType } from '../../api/types';
 import StatusBadge from '../../components/shared/StatusBadge';
 import Badge from '../../components/ui/Badge';
 import Spinner from '../../components/ui/Spinner';
+
+type UserSortBy = 'name' | 'last_login_at';
+type SortOrder = 'asc' | 'desc';
+
+const sortOptions: Array<{ sortBy: UserSortBy; sortOrder: SortOrder; labelKey: string }> = [
+  { sortBy: 'name', sortOrder: 'asc', labelKey: 'sort.nameAsc' },
+  { sortBy: 'name', sortOrder: 'desc', labelKey: 'sort.nameDesc' },
+  { sortBy: 'last_login_at', sortOrder: 'desc', labelKey: 'sort.lastLoginDesc' },
+  { sortBy: 'last_login_at', sortOrder: 'asc', labelKey: 'sort.lastLoginAsc' },
+];
 
 export default function UserListPage() {
   const { t } = useTranslation('users');
@@ -17,11 +28,22 @@ export default function UserListPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  const [userType, setUserType] = useState<'' | UserType>('');
+  const [sortBy, setSortBy] = useState<UserSortBy>('name');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
   const perPage = 20;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['users', page, perPage, search],
-    queryFn: () => listUsers({ page, per_page: perPage, search: search || undefined }),
+    queryKey: ['users', page, perPage, search, userType, sortBy, sortOrder],
+    queryFn: () =>
+      listUsers({
+        page,
+        per_page: perPage,
+        search: search || undefined,
+        user_type: userType || undefined,
+        sort_by: sortBy,
+        sort_order: sortOrder,
+      }),
   });
 
   const toggleMutation = useMutation({
@@ -35,6 +57,39 @@ export default function UserListPage() {
   const handleSearch = () => {
     setPage(1);
     setSearch(searchInput);
+  };
+
+  const handleSort = (nextSortBy: UserSortBy) => {
+    setPage(1);
+    if (sortBy === nextSortBy) {
+      setSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortBy(nextSortBy);
+    setSortOrder(nextSortBy === 'last_login_at' ? 'desc' : 'asc');
+  };
+
+  const handleSortOption = (value: string) => {
+    const [nextSortBy, nextSortOrder] = value.split(':') as [UserSortBy, SortOrder];
+    setPage(1);
+    setSortBy(nextSortBy);
+    setSortOrder(nextSortOrder);
+  };
+
+  const SortIcon = sortOrder === 'asc' ? ArrowDownAZ : ArrowDownZA;
+
+  const renderSortableHeader = (field: UserSortBy, label: string) => {
+    const active = sortBy === field;
+    return (
+      <button
+        type="button"
+        onClick={() => handleSort(field)}
+        className="inline-flex items-center gap-1 text-xs font-medium uppercase text-gray-500 hover:text-gray-900"
+      >
+        {label}
+        {active ? <SortIcon size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+      </button>
+    );
   };
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0;
@@ -70,12 +125,32 @@ export default function UserListPage() {
           placeholder={t('searchPlaceholder')}
           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:max-w-xs"
         />
+        <select
+          value={userType}
+          onChange={(e) => { setPage(1); setUserType(e.target.value as '' | UserType); }}
+          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:w-40"
+        >
+          <option value="">{t('userType.all')}</option>
+          <option value="regular">{t('userType.regular')}</option>
+          <option value="testing">{t('userType.testing')}</option>
+        </select>
         <button
           onClick={handleSearch}
           className="rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700 hover:bg-gray-200 sm:w-auto"
         >
           {tc('actions.search')}
         </button>
+        <select
+          value={`${sortBy}:${sortOrder}`}
+          onChange={(e) => handleSortOption(e.target.value)}
+          className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:w-52"
+        >
+          {sortOptions.map((option) => (
+            <option key={`${option.sortBy}:${option.sortOrder}`} value={`${option.sortBy}:${option.sortOrder}`}>
+              {t(option.labelKey)}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="mt-4 space-y-3 md:hidden">
@@ -112,6 +187,14 @@ export default function UserListPage() {
                   </dd>
                 </div>
                 <div>
+                  <dt className="text-xs font-medium text-gray-500">{t('table.userType')}</dt>
+                  <dd className="mt-1">
+                    <Badge variant={user.user_type === 'testing' ? 'blue' : 'gray'}>
+                      {t(`userType.${user.user_type}`)}
+                    </Badge>
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-xs font-medium text-gray-500">{t('table.membership')}</dt>
                   <dd className="mt-1">
                     <Badge variant={user.membership === 'regular' ? 'gray' : 'purple'}>
@@ -142,18 +225,19 @@ export default function UserListPage() {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.email')}</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.name')}</th>
+              <th className="px-4 py-3 text-left">{renderSortableHeader('name', t('table.name'))}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.role')}</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.userType')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.membership')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.status')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.createdAt')}</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">{t('table.lastLoginAt')}</th>
+              <th className="px-4 py-3 text-left">{renderSortableHeader('last_login_at', t('table.lastLoginAt'))}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {users.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-500">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
                   {tc('status.empty')}
                 </td>
               </tr>
@@ -169,6 +253,11 @@ export default function UserListPage() {
                   <td className="px-4 py-3">
                     <Badge variant={user.role === 'admin' ? 'yellow' : 'gray'}>
                       {t(`role.${user.role}`)}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge variant={user.user_type === 'testing' ? 'blue' : 'gray'}>
+                      {t(`userType.${user.user_type}`)}
                     </Badge>
                   </td>
                   <td className="px-4 py-3">

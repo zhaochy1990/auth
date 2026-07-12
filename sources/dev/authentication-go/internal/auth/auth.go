@@ -1,7 +1,6 @@
 // Package auth holds the security core: JWT (RS256) issuance/verification,
 // password and client-secret hashing, password policy, PKCE, and the OAuth2
-// authorization-code / refresh-token helpers. It mirrors the Rust `auth`
-// module (jwt.rs, password.rs, oauth2.rs).
+// authorization-code / refresh-token helpers.
 package auth
 
 import (
@@ -30,8 +29,8 @@ import (
 
 // ─── JWT ─────────────────────────────────────────────────────────────────────
 
-// AccessClaims is the access-token payload. Field names and shape match the
-// Rust `Claims` (aud is a single string, membership is a snake_case string).
+// AccessClaims is the access-token payload. Field names and shape preserve the
+// public JWT contract: aud is a single string and membership is snake_case.
 type AccessClaims struct {
 	Sub        string   `json:"sub"`
 	Aud        string   `json:"aud"`
@@ -41,6 +40,7 @@ type AccessClaims struct {
 	Scopes     []string `json:"scopes"`
 	Role       string   `json:"role"`
 	Membership string   `json:"membership"`
+	UserType   string   `json:"user_type"`
 	Name       *string  `json:"name,omitempty"`
 }
 
@@ -59,6 +59,12 @@ func (c AccessClaims) GetAudience() (jwt.ClaimStrings, error)  { return jwt.Clai
 // absent/unknown value as Regular.
 func (c AccessClaims) Tier() domain.MembershipTier {
 	return domain.MembershipFromString(c.Membership)
+}
+
+// Type returns the account usage classification from the claim, treating an
+// absent/unknown value as Regular.
+func (c AccessClaims) Type() domain.UserType {
+	return domain.UserTypeFromString(c.UserType)
 }
 
 // AppClaims is the client-credentials token payload.
@@ -111,7 +117,7 @@ func NewJWTManager(cfg *config.Config) (*JWTManager, error) {
 }
 
 // IssueAccessToken mints a user access token.
-func (m *JWTManager) IssueAccessToken(userID, clientID string, scopes []string, role string, membership domain.MembershipTier, name *string) (string, error) {
+func (m *JWTManager) IssueAccessToken(userID, clientID string, scopes []string, role string, membership domain.MembershipTier, userType domain.UserType, name *string) (string, error) {
 	if scopes == nil {
 		scopes = []string{}
 	}
@@ -119,7 +125,7 @@ func (m *JWTManager) IssueAccessToken(userID, clientID string, scopes []string, 
 	claims := AccessClaims{
 		Sub: userID, Aud: clientID, Iss: m.issuer,
 		Exp: now + m.accessExpirySecs, Iat: now,
-		Scopes: scopes, Role: role, Membership: string(membership), Name: name,
+		Scopes: scopes, Role: role, Membership: string(membership), UserType: string(domain.UserTypeFromString(string(userType))), Name: name,
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	s, err := tok.SignedString(m.priv)
@@ -145,9 +151,8 @@ func (m *JWTManager) IssueAppToken(appID string) (string, error) {
 func (m *JWTManager) AccessTokenExpirySecs() int64 { return m.accessExpirySecs }
 
 // VerifyAccessToken validates and parses a user access token. It enforces the
-// issuer and the required claims (sub, aud, exp, iat) — matching the Rust
-// verifier's set_required_spec_claims. The audience value itself is not
-// validated (no expected audience is configured).
+// issuer and the required claims (sub, aud, exp, iat). The audience value itself
+// is not validated (no expected audience is configured).
 func (m *JWTManager) VerifyAccessToken(token string) (*AccessClaims, error) {
 	claims := &AccessClaims{}
 	_, err := jwt.ParseWithClaims(token, claims, m.keyfunc,
@@ -172,8 +177,12 @@ func (m *JWTManager) VerifyAppToken(token string) (*AppClaims, error) {
 	_, err := jwt.ParseWithClaims(token, claims, m.keyfunc,
 		jwt.WithValidMethods([]string{"RS256"}),
 		jwt.WithIssuer(m.issuer),
+		jwt.WithExpirationRequired(),
 	)
 	if err != nil {
+		return nil, apperror.InvalidToken()
+	}
+	if claims.Sub == "" || claims.Iat == 0 || claims.GrantType != "client_credentials" {
 		return nil, apperror.InvalidToken()
 	}
 	return claims, nil
@@ -224,7 +233,7 @@ func VerifyClientSecret(secret, hash string) (bool, error) {
 	return VerifyPassword(secret, hash)
 }
 
-// ValidatePassword enforces password complexity. Mirrors the Rust rules.
+// ValidatePassword enforces password complexity.
 func ValidatePassword(password string) error {
 	if len(password) < 8 {
 		return apperror.BadRequest("Password must be at least 8 characters")

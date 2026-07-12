@@ -1,7 +1,6 @@
-// Package seed bootstraps the Admin Dashboard application and an admin user,
-// ported from the Rust seed.rs. It is idempotent: re-running promotes an
-// existing user or reports already_admin; the client secret is only returned on
-// first creation.
+// Package seed bootstraps the Admin Dashboard application and an admin user. It
+// is idempotent: re-running promotes an existing user or reports already_admin;
+// the client secret is only returned on first creation.
 package seed
 
 import (
@@ -98,15 +97,17 @@ func Bootstrap(ctx context.Context, repo repository.Repository, adminEmail strin
 		name := "Admin"
 		email := adminEmail
 		user := &domain.User{
-			ID:            userID,
-			Email:         &email,
-			Name:          &name,
-			EmailVerified: true,
-			Role:          "admin",
-			IsActive:      true,
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			Membership:    domain.MembershipRegular,
+			ID:               userID,
+			Email:            &email,
+			Name:             &name,
+			EmailVerified:    true,
+			Role:             "admin",
+			UserType:         domain.UserTypeRegular,
+			IsActive:         true,
+			CustomAttributes: map[string]any{},
+			CreatedAt:        now,
+			UpdatedAt:        now,
+			Membership:       domain.MembershipRegular,
 		}
 		if err := repo.Users().Insert(ctx, user); err != nil {
 			return nil, err

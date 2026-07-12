@@ -7,7 +7,6 @@ Guidance for Claude Code when working in the Go auth service
 
 Go + Gin auth microservice. The runtime storage target is MySQL; the legacy
 Azure Table adapter is retained only for migration and rollback during cutover.
-Do not add new Rust code or Rust storage adapters for this service.
 
 ## Build, Test, Lint
 
@@ -43,9 +42,8 @@ Layered with a swappable storage adapter (see README for the full tree):
 - `internal/auth` — JWT issue/verify (custom claims so `aud` stays a single
   string and `membership` is a snake_case string), argon2id passwords,
   SHA-256 client secrets (with legacy argon2 fallback), PKCE, OAuth2 helpers.
-- `internal/middleware` — Gin equivalents of the Axum extractors
-  (`AuthenticatedUser`, `ClientApp`, `AuthenticatedApp`, `AdminAuth`), the
-  per-IP sliding-window rate limiter, CORS, and `RespondError`.
+- `internal/middleware` — Gin auth context helpers, the per-IP sliding-window
+  rate limiter, CORS, and `RespondError`.
 - `internal/handlers` — one `*Handler` with methods per endpoint; reads auth
   context via the `middleware` getters.
 - `internal/server` — router wiring and rate-limiter groups.
@@ -57,11 +55,14 @@ Layered with a swappable storage adapter (see README for the full tree):
   `apperror.Database` maps to a generic 500.
 - **Datetimes:** store UTC timestamps in MySQL `DATETIME(6)`. API responses use
   `displayDT` in `handlers`.
+- **Nullable JSON:** fields that are part of the API contract and may be absent
+  should usually be Go pointers without `omitempty`, so they serialize as
+  `null`. Fields intentionally omitted when absent should use `omitempty`.
 - **Membership / invite-kind** are string-typed enums; parse leniently from
   storage (unknown → default) via `domain.MembershipFromString` /
   `InviteKindFromString`.
 - The `/api/users` and `/api/teams` groups intentionally **share** one rate
-  limiter instance (matches the Rust cloned-`Arc` behavior).
+  limiter instance.
 - The `test` provider is gated by `AUTH_ENABLE_TEST_PROVIDERS`; tests enable it
   via config.
 

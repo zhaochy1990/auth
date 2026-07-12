@@ -104,7 +104,7 @@ func (h *Handler) handleAuthorizationCode(c *gin.Context, req *tokenRequest) {
 		return
 	}
 	membership := h.resolveMembership(ctx, user)
-	accessToken, err := h.JWT.IssueAccessToken(userID, middleware.ClientID(c), scopes, user.Role, membership, user.Name)
+	accessToken, err := h.JWT.IssueAccessToken(userID, middleware.ClientID(c), scopes, user.Role, membership, user.UserType, user.Name)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -162,7 +162,7 @@ func (h *Handler) handleRefreshTokenGrant(c *gin.Context, req *tokenRequest) {
 		return
 	}
 	membership := h.resolveMembership(ctx, user)
-	accessToken, err := h.JWT.IssueAccessToken(userID, middleware.ClientID(c), scopes, user.Role, membership, user.Name)
+	accessToken, err := h.JWT.IssueAccessToken(userID, middleware.ClientID(c), scopes, user.Role, membership, user.UserType, user.Name)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -242,7 +242,7 @@ func (h *Handler) handlePasswordGrant(c *gin.Context, req *tokenRequest) {
 		return
 	}
 	membership := h.resolveMembership(ctx, user)
-	accessToken, err := h.JWT.IssueAccessToken(user.ID, middleware.ClientID(c), scopes, user.Role, membership, user.Name)
+	accessToken, err := h.JWT.IssueAccessToken(user.ID, middleware.ClientID(c), scopes, user.Role, membership, user.UserType, user.Name)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return

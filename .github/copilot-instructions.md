@@ -4,27 +4,27 @@
 
 This is a two-app monorepo, not an npm workspace. The root `package.json` only contains commitlint dependencies.
 
-- `sources\dev\authentication` is the Rust auth service.
+- `sources\dev\authentication-go` is the Go auth service.
 - `sources\dev\admin-dashboard` is the React/TypeScript admin UI.
 
 ## Build, test, and lint commands
 
-Run backend commands from `sources\dev\authentication`:
+Run backend commands from `sources\dev\authentication-go`:
 
 ```powershell
-cargo build
-cargo fmt --check
-cargo clippy -- -D warnings
-cargo run -- seed admin@example.com MyPassword1!
+go build ./...
+gofmt -l .
+go vet ./...
+go run ./cmd/auth-service seed admin@example.com MyPassword1!
 ```
 
-Backend tests require Azurite Table Storage on port 10002, RSA keys in `keys\private.pem` and `keys\public.pem`, the `test-providers` feature, and serial execution:
+Backend integration tests require Azurite Table Storage on port 10002 and RSA keys in `keys\private.pem` and `keys\public.pem`:
 
 ```powershell
 docker compose up azurite
-cargo test --features test-providers -- --test-threads=1
-cargo test --features test-providers --test admin_test -- --test-threads=1
-cargo test --features test-providers -- test_name --test-threads=1
+go test ./... -count=1
+go test ./internal/auth/ -count=1
+go test ./internal/server/ -run TestHealth -v -count=1
 ```
 
 If local test keys are missing, mirror CI's key generation before running tests:
@@ -58,28 +58,28 @@ npx commitlint --from <base-sha> --to <head-sha> --verbose
 
 ### Backend
 
-The backend is a single Axum crate. `src\main.rs` loads `.env`, builds `Config`, creates an `AzureTableRepository`, initializes JWT support, and passes `AppState` into `routes::create_router`. `AppState` contains `Arc<dyn Repository>`, `JwtManager`, and `Config`; it implements `AsRef<AppState>` so custom extractors can access shared state.
+The backend is a Go + Gin service. `cmd\auth-service\main.go` loads config, creates the Azure Table repository, initializes JWT support, and wires routes through `internal\server.NewRouter`.
 
 The request flow is:
 
 ```text
-HTTP request -> routes.rs -> auth extractors -> handlers -> Repository trait -> Azure Table Storage
+HTTP request -> Gin route group -> auth middleware -> handlers -> Repository interface -> Azure Table Storage
 ```
 
 Route groups have distinct authentication:
 
 | Route prefix | Auth mechanism | Purpose |
 | --- | --- | --- |
-| `/api/auth` | `X-Client-Id` via `ClientApp` | Register, login, provider login, refresh, logout |
-| `/api/users` | Bearer access token via `AuthenticatedUser` | User profile and account linking |
-| `/api/teams` | Bearer access token via `AuthenticatedUser` | User-facing team operations |
-| `/oauth` | HTTP Basic client credentials via `AuthenticatedApp` | Token, revoke, introspect |
-| `/admin` | Bearer access token with `role == "admin"` via `AdminAuth` | Admin dashboard APIs |
+| `/api/auth` | `X-Client-Id` via client middleware | Register, login, provider login, refresh, logout |
+| `/api/users` | Bearer access token | User profile and account linking |
+| `/api/teams` | Bearer access token | User-facing team operations |
+| `/oauth` | HTTP Basic client credentials | Token, revoke, introspect |
+| `/admin` | Bearer access token with `role == "admin"` | Admin dashboard APIs |
 | `/health` | None | Health check with app version |
 
-Storage is abstracted behind sub-traits in `src\db\repository.rs` and implemented by `src\db\azure_tables.rs`. Domain entities currently cover applications, users, linked accounts, per-application providers, authorization codes, refresh tokens, invite codes, teams, and team memberships. Azure table names are prefixed with `auth` for shared storage accounts; secondary lookups are implemented with explicit index rows in the table implementation.
+Storage is abstracted behind interfaces in `internal\repository\repository.go` and implemented by `internal\repository\aztables`. Domain entities cover applications, users, linked accounts, per-application providers, authorization codes, refresh tokens, invite codes, teams, and team memberships. Azure table names are prefixed with `auth` for shared storage accounts; secondary lookups are implemented with explicit index rows in the table implementation.
 
-Auth provider login is pluggable through the `AuthProvider` trait and `create_provider()` factory in `src\auth\providers\mod.rs`. The `"test"` provider is feature-gated behind `test-providers`; normal password registration/login uses the password helpers rather than the provider factory.
+Auth provider login is pluggable through `internal\auth\providers`. The `test` provider is gated by `AUTH_ENABLE_TEST_PROVIDERS`; normal password registration/login uses password helpers rather than the provider factory.
 
 ### Frontend
 
@@ -93,20 +93,19 @@ Feature pages keep API calls in `src\api\admin.ts`, shared TypeScript contracts 
 
 ## Key conventions
 
-- Use Axum 0.7 `:param` route parameters in backend routes.
-- Keep all storage access behind `Repository` and its sub-traits; handlers should not depend directly on Azure Table clients.
-- Return API errors through `AppError`, which maps errors to status codes and consistent JSON bodies.
-- Backend integration tests use `tower::ServiceExt::oneshot` in process, `TestApp::new()` from `tests\common\mod.rs`, `#[serial]`, Azurite, and `--test-threads=1`. `TestApp::new()` clears and recreates all tables and bootstraps an admin app/user through `seed::bootstrap()`.
+- Keep all storage access behind `repository.Repository` and its sub-interfaces; handlers should not depend directly on Azure Table clients.
+- Return API errors through `apperror.Error`, which maps errors to status codes and consistent JSON bodies.
+- Backend integration tests use Gin's in-process HTTP engine, `newTestApp` from `internal\server\integration_test.go`, Azurite, and `go test ./... -count=1`. `newTestApp` clears and recreates all tables and bootstraps an admin app/user through `seed.Bootstrap`.
 - Admin access is normal JWT auth with an admin role claim; there is no static admin API key.
 - Client secrets are only exposed at creation, rotation, or bootstrap time; store hashes in persisted application records.
 - Fields such as redirect URIs, scopes, provider config, and metadata are often stored as JSON strings in backend models/Azure rows but exposed as arrays or objects in HTTP/frontend types.
 - Frontend mutations use TanStack Query invalidation for the affected query keys and rely on the global mutation error toast configured in `main.tsx`.
 - UI text should use i18next namespaces; add keys for both `zh-CN` and `en-US` when adding or changing visible strings.
 - When adding a cross-cutting feature, update all relevant surfaces together: backend model/repository/table implementation/handler/routes/tests, then frontend API types/client functions/routes/sidebar/pages/i18n as applicable.
-- CI path filters only run backend jobs for `sources\dev\authentication\**` changes and frontend jobs for `sources\dev\admin-dashboard\**` changes. Backend CI uses `RUSTFLAGS=-Dwarnings`, `cargo fmt --check`, `cargo clippy -- -D warnings`, and Azurite-backed tests.
-- Versions use CalVer `YYYY.M.MICRO` and are synchronized across root `package.json`, `sources\dev\admin-dashboard\package.json`, and `sources\dev\authentication\Cargo.toml` by the release workflow.
+- CI path filters run backend jobs for `sources\dev\authentication-go\**` changes and frontend jobs for `sources\dev\admin-dashboard\**` changes. Backend CI uses `gofmt`, `go vet`, Azurite-backed `go test`, and Docker dry-run builds.
+- Versions use CalVer `YYYY.M.MICRO` and are synchronized across root `package.json` and `sources\dev\admin-dashboard\package.json` by the release workflow. Backend runtime version is injected with `APP_VERSION` during deployment.
 - Commit messages follow Conventional Commits, enforced by commitlint; use `type(scope): description` such as `feat(auth): add provider`.
 
 ## Deployment context
 
-Release runs after CI succeeds on `main`, bumps versions, creates a `vYYYY.M.MICRO` tag, and triggers deployment. Deployment builds the backend Docker image from `sources\dev\authentication`, pushes it to GHCR, updates Azure Container Apps, then builds the frontend with `VITE_API_CLIENT_ID`, `VITE_API_BASE_URL`, and `VITE_APP_VERSION` for Azure Static Web Apps.
+Release runs after CI succeeds on `main`, bumps versions, creates a `vYYYY.M.MICRO` tag, and triggers deployment. Deployment vendors the Go backend dependencies, builds the Docker image from `sources\dev\authentication-go`, pushes it to GHCR, updates Azure Container Apps, then builds the frontend with `VITE_API_CLIENT_ID`, `VITE_API_BASE_URL`, and `VITE_APP_VERSION` for Azure Static Web Apps.

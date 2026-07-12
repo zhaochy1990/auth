@@ -49,6 +49,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The Go backend depends on github.com/zhaochy1990/x through a local
+      # replace. Vendor it before Docker build so the image context is complete.
+      - name: Checkout x dependency
+        uses: actions/checkout@v4
+        with:
+          repository: zhaochy1990/x
+          path: _x
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: sources/dev/authentication-go/go.sum
+
+      - name: Vendor backend dependencies
+        working-directory: sources/dev/authentication-go
+        run: |
+          go mod edit -replace github.com/zhaochy1990/x="$GITHUB_WORKSPACE/_x"
+          go mod vendor
+
       - name: Build and push Docker image
         working-directory: sources/dev/authentication-go
         run: |

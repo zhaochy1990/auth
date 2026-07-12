@@ -6,10 +6,17 @@
     "email": "Email",
     "name": "Name",
     "role": "Role",
+    "userType": "User Type",
     "membership": "Membership",
     "status": "Status",
     "createdAt": "Created At",
     "lastLoginAt": "Last Login"
+  },
+  "sort": {
+    "nameAsc": "Name A-Z",
+    "nameDesc": "Name Z-A",
+    "lastLoginDesc": "Last Login Newest",
+    "lastLoginAsc": "Last Login Oldest"
   },
   "role": {
     "user": "User",
@@ -18,6 +25,25 @@
   "membership": {
     "regular": "Regular",
     "vip1": "VIP 1"
+  },
+  "attributes": {
+    "birthday": "Birthday",
+    "gender": "Gender",
+    "heightCm": "Height (cm)",
+    "weightKg": "Weight (kg)",
+    "heightPlaceholder": "e.g. 175",
+    "weightPlaceholder": "e.g. 65",
+    "unspecified": "Unspecified",
+    "genderOptions": {
+      "female": "Female",
+      "male": "Male",
+      "other": "Other"
+    }
+  },
+  "userType": {
+    "all": "All types",
+    "regular": "Regular",
+    "testing": "Testing"
   },
   "create": {
     "title": "Create User",
@@ -28,6 +54,7 @@
     "name": "Name",
     "namePlaceholder": "Optional display name",
     "role": "Role",
+    "userType": "User Type",
     "submit": "Create",
     "success": "User created"
   },
@@ -39,6 +66,7 @@
     "email": "Email",
     "name": "Name",
     "role": "Role",
+    "userType": "User Type",
     "status": "Status",
     "emailVerified": "Email verified",
     "emailNotVerified": "Email not verified",
@@ -51,6 +79,7 @@
     "unlinkAccount": "Unlink",
     "unlinkConfirm": "Unlink this account?",
     "changeRole": "Change Role",
+    "changeUserType": "Change User Type",
     "toggleActive": "Toggle Active",
     "membership": {
       "title": "Membership",
@@ -59,6 +88,12 @@
       "expiresAt": "Expires At",
       "expiresHint": "Leave empty for a permanent membership.",
       "noExpiry": "No expiry",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "attributes": {
+      "title": "Custom Attributes",
+      "edit": "Edit",
       "save": "Save",
       "cancel": "Cancel"
     },

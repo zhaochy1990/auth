@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [master, main]
 
-env:
-  CARGO_TERM_COLOR: always
-  RUSTFLAGS: -Dwarnings
-
 jobs:
   commitlint:
     name: Lint Commit Messages
@@ -36,7 +32,6 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
-      go: ${{ steps.filter.outputs.go }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -44,126 +39,14 @@ jobs:
         with:
           filters: |
             backend:
-              - 'sources/dev/authentication/**'
+              - 'sources/dev/authentication-go/**'
             frontend:
               - 'sources/dev/admin-dashboard/**'
-            go:
-              - 'sources/dev/authentication-go/**'
 
   backend-check:
     name: Backend Lint
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sources/dev/authentication
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: sources/dev/authentication
-
-      - name: Check formatting
-        run: cargo fmt --check
-
-      - name: Clippy
-        run: cargo clippy -- -D warnings
-
-  backend-test:
-    name: Backend Test
-    needs: changes
-    if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sources/dev/authentication
-
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: root_password
-          MYSQL_DATABASE: auth_test
-          MYSQL_USER: auth
-          MYSQL_PASSWORD: auth_password
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd "mysqladmin ping -h 127.0.0.1 -uauth -pauth_password"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: sources/dev/authentication
-
-      - name: Generate ephemeral JWT keys
-        run: |
-          mkdir -p keys
-          openssl genpkey -algorithm RSA -out keys/private.pem -pkeyopt rsa_keygen_bits:2048
-          openssl rsa -pubout -in keys/private.pem -out keys/public.pem
-
-      - name: Run tests
-        env:
-          TEST_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1"
-        run: cargo test --features test-providers -- --test-threads=1
-
-  backend-docker:
-    name: Backend Docker Build
-    runs-on: ubuntu-latest
-    needs: [changes, backend-check, backend-test]
-    if: needs.changes.outputs.backend == 'true' && github.event_name == 'push'
-    defaults:
-      run:
-        working-directory: sources/dev/authentication
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Docker build (dry run)
-        run: docker build -t auth-backend:ci .
-
-  frontend-check:
-    name: Frontend Lint & Build
-    needs: changes
-    if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sources/dev/admin-dashboard
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: sources/dev/admin-dashboard/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Build
-        run: npm run build
-
-  go-check:
-    name: Go Lint
-    needs: changes
-    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -197,25 +80,30 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-  go-test:
-    name: Go Test
+  backend-test:
+    name: Backend Test
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: sources/dev/authentication-go
 
     services:
-      azurite:
-        image: mcr.microsoft.com/azure-storage/azurite
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: auth_test
+          MYSQL_USER: auth
+          MYSQL_PASSWORD: auth_password
         ports:
-          - 10002:10002
+          - 3306:3306
         options: >-
-          --health-cmd "nc -z 127.0.0.1 10002"
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uauth -pauth_password"
           --health-interval 5s
           --health-timeout 3s
-          --health-retries 10
+          --health-retries 20
 
     steps:
       - uses: actions/checkout@v4
@@ -245,11 +133,11 @@ jobs:
           TEST_MYSQL_DSN: "mysql://auth:auth_password@127.0.0.1:3306/auth_test"
         run: go test ./... -count=1
 
-  go-docker:
-    name: Go Docker Build
+  backend-docker:
+    name: Backend Docker Build
     runs-on: ubuntu-latest
-    needs: [changes, go-check, go-test]
-    if: needs.changes.outputs.go == 'true' && github.event_name == 'push'
+    needs: [changes, backend-check, backend-test]
+    if: needs.changes.outputs.backend == 'true' && github.event_name == 'push'
     defaults:
       run:
         working-directory: sources/dev/authentication-go
@@ -274,4 +162,30 @@ jobs:
           go mod vendor
 
       - name: Docker build (dry run)
-        run: docker build -t auth-backend-go:ci .
+        run: docker build -t auth-backend:ci .
+
+  frontend-check:
+    name: Frontend Lint & Build
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sources/dev/admin-dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sources/dev/admin-dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build

@@ -9,11 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
+	pinyin "github.com/mozillazg/go-pinyin"
 
 	"github.com/zhaochy1990/auth-service/internal/apperror"
 	"github.com/zhaochy1990/auth-service/internal/domain"
@@ -136,7 +139,29 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := r.ensureColumn(ctx, "auth_users", "user_type", "VARCHAR(32) NOT NULL DEFAULT 'regular' AFTER role"); err != nil {
+		return err
+	}
+	if err := r.ensureColumn(ctx, "auth_users", "custom_attributes", "TEXT NULL AFTER note"); err != nil {
+		return err
+	}
+	if _, err := r.db.ExecContext(ctx, "UPDATE auth_users SET custom_attributes = '{}' WHERE custom_attributes IS NULL OR custom_attributes = ''"); err != nil {
+		return err
+	}
+	if err := r.ensureColumn(ctx, "auth_invite_codes", "grants_user_type", "VARCHAR(32) NULL AFTER grants_membership_days"); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (r *Repository) ensureColumn(ctx context.Context, table, column, definition string) error {
+	var count int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, table, column).Scan(&count)
+	if err != nil || count > 0 {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition))
+	return err
 }
 
 // ClearAllTables removes all data. It is intended for integration tests only.
@@ -200,8 +225,10 @@ var schemaStatements = []string{
 		avatar_url TEXT NULL,
 		email_verified BOOLEAN NOT NULL DEFAULT FALSE,
 		role VARCHAR(32) NOT NULL DEFAULT 'user',
+		user_type VARCHAR(32) NOT NULL DEFAULT 'regular',
 		is_active BOOLEAN NOT NULL DEFAULT TRUE,
 		note TEXT NULL,
+		custom_attributes TEXT NOT NULL,
 		created_at DATETIME(6) NOT NULL,
 		updated_at DATETIME(6) NOT NULL,
 		last_login_at DATETIME(6) NULL,
@@ -274,6 +301,7 @@ var schemaStatements = []string{
 		kind VARCHAR(32) NOT NULL DEFAULT 'single_use',
 		grants_membership VARCHAR(32) NULL,
 		grants_membership_days BIGINT NULL,
+		grants_user_type VARCHAR(32) NULL,
 		UNIQUE KEY uq_auth_invite_codes_code (code),
 		KEY idx_auth_invite_codes_created_at (created_at),
 		KEY idx_auth_invite_codes_used_at (used_at)
@@ -412,20 +440,113 @@ func deserializeLogins(ns sql.NullString) []domain.LoginRecord {
 	return out
 }
 
+func serializeCustomAttributes(attributes map[string]any) string {
+	if attributes == nil {
+		return "{}"
+	}
+	b, err := json.Marshal(attributes)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+func deserializeCustomAttributes(ns sql.NullString) map[string]any {
+	if !ns.Valid || ns.String == "" {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(ns.String), &out); err != nil || out == nil {
+		return map[string]any{}
+	}
+	return out
+}
+
+func defaultUserType(t domain.UserType) domain.UserType {
+	if t.Valid() {
+		return t
+	}
+	return domain.UserTypeRegular
+}
+
+func normalizeUserSortName(value string) string {
+	a := pinyin.NewArgs()
+	a.Style = pinyin.Normal
+	a.Fallback = func(r rune, _ pinyin.Args) []string {
+		if unicode.IsControl(r) {
+			return nil
+		}
+		return []string{strings.ToLower(string(r))}
+	}
+
+	parts := pinyin.LazyConvert(strings.TrimSpace(value), &a)
+	return strings.Join(parts, "")
+}
+
+func userSortNameKey(u domain.User) string {
+	if u.Name != nil && strings.TrimSpace(*u.Name) != "" {
+		return normalizeUserSortName(*u.Name)
+	}
+	if u.Email != nil {
+		return normalizeUserSortName(*u.Email)
+	}
+	return ""
+}
+
+func userLastLoginKey(u domain.User) string {
+	if u.LastLoginAt == nil {
+		return "0"
+	}
+	return "1" + fmtDT(*u.LastLoginAt)
+}
+
+func compareUser(a, b domain.User, sortSpec repository.UserListSort) int {
+	var ak, bk string
+	switch sortSpec.By {
+	case repository.UserListSortByLastLoginAt:
+		ak, bk = userLastLoginKey(a), userLastLoginKey(b)
+	default:
+		ak, bk = userSortNameKey(a), userSortNameKey(b)
+	}
+	if ak < bk {
+		return -1
+	}
+	if ak > bk {
+		return 1
+	}
+	if a.ID < b.ID {
+		return -1
+	}
+	if a.ID > b.ID {
+		return 1
+	}
+	return 0
+}
+
+func sortUsers(users []domain.User, sortSpec repository.UserListSort) {
+	sort.SliceStable(users, func(i, j int) bool {
+		cmp := compareUser(users[i], users[j], sortSpec)
+		if sortSpec.Order == repository.SortOrderDesc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
 func isDuplicate(err error) bool {
 	var me *mysqldriver.MySQLError
 	return errors.As(err, &me) && me.Number == 1062
 }
 
-const userColumns = `id, email, name, avatar_url, email_verified, role, is_active, note, created_at, updated_at, last_login_at, recent_logins, invite_code, membership, membership_expires_at`
+const userColumns = `id, email, name, avatar_url, email_verified, role, user_type, is_active, note, custom_attributes, created_at, updated_at, last_login_at, recent_logins, invite_code, membership, membership_expires_at`
 
 type userRepo struct{ db *sql.DB }
 
 func scanUser(s rowScanner) (*domain.User, error) {
 	var u domain.User
-	var email, name, avatar, note, recent, invite, membership sql.NullString
+	var email, name, avatar, note, customAttrs, recent, invite, membership, userType sql.NullString
 	var lastLogin, membershipExpires sql.NullTime
-	if err := s.Scan(&u.ID, &email, &name, &avatar, &u.EmailVerified, &u.Role, &u.IsActive, &note, &u.CreatedAt, &u.UpdatedAt, &lastLogin, &recent, &invite, &membership, &membershipExpires); err != nil {
+	if err := s.Scan(&u.ID, &email, &name, &avatar, &u.EmailVerified, &u.Role, &userType, &u.IsActive, &note, &customAttrs, &u.CreatedAt, &u.UpdatedAt, &lastLogin, &recent, &invite, &membership, &membershipExpires); err != nil {
 		return nil, err
 	}
 	if u.Role == "" {
@@ -438,7 +559,9 @@ func scanUser(s rowScanner) (*domain.User, error) {
 	u.Email = ptrString(email)
 	u.Name = ptrString(name)
 	u.AvatarURL = ptrString(avatar)
+	u.UserType = domain.UserTypeFromString(userType.String)
 	u.Note = ptrString(note)
+	u.CustomAttributes = deserializeCustomAttributes(customAttrs)
 	u.LastLoginAt = ptrTime(lastLogin)
 	u.RecentLogins = deserializeLogins(recent)
 	u.InviteCode = ptrString(invite)
@@ -480,10 +603,11 @@ func (r *userRepo) Insert(ctx context.Context, u *domain.User) error {
 	if membership == "" {
 		membership = string(domain.MembershipRegular)
 	}
+	userType := string(defaultUserType(u.UserType))
 	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_users
-		(id, email, email_lookup, name, avatar_url, email_verified, role, is_active, note, created_at, updated_at, last_login_at, recent_logins, invite_code, membership, membership_expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		u.ID, nullString(u.Email), emailLookup(u.Email), nullString(u.Name), nullString(u.AvatarURL), u.EmailVerified, role, u.IsActive, nullString(u.Note), u.CreatedAt.UTC(), u.UpdatedAt.UTC(), nullTime(u.LastLoginAt), serializeLogins(u.RecentLogins), nullString(u.InviteCode), membership, nullTime(u.MembershipExpiresAt))
+		(id, email, email_lookup, name, avatar_url, email_verified, role, user_type, is_active, note, custom_attributes, created_at, updated_at, last_login_at, recent_logins, invite_code, membership, membership_expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, nullString(u.Email), emailLookup(u.Email), nullString(u.Name), nullString(u.AvatarURL), u.EmailVerified, role, userType, u.IsActive, nullString(u.Note), serializeCustomAttributes(u.CustomAttributes), u.CreatedAt.UTC(), u.UpdatedAt.UTC(), nullTime(u.LastLoginAt), serializeLogins(u.RecentLogins), nullString(u.InviteCode), membership, nullTime(u.MembershipExpiresAt))
 	if err != nil {
 		if isDuplicate(err) {
 			return apperror.Database("user already exists")
@@ -502,10 +626,11 @@ func (r *userRepo) Update(ctx context.Context, u *domain.User) error {
 	if membership == "" {
 		membership = string(domain.MembershipRegular)
 	}
+	userType := string(defaultUserType(u.UserType))
 	_, err := r.db.ExecContext(ctx, `UPDATE auth_users SET
-		email = ?, email_lookup = ?, name = ?, avatar_url = ?, email_verified = ?, role = ?, is_active = ?, note = ?, updated_at = ?, last_login_at = ?, recent_logins = ?, invite_code = ?, membership = ?, membership_expires_at = ?
+		email = ?, email_lookup = ?, name = ?, avatar_url = ?, email_verified = ?, role = ?, user_type = ?, is_active = ?, note = ?, custom_attributes = ?, updated_at = ?, last_login_at = ?, recent_logins = ?, invite_code = ?, membership = ?, membership_expires_at = ?
 		WHERE id = ?`,
-		nullString(u.Email), emailLookup(u.Email), nullString(u.Name), nullString(u.AvatarURL), u.EmailVerified, role, u.IsActive, nullString(u.Note), u.UpdatedAt.UTC(), nullTime(u.LastLoginAt), serializeLogins(u.RecentLogins), nullString(u.InviteCode), membership, nullTime(u.MembershipExpiresAt), u.ID)
+		nullString(u.Email), emailLookup(u.Email), nullString(u.Name), nullString(u.AvatarURL), u.EmailVerified, role, userType, u.IsActive, nullString(u.Note), serializeCustomAttributes(u.CustomAttributes), u.UpdatedAt.UTC(), nullTime(u.LastLoginAt), serializeLogins(u.RecentLogins), nullString(u.InviteCode), membership, nullTime(u.MembershipExpiresAt), u.ID)
 	if err != nil {
 		return dbErr(err)
 	}
@@ -533,33 +658,54 @@ func (r *userRepo) CountSince(ctx context.Context, since time.Time) (uint64, err
 	return n, nil
 }
 
-func (r *userRepo) ListPaginated(ctx context.Context, search string, offset, limit uint64) ([]domain.User, uint64, error) {
+func (r *userRepo) ListPaginated(ctx context.Context, search string, userType *domain.UserType, sortSpec repository.UserListSort, offset, limit uint64) ([]domain.User, uint64, error) {
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
 	where := ""
 	args := []any{}
+	clauses := []string{}
 	if strings.TrimSpace(search) != "" {
-		where = " WHERE LOWER(COALESCE(email, '')) LIKE ? OR LOWER(COALESCE(name, '')) LIKE ?"
-		pattern := "%" + strings.ToLower(search) + "%"
+		clauses = append(clauses, "(LOWER(COALESCE(email, '')) LIKE ? OR LOWER(COALESCE(name, '')) LIKE ?)")
+		pattern := "%" + strings.ToLower(strings.TrimSpace(search)) + "%"
 		args = append(args, pattern, pattern)
 	}
-	var total uint64
-	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM auth_users"+where, args...).Scan(&total); err != nil {
-		return nil, 0, dbErr(err)
+	if userType != nil {
+		clauses = append(clauses, "user_type = ?")
+		args = append(args, string(defaultUserType(*userType)))
 	}
-	queryArgs := append(args, limit, offset)
-	rows, err := r.db.QueryContext(ctx, "SELECT "+userColumns+" FROM auth_users"+where+" ORDER BY created_at DESC LIMIT ? OFFSET ?", queryArgs...)
+	if len(clauses) > 0 {
+		where = " WHERE " + strings.Join(clauses, " AND ")
+	}
+	rows, err := r.db.QueryContext(ctx, "SELECT "+userColumns+" FROM auth_users"+where, args...)
 	if err != nil {
 		return nil, 0, dbErr(err)
 	}
 	defer rows.Close()
-	out := make([]domain.User, 0)
+	all := make([]domain.User, 0)
 	for rows.Next() {
 		u, err := scanUser(rows)
 		if err != nil {
 			return nil, 0, dbErr(err)
 		}
-		out = append(out, *u)
+		all = append(all, *u)
 	}
-	return out, total, dbErr(rows.Err())
+	if err := rows.Err(); err != nil {
+		return nil, 0, dbErr(err)
+	}
+	sortUsers(all, sortSpec)
+	total := uint64(len(all))
+	if offset >= total {
+		return []domain.User{}, total, nil
+	}
+	end := offset + limit
+	if end < offset || end > total {
+		end = total
+	}
+	return all[int(offset):int(end)], total, nil
 }
 
 func (r *userRepo) RecordLogin(ctx context.Context, userID, ip string) error {
@@ -875,16 +1021,16 @@ func (r *refreshTokenRepo) DeleteAllByUser(ctx context.Context, userID string) e
 	return dbErr(err)
 }
 
-const inviteCodeColumns = `id, code, created_by, created_at, used_at, used_by, is_revoked, kind, grants_membership, grants_membership_days`
+const inviteCodeColumns = `id, code, created_by, created_at, used_at, used_by, is_revoked, kind, grants_membership, grants_membership_days, grants_user_type`
 
 type inviteCodeRepo struct{ db *sql.DB }
 
 func scanInviteCode(s rowScanner) (*domain.InviteCode, error) {
 	var c domain.InviteCode
 	var usedAt sql.NullTime
-	var usedBy, kind, grants sql.NullString
+	var usedBy, kind, grants, grantsUserType sql.NullString
 	var grantDays sql.NullInt64
-	if err := s.Scan(&c.ID, &c.Code, &c.CreatedBy, &c.CreatedAt, &usedAt, &usedBy, &c.IsRevoked, &kind, &grants, &grantDays); err != nil {
+	if err := s.Scan(&c.ID, &c.Code, &c.CreatedBy, &c.CreatedAt, &usedAt, &usedBy, &c.IsRevoked, &kind, &grants, &grantDays, &grantsUserType); err != nil {
 		return nil, err
 	}
 	c.CreatedAt = c.CreatedAt.UTC()
@@ -899,6 +1045,10 @@ func scanInviteCode(s rowScanner) (*domain.InviteCode, error) {
 		v := grantDays.Int64
 		c.GrantsMembershipDays = &v
 	}
+	if grantsUserType.Valid && grantsUserType.String != "" {
+		t := domain.UserType(grantsUserType.String)
+		c.GrantsUserType = normalizeInviteCodeGrantUserType(&t)
+	}
 	return &c, nil
 }
 func generateInviteCode() string {
@@ -910,17 +1060,37 @@ func generateInviteCode() string {
 	}
 	return string(out)
 }
-func (r *inviteCodeRepo) Create(ctx context.Context, createdBy string, kind domain.InviteCodeKind, grants *domain.MembershipTier, grantDays *int64) (*domain.InviteCode, error) {
+func normalizeInviteCodeGrantUserType(t *domain.UserType) *domain.UserType {
+	if t == nil {
+		return nil
+	}
+	v := domain.UserTypeFromString(string(*t))
+	if v == domain.UserTypeRegular {
+		return nil
+	}
+	return &v
+}
+
+func userTypeString(t *domain.UserType) *string {
+	normalized := normalizeInviteCodeGrantUserType(t)
+	if normalized == nil {
+		return nil
+	}
+	v := string(*normalized)
+	return &v
+}
+
+func (r *inviteCodeRepo) Create(ctx context.Context, createdBy string, kind domain.InviteCodeKind, grants *domain.MembershipTier, grantDays *int64, grantsUserType *domain.UserType) (*domain.InviteCode, error) {
 	if kind == "" {
 		kind = domain.InviteSingleUse
 	}
-	c := &domain.InviteCode{ID: uuid.NewString(), Code: generateInviteCode(), CreatedBy: createdBy, CreatedAt: time.Now().UTC(), IsRevoked: false, Kind: kind, GrantsMembership: grants, GrantsMembershipDays: grantDays}
+	c := &domain.InviteCode{ID: uuid.NewString(), Code: generateInviteCode(), CreatedBy: createdBy, CreatedAt: time.Now().UTC(), IsRevoked: false, Kind: kind, GrantsMembership: grants, GrantsMembershipDays: grantDays, GrantsUserType: normalizeInviteCodeGrantUserType(grantsUserType)}
 	var grantsStr *string
 	if grants != nil {
 		v := string(*grants)
 		grantsStr = &v
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_invite_codes (id, code, created_by, created_at, used_at, used_by, is_revoked, kind, grants_membership, grants_membership_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, c.ID, c.Code, c.CreatedBy, c.CreatedAt, nullTime(c.UsedAt), nullString(c.UsedBy), c.IsRevoked, string(c.Kind), nullString(grantsStr), nullInt64(grantDays))
+	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_invite_codes (id, code, created_by, created_at, used_at, used_by, is_revoked, kind, grants_membership, grants_membership_days, grants_user_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, c.ID, c.Code, c.CreatedBy, c.CreatedAt, nullTime(c.UsedAt), nullString(c.UsedBy), c.IsRevoked, string(c.Kind), nullString(grantsStr), nullInt64(grantDays), nullString(userTypeString(c.GrantsUserType)))
 	if err != nil {
 		return nil, dbErr(err)
 	}
@@ -1207,7 +1377,7 @@ func (r *Repository) insertInviteCode(ctx context.Context, c *domain.InviteCode)
 	if kind == "" {
 		kind = domain.InviteSingleUse
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_invite_codes (id, code, created_by, created_at, used_at, used_by, is_revoked, kind, grants_membership, grants_membership_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, c.ID, c.Code, c.CreatedBy, c.CreatedAt.UTC(), nullTime(c.UsedAt), nullString(c.UsedBy), c.IsRevoked, string(kind), nullString(grants), nullInt64(c.GrantsMembershipDays))
+	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_invite_codes (id, code, created_by, created_at, used_at, used_by, is_revoked, kind, grants_membership, grants_membership_days, grants_user_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, c.ID, c.Code, c.CreatedBy, c.CreatedAt.UTC(), nullTime(c.UsedAt), nullString(c.UsedBy), c.IsRevoked, string(kind), nullString(grants), nullInt64(c.GrantsMembershipDays), nullString(userTypeString(c.GrantsUserType)))
 	return dbErr(err)
 }
 

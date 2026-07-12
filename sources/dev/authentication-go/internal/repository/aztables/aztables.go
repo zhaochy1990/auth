@@ -1,8 +1,7 @@
 // Package aztables implements the repository interfaces against Azure Table
-// Storage. It is a faithful port of the Rust `azure_tables.rs`: identical table
-// names, PartitionKey/RowKey schemes, secondary index rows, and ETag-based
-// atomic invite-code consumption — so it is drop-in data-compatible with the
-// existing deployment.
+// Storage. It preserves the production storage contract: table names,
+// PartitionKey/RowKey schemes, secondary index rows, and ETag-based atomic
+// invite-code consumption.
 package aztables
 
 import (
@@ -15,10 +14,12 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/aztables"
 	"github.com/google/uuid"
+	pinyin "github.com/mozillazg/go-pinyin"
 
 	"github.com/zhaochy1990/auth-service/internal/apperror"
 	"github.com/zhaochy1990/auth-service/internal/domain"
@@ -31,6 +32,7 @@ import (
 const (
 	tableApplications    = "authapplications"
 	tableUsers           = "authusers"
+	tableUserSortIndexes = "authusersortindexes"
 	tableAccounts        = "authaccounts"
 	tableAppProviders    = "authappproviders"
 	tableAuthCodes       = "authauthcodes"
@@ -197,6 +199,14 @@ type indexEntity struct {
 	TargetID     string `json:"target_id"`
 }
 
+const (
+	userSortNameAscPK       = "idx_user_sort_name_asc"
+	userSortNameDescPK      = "idx_user_sort_name_desc"
+	userSortLastLoginAscPK  = "idx_user_sort_last_login_at_asc"
+	userSortLastLoginDescPK = "idx_user_sort_last_login_at_desc"
+	userSortKeyMaxBytes     = 400
+)
+
 type compositeIndexEntity struct {
 	PartitionKey string `json:"PartitionKey"`
 	RowKey       string `json:"RowKey"`
@@ -209,6 +219,13 @@ func providerAccountIndexPK(providerID string) string {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func defaultUserType(t domain.UserType) domain.UserType {
+	if t.Valid() {
+		return t
+	}
+	return domain.UserTypeRegular
+}
 
 // boolOr defaults a possibly-absent stored bool.
 func boolOr(p *bool, def bool) bool {
@@ -233,6 +250,7 @@ type Repository struct {
 
 	applications    *aztables.Client
 	users           *aztables.Client
+	userSortIndexes *aztables.Client
 	accounts        *aztables.Client
 	appProviders    *aztables.Client
 	authCodes       *aztables.Client
@@ -263,6 +281,7 @@ func New(connectionString string) (*Repository, error) {
 		svc:             svc,
 		applications:    svc.NewClient(tableApplications),
 		users:           svc.NewClient(tableUsers),
+		userSortIndexes: svc.NewClient(tableUserSortIndexes),
 		accounts:        svc.NewClient(tableAccounts),
 		appProviders:    svc.NewClient(tableAppProviders),
 		authCodes:       svc.NewClient(tableAuthCodes),
@@ -271,7 +290,7 @@ func New(connectionString string) (*Repository, error) {
 		teams:           svc.NewClient(tableTeams),
 		teamMemberships: svc.NewClient(tableTeamMemberships),
 	}
-	r.userRepo = &userRepo{c: r.users}
+	r.userRepo = &userRepo{c: r.users, sortIndexes: r.userSortIndexes}
 	r.appRepo = &appRepo{c: r.applications}
 	r.accountRepo = &accountRepo{c: r.accounts}
 	r.appProvRepo = &appProviderRepo{c: r.appProviders}
@@ -285,7 +304,7 @@ func New(connectionString string) (*Repository, error) {
 
 func (r *Repository) allTables() []*aztables.Client {
 	return []*aztables.Client{
-		r.applications, r.users, r.accounts, r.appProviders, r.authCodes,
+		r.applications, r.users, r.userSortIndexes, r.accounts, r.appProviders, r.authCodes,
 		r.refreshTokens, r.inviteCodes, r.teams, r.teamMemberships,
 	}
 }
@@ -450,8 +469,10 @@ type userEntity struct {
 	AvatarURL           *string `json:"avatar_url,omitempty"`
 	EmailVerified       bool    `json:"email_verified"`
 	Role                string  `json:"role"`
+	UserType            string  `json:"user_type"`
 	IsActive            *bool   `json:"is_active,omitempty"`
 	Note                *string `json:"note,omitempty"`
+	CustomAttributes    string  `json:"custom_attributes"`
 	CreatedAt           string  `json:"created_at"`
 	UpdatedAt           string  `json:"updated_at"`
 	LastLoginAt         *string `json:"last_login_at,omitempty"`
@@ -492,11 +513,34 @@ func deserializeLogins(s *string) []domain.LoginRecord {
 	return out
 }
 
+func serializeCustomAttributes(attributes map[string]any) string {
+	if attributes == nil {
+		return "{}"
+	}
+	b, err := json.Marshal(attributes)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+func deserializeCustomAttributes(s string) map[string]any {
+	if s == "" {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(s), &out); err != nil || out == nil {
+		return map[string]any{}
+	}
+	return out
+}
+
 func userToEntity(u *domain.User) userEntity {
 	membership := string(u.Membership)
 	if membership == "" {
 		membership = string(domain.MembershipRegular)
 	}
+	userType := defaultUserType(u.UserType)
 	role := u.Role
 	if role == "" {
 		role = "user"
@@ -509,8 +553,10 @@ func userToEntity(u *domain.User) userEntity {
 		AvatarURL:           u.AvatarURL,
 		EmailVerified:       u.EmailVerified,
 		Role:                role,
+		UserType:            string(userType),
 		IsActive:            boolPtr(u.IsActive),
 		Note:                u.Note,
+		CustomAttributes:    serializeCustomAttributes(u.CustomAttributes),
 		CreatedAt:           fmtDT(u.CreatedAt),
 		UpdatedAt:           fmtDT(u.UpdatedAt),
 		LastLoginAt:         fmtDTPtr(u.LastLoginAt),
@@ -537,8 +583,10 @@ func (e *userEntity) toModel() *domain.User {
 		AvatarURL:           e.AvatarURL,
 		EmailVerified:       e.EmailVerified,
 		Role:                role,
+		UserType:            domain.UserTypeFromString(e.UserType),
 		IsActive:            boolOr(e.IsActive, true),
 		Note:                e.Note,
+		CustomAttributes:    deserializeCustomAttributes(e.CustomAttributes),
 		CreatedAt:           parseDT(e.CreatedAt),
 		UpdatedAt:           parseDT(e.UpdatedAt),
 		LastLoginAt:         parseDTPtr(e.LastLoginAt),
@@ -549,7 +597,10 @@ func (e *userEntity) toModel() *domain.User {
 	}
 }
 
-type userRepo struct{ c *aztables.Client }
+type userRepo struct {
+	c           *aztables.Client
+	sortIndexes *aztables.Client
+}
 
 func (r *userRepo) FindByID(ctx context.Context, id string) (*domain.User, error) {
 	var e userEntity
@@ -583,6 +634,14 @@ func (r *userRepo) Insert(ctx context.Context, u *domain.User) error {
 	if err := addEntity(ctx, r.c, &e); err != nil {
 		return dbErr(err)
 	}
+	if err := r.upsertSortIndexes(ctx, &e); err != nil {
+		_ = r.deleteSortIndexes(ctx, &e)
+		_ = deleteEntity(ctx, r.c, "user", u.ID)
+		if u.Email != nil {
+			_ = deleteEntity(ctx, r.c, "idx_email", strings.ToLower(*u.Email))
+		}
+		return err
+	}
 	return nil
 }
 
@@ -593,6 +652,10 @@ func (r *userRepo) Update(ctx context.Context, u *domain.User) error {
 		return err
 	}
 	if ok {
+		if err := r.deleteSortIndexes(ctx, &current); err != nil {
+			return err
+		}
+
 		var oldEmail, newEmail *string
 		if current.Email != nil {
 			v := strings.ToLower(*current.Email)
@@ -617,7 +680,10 @@ func (r *userRepo) Update(ctx context.Context, u *domain.User) error {
 		}
 	}
 	e := userToEntity(u)
-	return upsertEntity(ctx, r.c, &e)
+	if err := upsertEntity(ctx, r.c, &e); err != nil {
+		return err
+	}
+	return r.upsertSortIndexes(ctx, &e)
 }
 
 func (r *userRepo) DeleteByID(ctx context.Context, id string) error {
@@ -626,9 +692,14 @@ func (r *userRepo) DeleteByID(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if ok && e.Email != nil {
-		if err := deleteEntity(ctx, r.c, "idx_email", strings.ToLower(*e.Email)); err != nil {
+	if ok {
+		if err := r.deleteSortIndexes(ctx, &e); err != nil {
 			return err
+		}
+		if e.Email != nil {
+			if err := deleteEntity(ctx, r.c, "idx_email", strings.ToLower(*e.Email)); err != nil {
+				return err
+			}
 		}
 	}
 	return deleteEntity(ctx, r.c, "user", id)
@@ -673,31 +744,229 @@ func (r *userRepo) RecordLogin(ctx context.Context, userID, ip string) error {
 	return r.Update(ctx, u)
 }
 
-func (r *userRepo) ListPaginated(ctx context.Context, search string, offset, limit uint64) ([]domain.User, uint64, error) {
-	es, err := queryEntities[userEntity](ctx, r.c, "PartitionKey eq 'user'")
+func normalizeUserSortName(value string) string {
+	a := pinyin.NewArgs()
+	a.Style = pinyin.Normal
+	a.Fallback = func(r rune, _ pinyin.Args) []string {
+		if unicode.IsControl(r) {
+			return nil
+		}
+		return []string{strings.ToLower(string(r))}
+	}
+
+	parts := pinyin.LazyConvert(strings.TrimSpace(value), &a)
+	return strings.Join(parts, "")
+}
+
+func userSortNameKey(e userEntity) []byte {
+	if e.Name != nil && strings.TrimSpace(*e.Name) != "" {
+		return []byte(normalizeUserSortName(*e.Name))
+	}
+	if e.Email != nil {
+		return []byte(normalizeUserSortName(*e.Email))
+	}
+	return nil
+}
+
+func userLastLoginKey(e userEntity) []byte {
+	if e.LastLoginAt == nil {
+		return []byte("0")
+	}
+	return []byte("1" + *e.LastLoginAt)
+}
+
+func sortableRowKey(key []byte, targetID string, descending bool) string {
+	if len(key) > userSortKeyMaxBytes {
+		key = key[:userSortKeyMaxBytes]
+	}
+	buf := make([]byte, 0, len(key)+1+len(targetID))
+	buf = append(buf, key...)
+	buf = append(buf, 0)
+	buf = append(buf, []byte(targetID)...)
+	if descending {
+		for i := range buf {
+			buf[i] = 255 - buf[i]
+		}
+	}
+	return hex.EncodeToString(buf)
+}
+
+func userSortIndexes(e userEntity) []indexEntity {
+	id := e.RowKey
+	return []indexEntity{
+		{PartitionKey: userSortNameAscPK, RowKey: sortableRowKey(userSortNameKey(e), id, false), TargetID: id},
+		{PartitionKey: userSortNameDescPK, RowKey: sortableRowKey(userSortNameKey(e), id, true), TargetID: id},
+		{PartitionKey: userSortLastLoginAscPK, RowKey: sortableRowKey(userLastLoginKey(e), id, false), TargetID: id},
+		{PartitionKey: userSortLastLoginDescPK, RowKey: sortableRowKey(userLastLoginKey(e), id, true), TargetID: id},
+	}
+}
+
+func userSortPartition(sortSpec repository.UserListSort) string {
+	switch {
+	case sortSpec.By == repository.UserListSortByName && sortSpec.Order == repository.SortOrderDesc:
+		return userSortNameDescPK
+	case sortSpec.By == repository.UserListSortByLastLoginAt && sortSpec.Order == repository.SortOrderAsc:
+		return userSortLastLoginAscPK
+	case sortSpec.By == repository.UserListSortByLastLoginAt && sortSpec.Order == repository.SortOrderDesc:
+		return userSortLastLoginDescPK
+	default:
+		return userSortNameAscPK
+	}
+}
+
+func userSortPartitions() []string {
+	return []string{
+		userSortNameAscPK,
+		userSortNameDescPK,
+		userSortLastLoginAscPK,
+		userSortLastLoginDescPK,
+	}
+}
+
+func (r *userRepo) upsertSortIndexes(ctx context.Context, e *userEntity) error {
+	for _, idx := range userSortIndexes(*e) {
+		if err := upsertEntity(ctx, r.sortIndexes, &idx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *userRepo) deleteSortIndexes(ctx context.Context, e *userEntity) error {
+	for _, idx := range userSortIndexes(*e) {
+		if err := deleteEntity(ctx, r.sortIndexes, idx.PartitionKey, idx.RowKey); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *userRepo) ensureSortIndexes(ctx context.Context) error {
+	users, err := queryEntities[userEntity](ctx, r.c, "PartitionKey eq 'user'")
+	if err != nil {
+		return err
+	}
+	for _, partition := range userSortPartitions() {
+		indexed, err := queryEntities[indexEntity](ctx, r.sortIndexes, "PartitionKey eq '"+partition+"'")
+		if err != nil {
+			return err
+		}
+		if len(indexed) < len(users) {
+			for i := range users {
+				if err := r.upsertSortIndexes(ctx, &users[i]); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func matchesUserType(e *userEntity, userType *domain.UserType) bool {
+	if userType == nil {
+		return true
+	}
+	return domain.UserTypeFromString(e.UserType) == defaultUserType(*userType)
+}
+
+func matchesUserSearch(e *userEntity, lower string) bool {
+	if lower == "" {
+		return true
+	}
+	emailMatch := e.Email != nil && strings.Contains(strings.ToLower(*e.Email), lower)
+	nameMatch := e.Name != nil && strings.Contains(strings.ToLower(*e.Name), lower)
+	return emailMatch || nameMatch
+}
+
+func (r *userRepo) ListPaginated(ctx context.Context, search string, userType *domain.UserType, sortSpec repository.UserListSort, offset, limit uint64) ([]domain.User, uint64, error) {
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if err := r.ensureSortIndexes(ctx); err != nil {
+		return nil, 0, err
+	}
+
+	indexes, err := queryEntities[indexEntity](ctx, r.sortIndexes, "PartitionKey eq '"+userSortPartition(sortSpec)+"'")
 	if err != nil {
 		return nil, 0, err
 	}
-	if search != "" {
-		lower := strings.ToLower(search)
-		filtered := es[:0]
-		for _, e := range es {
-			emailMatch := e.Email != nil && strings.Contains(strings.ToLower(*e.Email), lower)
-			nameMatch := e.Name != nil && strings.Contains(strings.ToLower(*e.Name), lower)
-			if emailMatch || nameMatch {
-				filtered = append(filtered, e)
-			}
-		}
-		es = filtered
+
+	lower := strings.ToLower(strings.TrimSpace(search))
+	if lower == "" && userType == nil {
+		return r.listUnfilteredPage(ctx, indexes, offset, limit)
 	}
-	total := uint64(len(es))
-	sort.SliceStable(es, func(i, j int) bool { return es[i].CreatedAt > es[j].CreatedAt })
 
 	out := make([]domain.User, 0)
-	for i := offset; i < uint64(len(es)) && i < offset+limit; i++ {
-		out = append(out, *es[i].toModel())
+	end := offset + limit
+	if end < offset {
+		end = ^uint64(0)
 	}
+	var total uint64
+
+	for _, idx := range indexes {
+		var e userEntity
+		ok, err := getEntity(ctx, r.c, "user", idx.TargetID, &e)
+		if err != nil {
+			return nil, 0, err
+		}
+		if !ok {
+			continue
+		}
+		if !matchesUserType(&e, userType) || !matchesUserSearch(&e, lower) {
+			continue
+		}
+		if total >= offset && total < end {
+			out = append(out, *e.toModel())
+		}
+		total++
+	}
+
 	return out, total, nil
+}
+
+func (r *userRepo) listUnfilteredPage(ctx context.Context, indexes []indexEntity, offset, limit uint64) ([]domain.User, uint64, error) {
+	total := uint64(len(indexes))
+	if offset >= total {
+		return []domain.User{}, total, nil
+	}
+
+	end := offset + limit
+	if end < offset || end > total {
+		end = total
+	}
+
+	out := make([]domain.User, 0, end-offset)
+	for _, idx := range indexes[int(offset):int(end)] {
+		var e userEntity
+		ok, err := getEntity(ctx, r.c, "user", idx.TargetID, &e)
+		if err != nil {
+			return nil, 0, err
+		}
+		if !ok {
+			continue
+		}
+		out = append(out, *e.toModel())
+	}
+
+	return out, total, nil
+}
+
+func (r *userRepo) migrateSortIndexes(ctx context.Context) (int, error) {
+	es, err := queryEntities[userEntity](ctx, r.c, "PartitionKey eq 'user'")
+	if err != nil {
+		return 0, err
+	}
+	for i := range es {
+		if err := r.upsertSortIndexes(ctx, &es[i]); err != nil {
+			return i, err
+		}
+	}
+	return len(es), nil
 }
 
 // ─── Application ─────────────────────────────────────────────────────────────
@@ -1242,6 +1511,7 @@ type inviteCodeEntity struct {
 	Kind                 string  `json:"kind"`
 	GrantsMembership     *string `json:"grants_membership,omitempty"`
 	GrantsMembershipDays *int64  `json:"grants_membership_days,omitempty"`
+	GrantsUserType       *string `json:"grants_user_type,omitempty"`
 }
 
 func inviteCodeToEntity(c *domain.InviteCode) inviteCodeEntity {
@@ -1254,11 +1524,16 @@ func inviteCodeToEntity(c *domain.InviteCode) inviteCodeEntity {
 		v := string(*c.GrantsMembership)
 		grants = &v
 	}
+	var grantsUserType *string
+	if t := normalizeInviteCodeGrantUserType(c.GrantsUserType); t != nil {
+		v := string(*t)
+		grantsUserType = &v
+	}
 	return inviteCodeEntity{
 		PartitionKey: "invite_code", RowKey: c.Code, ID: c.ID, CreatedBy: c.CreatedBy,
 		CreatedAt: fmtDT(c.CreatedAt), UsedAt: fmtDTPtr(c.UsedAt), UsedBy: c.UsedBy,
 		IsRevoked: c.IsRevoked, Kind: kind, GrantsMembership: grants,
-		GrantsMembershipDays: c.GrantsMembershipDays,
+		GrantsMembershipDays: c.GrantsMembershipDays, GrantsUserType: grantsUserType,
 	}
 }
 
@@ -1268,21 +1543,37 @@ func (e *inviteCodeEntity) toModel() *domain.InviteCode {
 		t := domain.MembershipFromString(*e.GrantsMembership)
 		grants = &t
 	}
+	var grantsUserType *domain.UserType
+	if e.GrantsUserType != nil {
+		t := domain.UserType(*e.GrantsUserType)
+		grantsUserType = normalizeInviteCodeGrantUserType(&t)
+	}
 	return &domain.InviteCode{
 		ID: e.ID, Code: e.RowKey, CreatedBy: e.CreatedBy, CreatedAt: parseDT(e.CreatedAt),
 		UsedAt: parseDTPtr(e.UsedAt), UsedBy: e.UsedBy, IsRevoked: e.IsRevoked,
 		Kind: domain.InviteKindFromString(e.Kind), GrantsMembership: grants,
-		GrantsMembershipDays: e.GrantsMembershipDays,
+		GrantsMembershipDays: e.GrantsMembershipDays, GrantsUserType: grantsUserType,
 	}
+}
+
+func normalizeInviteCodeGrantUserType(t *domain.UserType) *domain.UserType {
+	if t == nil {
+		return nil
+	}
+	v := domain.UserTypeFromString(string(*t))
+	if v == domain.UserTypeRegular {
+		return nil
+	}
+	return &v
 }
 
 type inviteCodeRepo struct{ c *aztables.Client }
 
-func (r *inviteCodeRepo) Create(ctx context.Context, createdBy string, kind domain.InviteCodeKind, grants *domain.MembershipTier, grantDays *int64) (*domain.InviteCode, error) {
+func (r *inviteCodeRepo) Create(ctx context.Context, createdBy string, kind domain.InviteCodeKind, grants *domain.MembershipTier, grantDays *int64, grantsUserType *domain.UserType) (*domain.InviteCode, error) {
 	code := &domain.InviteCode{
 		ID: newUUID(), Code: generateInviteCode(), CreatedBy: createdBy,
 		CreatedAt: time.Now().UTC(), IsRevoked: false, Kind: kind,
-		GrantsMembership: grants, GrantsMembershipDays: grantDays,
+		GrantsMembership: grants, GrantsMembershipDays: grantDays, GrantsUserType: grantsUserType,
 	}
 	e := inviteCodeToEntity(code)
 	if err := addEntity(ctx, r.c, &e); err != nil {
@@ -1546,7 +1837,7 @@ func (r *teamMembershipRepo) DeleteAllByUser(ctx context.Context, userID string)
 	return nil
 }
 
-// ─── Migrations (parity with the Rust `migrate` subcommand) ──────────────────
+// ─── Migrations ──────────────────────────────────────────────────────────────
 
 // MigrateInviteCodeKinds backfills the `kind` field on every invite-code row.
 func (r *Repository) MigrateInviteCodeKinds(ctx context.Context) (int, error) {
@@ -1595,6 +1886,11 @@ func (r *Repository) MigrateUserInviteCodes(ctx context.Context) (int, error) {
 		count++
 	}
 	return count, nil
+}
+
+// MigrateUserSortIndexes backfills the admin user-list sort indexes.
+func (r *Repository) MigrateUserSortIndexes(ctx context.Context) (int, error) {
+	return r.userRepo.migrateSortIndexes(ctx)
 }
 
 var _ repository.Repository = (*Repository)(nil)
