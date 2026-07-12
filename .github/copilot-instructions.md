@@ -102,4 +102,4 @@ Feature pages keep API calls in `src\api\admin.ts`, shared TypeScript contracts 
 
 ## Deployment context
 
-Release runs after CI succeeds on `main`, bumps versions, creates a `vYYYY.M.MICRO` tag, and triggers deployment. Deployment vendors the Go backend dependencies, builds the Docker image from `sources\dev\authentication-go`, pushes it to GHCR, configures Azure Container Apps with `STORAGE_BACKEND=mysql` plus the production `MYSQL_DSN` secret, then builds the frontend with `VITE_API_CLIENT_ID`, `VITE_API_BASE_URL`, and `VITE_APP_VERSION` for Azure Static Web Apps.
+Release runs after CI succeeds on `main`, bumps versions, creates a `vYYYY.M.MICRO` tag, and triggers deployment. Deployment vendors the Go backend dependencies, builds the Docker image from `sources\dev\authentication-go`, pushes it to GHCR, configures Azure Container Apps with `STORAGE_BACKEND=mysql`, the production `MYSQL_DSN` secret, and optional `MYSQL_TLS_CA_PEM`, then builds the frontend with `VITE_API_CLIENT_ID`, `VITE_API_BASE_URL`, and `VITE_APP_VERSION` for Azure Static Web Apps.

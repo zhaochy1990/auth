@@ -59,11 +59,11 @@ Release is automated: CI pass on `main` -> Release workflow calculates next vers
 
 - **CI** (`ci.yml`): Uses path filtering - backend jobs run when `sources/dev/authentication-go/**` changes, frontend jobs run when `sources/dev/admin-dashboard/**` changes. Backend CI runs `gofmt`, `go vet`, MySQL-backed tests, and Docker dry-run builds.
 - **Release** (`release.yml`): Triggers after CI succeeds on `main`. Auto-bumps version and creates annotated tag.
-- **Deploy** (`deploy.yml`): Triggers on `v*` tags. Backend -> Go Docker build -> GHCR -> Azure Container Apps with `STORAGE_BACKEND=mysql` and the production `MYSQL_DSN` secret. Frontend -> Vite build -> Azure Static Web Apps.
+- **Deploy** (`deploy.yml`): Triggers on `v*` tags. Backend -> Go Docker build -> GHCR -> Azure Container Apps with `STORAGE_BACKEND=mysql`, the production `MYSQL_DSN` secret, and optional `MYSQL_TLS_CA_PEM`. Frontend -> Vite build -> Azure Static Web Apps.
 
 ## Deployment Topology
 
-- **Backend**: Docker container on Azure Container Apps, pulling from GHCR (`ghcr.io/<owner>/auth-backend`). Uses MySQL for data persistence; the Azure Table adapter is retained only as a legacy migration/rollback source. JWT keys are mounted into the container. Production requires the GitHub Environment secret `MYSQL_DSN`.
+- **Backend**: Docker container on Azure Container Apps, pulling from GHCR (`ghcr.io/<owner>/auth-backend`). Uses MySQL for data persistence; the Azure Table adapter is retained only as a legacy migration/rollback source. JWT keys are mounted into the container. Production requires the GitHub Environment secret `MYSQL_DSN`; set `MYSQL_TLS_CA_PEM` too when the Tencent Cloud MySQL instance requires a custom CA.
 - **Frontend**: Azure Static Web Apps (SPA with `navigationFallback` rewrite to `index.html`).
 - **Auth**: GitHub OIDC federated credentials for Azure (no stored Azure secrets in GitHub).
 
