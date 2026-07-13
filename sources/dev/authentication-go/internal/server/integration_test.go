@@ -22,25 +22,27 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/config"
 	"github.com/zhaochy1990/auth-service/internal/domain"
-	"github.com/zhaochy1990/auth-service/internal/repository/aztables"
+	mysqlrepo "github.com/zhaochy1990/auth-service/internal/repository/mysql"
 	"github.com/zhaochy1990/auth-service/internal/seed"
 	"github.com/zhaochy1990/auth-service/internal/server"
 )
 
-const azuriteConnString = "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1"
+const defaultTestMySQLDSN = "mysql://auth:auth_password@127.0.0.1:3306/auth_test"
 
-func connString() string {
-	if v := os.Getenv("TEST_STORAGE_CONNECTION_STRING"); v != "" {
+func testMySQLDSN() string {
+	if v := os.Getenv("TEST_MYSQL_DSN"); v != "" {
 		return v
 	}
-	return azuriteConnString
+	return defaultTestMySQLDSN
 }
+
+func explicitTestMySQLDSN() bool { return os.Getenv("TEST_MYSQL_DSN") != "" }
 
 func init() { gin.SetMode(gin.TestMode) }
 
 type testApp struct {
 	t            *testing.T
-	repo         *aztables.Repository
+	repo         *mysqlrepo.Repository
 	engine       *gin.Engine
 	cfg          *config.Config
 	jwt          *auth.JWTManager
@@ -54,24 +56,31 @@ func newTestApp(t *testing.T) *testApp {
 	t.Helper()
 	ctx := context.Background()
 
-	repo, err := aztables.New(connString())
+	repo, err := mysqlrepo.New(ctx, testMySQLDSN())
 	if err != nil {
-		t.Skipf("Azurite unavailable (NewRepository): %v", err)
+		if explicitTestMySQLDSN() {
+			t.Fatalf("MySQL unavailable (NewRepository): %v", err)
+		}
+		t.Skipf("MySQL unavailable (NewRepository): %v", err)
 	}
 	if err := repo.ClearAllTables(ctx); err != nil {
-		t.Skipf("Azurite unavailable (ClearAllTables): %v", err)
+		if explicitTestMySQLDSN() {
+			t.Fatalf("MySQL unavailable (ClearAllTables): %v", err)
+		}
+		t.Skipf("MySQL unavailable (ClearAllTables): %v", err)
 	}
 	privateKeyPath, publicKeyPath := writeTestKeyPair(t)
 
 	cfg := &config.Config{
-		AzureStorageConnectionString: connString(),
-		JWTPrivateKeyPath:            privateKeyPath,
-		JWTPublicKeyPath:             publicKeyPath,
-		JWTIssuer:                    "auth-service",
-		JWTAccessTokenExpirySecs:     3600,
-		JWTRefreshTokenExpiryDays:    30,
-		CORSAllowedOrigins:           "*",
-		EnableTestProviders:          true,
+		StorageBackend:            config.StorageBackendMySQL,
+		MySQLDSN:                  testMySQLDSN(),
+		JWTPrivateKeyPath:         privateKeyPath,
+		JWTPublicKeyPath:          publicKeyPath,
+		JWTIssuer:                 "auth-service",
+		JWTAccessTokenExpirySecs:  3600,
+		JWTRefreshTokenExpiryDays: 30,
+		CORSAllowedOrigins:        "*",
+		EnableTestProviders:       true,
 	}
 	jwtMgr, err := auth.NewJWTManager(cfg)
 	if err != nil {

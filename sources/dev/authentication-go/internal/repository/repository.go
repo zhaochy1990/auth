@@ -1,10 +1,9 @@
 // Package repository defines the storage abstraction for the auth service.
 //
 // This is the swappable adapter boundary: handlers depend only on these
-// interfaces, never on a concrete store. The Azure Table Storage adapter lives
-// in the aztables subpackage; any other backend (Postgres, SQLite, in-memory)
-// can be dropped in by implementing Repository, with zero changes to business
-// logic.
+// interfaces, never on a concrete store. The MySQL runtime adapter lives in the
+// mysql subpackage; the Azure Table adapter is retained as a legacy migration
+// source.
 package repository
 
 import (

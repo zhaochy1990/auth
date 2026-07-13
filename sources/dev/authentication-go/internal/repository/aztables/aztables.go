@@ -24,6 +24,7 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/apperror"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/repository"
+	"github.com/zhaochy1990/auth-service/internal/repository/snapshot"
 )
 
 // ─── Table names (prefixed for a shared storage account) ─────────────────────
@@ -345,6 +346,102 @@ func (r *Repository) ClearAllTables(ctx context.Context) error {
 		_, _ = t.Delete(ctx, nil) // ignore if missing
 	}
 	return r.EnsureTables(ctx)
+}
+
+// ExportSnapshot returns only primary domain rows, excluding Azure Table
+// secondary-index rows such as idx_email, idx_hash, and idx_id.
+func (r *Repository) ExportSnapshot(ctx context.Context) (*snapshot.Data, error) {
+	apps, err := queryEntities[appEntity](ctx, r.applications, "PartitionKey eq 'app'")
+	if err != nil {
+		return nil, err
+	}
+	users, err := queryEntities[userEntity](ctx, r.users, "PartitionKey eq 'user'")
+	if err != nil {
+		return nil, err
+	}
+	accounts, err := queryAllEntities[accountEntity](ctx, r.accounts)
+	if err != nil {
+		return nil, err
+	}
+	appProviders, err := queryAllEntities[appProviderEntity](ctx, r.appProviders)
+	if err != nil {
+		return nil, err
+	}
+	authCodes, err := queryEntities[authCodeEntity](ctx, r.authCodes, "PartitionKey eq 'code'")
+	if err != nil {
+		return nil, err
+	}
+	refreshTokens, err := queryEntities[refreshTokenEntity](ctx, r.refreshTokens, "PartitionKey eq 'rt'")
+	if err != nil {
+		return nil, err
+	}
+	inviteCodes, err := queryEntities[inviteCodeEntity](ctx, r.inviteCodes, "PartitionKey eq 'invite_code'")
+	if err != nil {
+		return nil, err
+	}
+	teams, err := queryEntities[teamEntity](ctx, r.teams, "PartitionKey eq 'team'")
+	if err != nil {
+		return nil, err
+	}
+	memberships, err := queryAllEntities[teamMembershipEntity](ctx, r.teamMemberships)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &snapshot.Data{}
+	for i := range apps {
+		out.Applications = append(out.Applications, *apps[i].toModel())
+	}
+	for i := range users {
+		out.Users = append(out.Users, *users[i].toModel())
+	}
+	for i := range accounts {
+		if strings.HasPrefix(accounts[i].PartitionKey, "idx_") {
+			continue
+		}
+		out.Accounts = append(out.Accounts, *accounts[i].toModel())
+	}
+	for i := range appProviders {
+		if strings.HasPrefix(appProviders[i].PartitionKey, "idx_") {
+			continue
+		}
+		out.AppProviders = append(out.AppProviders, *appProviders[i].toModel())
+	}
+	for i := range authCodes {
+		out.AuthCodes = append(out.AuthCodes, *authCodes[i].toModel())
+	}
+	for i := range refreshTokens {
+		out.RefreshTokens = append(out.RefreshTokens, *refreshTokens[i].toModel())
+	}
+	for i := range inviteCodes {
+		out.InviteCodes = append(out.InviteCodes, *inviteCodes[i].toModel())
+	}
+	for i := range teams {
+		out.Teams = append(out.Teams, *teams[i].toModel())
+	}
+	for i := range memberships {
+		out.TeamMemberships = append(out.TeamMemberships, *memberships[i].toModel())
+	}
+	return out, nil
+}
+
+func queryAllEntities[T any](ctx context.Context, c *aztables.Client) ([]T, error) {
+	pager := c.NewListEntitiesPager(nil)
+	var out []T
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, dbErr(err)
+		}
+		for _, raw := range page.Entities {
+			var v T
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return nil, dbErr(err)
+			}
+			out = append(out, v)
+		}
+	}
+	return out, nil
 }
 
 func (r *Repository) Users() repository.UserRepository                     { return r.userRepo }

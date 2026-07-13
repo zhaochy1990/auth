@@ -1,96 +1,157 @@
 # auth-service (Go + Gin)
 
-Authentication/authorization microservice implemented with [Gin](https://gin-gonic.com/)
-and Azure Table Storage. It preserves the production API and storage contracts:
-same endpoints, same JSON request/response shapes, same JWT (RS256) claims, and
-**drop-in data compatibility** with existing data (identical table names,
-partition/row-key schemes, and secondary index rows).
+Authentication and authorization microservice using Gin and MySQL. The service
+implements OAuth2, JWT access/refresh tokens, pluggable auth providers,
+membership tiers, invite codes, teams, and the admin API used by the dashboard.
 
-Implements OAuth2 (authorization-code with PKCE, client-credentials, password,
-and refresh-token grants), JWT access/refresh tokens, pluggable auth providers,
-a membership-tier system, invite codes, teams, and an admin API.
+The storage boundary is `internal/repository`: handlers depend only on the
+repository interfaces. The default target backend is MySQL, with the legacy
+Azure Table adapter retained for migration and rollback during the cutover.
 
 ## Architecture
 
-Layered, with a **swappable storage adapter** at the core:
-
-```
+```text
 cmd/auth-service/main.go        entrypoint + seed/migrate subcommands
 internal/
   config/        env-based configuration
   domain/        storage-agnostic entity models + value types
-  apperror/      typed error model → HTTP/JSON mapping
-  auth/          JWT (RS256), password/argon2, client-secret, PKCE, OAuth2 helpers
-    providers/   pluggable providers (wechat, test) + factory
-  repository/    storage interfaces  ← the adapter boundary
-    aztables/    Azure Table Storage implementation
-  middleware/    Gin auth extractors, rate limiter, CORS, error responder
-  handlers/      HTTP handlers (business logic)
-  server/        Gin router wiring (route groups, limiters)
+  apperror/      typed error model -> HTTP/JSON mapping
+  auth/          JWT, password/client-secret hashing, PKCE, OAuth2 helpers
+  repository/    storage interfaces
+    mysql/       MySQL implementation and schema creation
+    aztables/    legacy Azure Table implementation and export helper
+    snapshot/    storage-neutral migration payload
+  storage/       config-to-repository factory
+  handlers/      HTTP handlers
+  server/        Gin router wiring
   seed/          admin bootstrap
 ```
 
-Handlers depend only on the `repository` interfaces — never on a concrete
-store — so the backend can be swapped (Postgres, SQLite, in-memory, …) by
-implementing `repository.Repository`, with **zero changes to business logic**.
-The Azure Tables adapter lives entirely in `internal/repository/aztables`.
+## Build, Test, Run
 
-Shared utilities (`zap` logging) come from `github.com/zhaochy1990/x`.
-
-## Prerequisites
-
-- Go 1.25+
-- [Azurite](https://learn.microsoft.com/azure/storage/common/storage-use-azurite)
-  (Azure Storage emulator) on port 10002 for local dev/tests, or a real Azure
-  Storage account.
-
-Start Azurite via Docker:
+Start local MySQL:
 
 ```bash
-docker compose up azurite          # or: docker run -p 10002:10002 mcr.microsoft.com/azure-storage/azurite azurite-table --tableHost 0.0.0.0
+docker compose up -d mysql
 ```
 
-## Build, test, run
+Run checks:
 
 ```bash
-go build ./...                     # build everything
-go vet ./...                       # static checks
-gofmt -l .                         # formatting check (empty = clean)
-
-# Tests. The internal/server suite needs Azurite on :10002.
-go test ./...                      # all tests
-go test ./internal/auth/           # pure unit tests (no Azurite)
-go test ./internal/server/ -v      # integration tests
-
-# Run the server
-AZURE_STORAGE_CONNECTION_STRING="UseDevelopmentStorage=true" go run ./cmd/auth-service
-
-# Bootstrap the first admin (creates the Admin Dashboard app + admin user)
-AZURE_STORAGE_CONNECTION_STRING="..." go run ./cmd/auth-service seed admin@example.com MyPassword1!
-
-# Idempotent backfill migrations (invite-code kinds, user invite-code linkage)
-AZURE_STORAGE_CONNECTION_STRING="..." go run ./cmd/auth-service migrate
+go build ./...
+go vet ./...
+gofmt -l .
+go test ./... -count=1
 ```
 
-Override the test connection string with `TEST_STORAGE_CONNECTION_STRING`.
+The integration suite uses MySQL. Override the local test database with:
+
+```bash
+TEST_MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth_test" go test ./internal/server -v -count=1
+```
+
+Run the service locally:
+
+```bash
+STORAGE_BACKEND=mysql \
+MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
+go run ./cmd/auth-service
+```
+
+Bootstrap the first admin:
+
+```bash
+STORAGE_BACKEND=mysql \
+MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
+go run ./cmd/auth-service seed admin@example.com MyPassword1!
+```
+
+## Azure Tables To MySQL Migration
+
+Dry-run export from the legacy Azure Tables backend:
+
+```bash
+AZURE_STORAGE_CONNECTION_STRING="..." \
+go run ./cmd/auth-service migrate-storage azure-to-mysql --dry-run
+```
+
+Import into MySQL:
+
+```bash
+AZURE_STORAGE_CONNECTION_STRING="..." \
+MYSQL_DSN="mysql://user:password@tcp-host:3306/auth" \
+go run ./cmd/auth-service migrate-storage azure-to-mysql
+```
+
+Without `--clear-target`, the command requires every target MySQL table to be
+empty before importing. `--clear-target` deletes target MySQL rows and imports
+the snapshot in one transaction. If the import fails, the target rows are rolled
+back. Use it only for a fresh rehearsal or planned cutover window.
+
+## Tencent Cloud MySQL
+
+Production should use `STORAGE_BACKEND=mysql` and a Tencent Cloud MySQL DSN.
+Use TLS when required by the instance configuration. The service accepts both
+URL style and Go driver style DSNs, for example:
+
+```text
+mysql://auth_user:secret@host:3306/auth
+auth_user:secret@tcp(host:3306)/auth?tls=true&parseTime=true&loc=UTC
+```
+
+The service normalizes DSNs to enable `parseTime=true`, UTC timestamps, and
+`utf8mb4` by default.
+
+If Tencent Cloud requires a custom CA, set either `MYSQL_TLS_CA_PEM` to the PEM
+contents or `MYSQL_TLS_CA_PATH` to a local PEM file. When either is present, the
+service registers a named MySQL TLS configuration and uses it in the normalized
+DSN, so certificate verification stays enabled.
+
+Deployment expects the production GitHub Environment secret `MYSQL_DSN` to be set
+before the release tag is deployed. If the Tencent instance requires a custom CA,
+also set `MYSQL_TLS_CA_PEM`. The deploy workflow stores these as Azure Container
+Apps secrets and sets:
+
+```text
+STORAGE_BACKEND=mysql
+MYSQL_DSN=secretref:mysql-dsn
+MYSQL_TLS_CA_PEM=secretref:mysql-tls-ca-pem  # only when configured
+```
+
+Cutover checklist:
+
+1. Create the Tencent Cloud MySQL database and application user.
+2. Confirm network access from the migration runner and Azure Container Apps.
+3. Run a dry-run export from Azure Tables and record the exported counts.
+4. Rehearse the import against local MySQL with `--clear-target`.
+5. Set the production GitHub Environment secret `MYSQL_DSN` to the Tencent DSN,
+   and `MYSQL_TLS_CA_PEM` if the Tencent instance requires a custom CA.
+6. During the cutover window, run the import against Tencent MySQL.
+7. Confirm exported and imported counts match in the migration output.
+8. Deploy the release and verify `/health`, admin login, and admin list APIs.
+9. Keep the Azure Table connection available only for rollback until the cutover
+   is accepted.
 
 ## Docker
 
-The module uses a local `replace` for the sibling `x` library, so the image is
-built from **vendored** dependencies (the build never reaches outside the build
-context):
+The module uses a local `replace` for the sibling `x` library. Build images from
+vendored dependencies:
 
 ```bash
 go mod vendor
 docker build -t auth-service-go .
-docker compose up --build          # azurite + auth on :3001
+docker compose up --build
 ```
 
-## Environment variables
+## Environment Variables
 
 | Variable | Required | Default |
 |----------|----------|---------|
-| `AZURE_STORAGE_CONNECTION_STRING` | Yes | – |
+| `STORAGE_BACKEND` | No | `mysql` when `MYSQL_DSN` exists, otherwise `azure_table` |
+| `MYSQL_DSN` | When MySQL | - |
+| `MYSQL_TLS_CA_PEM` | No | - |
+| `MYSQL_TLS_CA_PATH` | No | - |
+| `AZURE_STORAGE_CONNECTION_STRING` | When `azure_table` or migration source | - |
 | `JWT_PRIVATE_KEY_PATH` | No | `keys/private.pem` |
 | `JWT_PUBLIC_KEY_PATH` | No | `keys/public.pem` |
 | `JWT_ISSUER` | No | `auth-service` |
@@ -100,17 +161,17 @@ docker compose up --build          # azurite + auth on :3001
 | `SERVER_PORT` | No | `3000` |
 | `CORS_ALLOWED_ORIGINS` | No | `http://localhost:5173,http://localhost:3000` |
 | `AUTH_ENABLE_TEST_PROVIDERS` | No | `false` |
-| `STRIDE_REQUIRE_INVITE_CODE` | No | `false` (read per-request) |
-| `APP_VERSION` | No | `dev` (surfaced at `/health`) |
+| `STRIDE_REQUIRE_INVITE_CODE` | No | `false` |
+| `APP_VERSION` | No | `dev` |
 | `LOG_LEVEL` / `LOG_FORMAT` | No | `debug` / `json` |
 
-## API surface
+## API Surface
 
 | Prefix | Auth | Endpoints |
 |--------|------|-----------|
-| `/oauth/*` | Basic (client_id:secret) | `token`, `revoke`, `introspect` |
-| `/api/auth/*` | `X-Client-Id` (logout: Bearer) | `register`, `login`, `provider/:id/login`, `refresh`, `logout` |
-| `/api/users/*` | Bearer | `me` (GET/PATCH/DELETE), `me/accounts`, account link/unlink, `me/teams` |
+| `/oauth/*` | Basic | `token`, `revoke`, `introspect` |
+| `/api/auth/*` | `X-Client-Id` | `register`, `login`, `provider/:id/login`, `refresh`, `logout` |
+| `/api/users/*` | Bearer | `me`, accounts, teams |
 | `/api/teams/*` | Bearer | team CRUD, join/leave/transfer-owner, members |
-| `/admin/*` | Bearer (admin role) | application/provider/user CRUD, stats, invite codes, team management |
+| `/admin/*` | Bearer admin | app/provider/user/team/invite-code management |
 | `/health` | none | health + version |

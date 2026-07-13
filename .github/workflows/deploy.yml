@@ -23,6 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout x dependency
+        uses: actions/checkout@v4
+        with:
+          repository: zhaochy1990/x
+          path: _x
+
       - name: Determine version
         id: version
         run: |
@@ -42,14 +48,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # The Go backend depends on github.com/zhaochy1990/x through a local
-      # replace. Vendor it before Docker build so the image context is complete.
-      - name: Checkout x dependency
-        uses: actions/checkout@v4
-        with:
-          repository: zhaochy1990/x
-          path: _x
 
       - uses: actions/setup-go@v5
         with:
@@ -80,12 +78,40 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Configure backend storage secrets
+        env:
+          MYSQL_DSN: ${{ secrets.MYSQL_DSN }}
+          MYSQL_TLS_CA_PEM: ${{ secrets.MYSQL_TLS_CA_PEM }}
+        run: |
+          if [ -z "$MYSQL_DSN" ]; then
+            echo "::error::production secret MYSQL_DSN is required for the MySQL backend"
+            exit 1
+          fi
+          az containerapp secret set \
+            --name ${{ env.BACKEND_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --secrets mysql-dsn="$MYSQL_DSN"
+          if [ -n "$MYSQL_TLS_CA_PEM" ]; then
+            az containerapp secret set \
+              --name ${{ env.BACKEND_APP_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --secrets mysql-tls-ca-pem="$MYSQL_TLS_CA_PEM"
+          fi
+
       - name: Deploy to Container Apps
         run: |
+          env_vars=(STORAGE_BACKEND=mysql MYSQL_DSN=secretref:mysql-dsn)
+          if az containerapp secret show \
+            --name ${{ env.BACKEND_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --secret-name mysql-tls-ca-pem >/dev/null 2>&1; then
+            env_vars+=(MYSQL_TLS_CA_PEM=secretref:mysql-tls-ca-pem)
+          fi
           az containerapp update \
             --name ${{ env.BACKEND_APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}
+            --image ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }} \
+            --set-env-vars "${env_vars[@]}"
 
       - name: Health check
         run: |

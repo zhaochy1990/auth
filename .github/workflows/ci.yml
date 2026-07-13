@@ -90,15 +90,20 @@ jobs:
         working-directory: sources/dev/authentication-go
 
     services:
-      azurite:
-        image: mcr.microsoft.com/azure-storage/azurite
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: auth_test
+          MYSQL_USER: auth
+          MYSQL_PASSWORD: auth_password
         ports:
-          - 10002:10002
+          - 3306:3306
         options: >-
-          --health-cmd "nc -z 127.0.0.1 10002"
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uauth -pauth_password"
           --health-interval 5s
           --health-timeout 3s
-          --health-retries 10
+          --health-retries 20
 
     steps:
       - uses: actions/checkout@v4
@@ -125,7 +130,7 @@ jobs:
 
       - name: Run tests
         env:
-          TEST_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1"
+          TEST_MYSQL_DSN: "mysql://auth:auth_password@127.0.0.1:3306/auth_test"
         run: go test ./... -count=1
 
   backend-docker:
