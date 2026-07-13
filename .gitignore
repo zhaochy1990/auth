@@ -16,3 +16,6 @@ infra/main.json
 
 # Local screenshots / scratch
 prod-recent-logins.png
+
+# Local credentials
+credentials.local
