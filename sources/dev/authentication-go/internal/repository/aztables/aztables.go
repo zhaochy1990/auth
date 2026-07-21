@@ -880,7 +880,14 @@ func matchesUserSearch(e *userEntity, lower string) bool {
 	return emailMatch || nameMatch
 }
 
-func (r *userRepo) ListPaginated(ctx context.Context, search string, userType *domain.UserType, sortSpec repository.UserListSort, offset, limit uint64) ([]domain.User, uint64, error) {
+func matchesUserID(e *userEntity, lower string) bool {
+	if lower == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(e.RowKey), lower)
+}
+
+func (r *userRepo) ListPaginated(ctx context.Context, search, idSearch string, userType *domain.UserType, sortSpec repository.UserListSort, offset, limit uint64) ([]domain.User, uint64, error) {
 	if limit < 1 {
 		limit = 20
 	}
@@ -897,7 +904,8 @@ func (r *userRepo) ListPaginated(ctx context.Context, search string, userType *d
 	}
 
 	lower := strings.ToLower(strings.TrimSpace(search))
-	if lower == "" && userType == nil {
+	lowerID := strings.ToLower(strings.TrimSpace(idSearch))
+	if lower == "" && lowerID == "" && userType == nil {
 		return r.listUnfilteredPage(ctx, indexes, offset, limit)
 	}
 
@@ -917,7 +925,7 @@ func (r *userRepo) ListPaginated(ctx context.Context, search string, userType *d
 		if !ok {
 			continue
 		}
-		if !matchesUserType(&e, userType) || !matchesUserSearch(&e, lower) {
+		if !matchesUserType(&e, userType) || !matchesUserSearch(&e, lower) || !matchesUserID(&e, lowerID) {
 			continue
 		}
 		if total >= offset && total < end {

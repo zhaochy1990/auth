@@ -11,9 +11,11 @@ import (
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -491,6 +493,68 @@ func TestListUsersWithAppTokenAndPagination(t *testing.T) {
 		if seen[u.ID] {
 			t.Fatalf("pagination returned duplicate user id %q", u.ID)
 		}
+	}
+}
+
+func TestAdminUsersListFiltersByUUIDSubstring(t *testing.T) {
+	ta := newTestApp(t)
+
+	ids := make([]string, 0, 3)
+	for i := 1; i <= 3; i++ {
+		create := ta.do(http.MethodPost, "/admin/users", map[string]any{
+			"email": "uuidsearch" + strconv.Itoa(i) + "@example.com", "password": "Password1!", "role": "user",
+		}, ta.bearer(ta.adminToken))
+		mustStatus(t, create, http.StatusOK)
+		var created struct {
+			ID string `json:"id"`
+		}
+		decode(t, create, &created)
+		if created.ID == "" {
+			t.Fatalf("created user missing id: %+v", created)
+		}
+		ids = append(ids, created.ID)
+	}
+
+	target := ids[1]
+	// A substring taken from the middle of the target UUID should match only it.
+	fragment := target[9:18]
+
+	list := ta.do(http.MethodGet, "/admin/users?uuid="+url.QueryEscape(fragment), nil, ta.bearer(ta.adminToken))
+	mustStatus(t, list, http.StatusOK)
+	var body struct {
+		Total uint64 `json:"total"`
+		Users []struct {
+			ID string `json:"id"`
+		} `json:"users"`
+	}
+	decode(t, list, &body)
+	if body.Total != 1 || len(body.Users) != 1 || body.Users[0].ID != target {
+		t.Fatalf("expected only target %q for uuid fragment %q, got %+v", target, fragment, body)
+	}
+
+	// Case-insensitive match against the full uppercased UUID.
+	upper := ta.do(http.MethodGet, "/admin/users?uuid="+url.QueryEscape(strings.ToUpper(target)), nil, ta.bearer(ta.adminToken))
+	mustStatus(t, upper, http.StatusOK)
+	var upperBody struct {
+		Total uint64 `json:"total"`
+		Users []struct {
+			ID string `json:"id"`
+		} `json:"users"`
+	}
+	decode(t, upper, &upperBody)
+	if upperBody.Total != 1 || len(upperBody.Users) != 1 || upperBody.Users[0].ID != target {
+		t.Fatalf("expected case-insensitive match for %q, got %+v", target, upperBody)
+	}
+
+	// A UUID fragment that matches nothing yields no rows.
+	none := ta.do(http.MethodGet, "/admin/users?uuid=no-such-uuid-fragment", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, none, http.StatusOK)
+	var noneBody struct {
+		Total uint64 `json:"total"`
+	}
+	decode(t, none, &noneBody)
+	if noneBody.Total != 0 {
+		t.Fatalf("expected no matches for bogus uuid, got total=%d", noneBody.Total)
 	}
 }
 

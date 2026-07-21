@@ -28,18 +28,21 @@ export default function UserListPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  const [uuid, setUuid] = useState('');
+  const [uuidInput, setUuidInput] = useState('');
   const [userType, setUserType] = useState<'' | UserType>('');
   const [sortBy, setSortBy] = useState<UserSortBy>('name');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
   const perPage = 20;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['users', page, perPage, search, userType, sortBy, sortOrder],
+    queryKey: ['users', page, perPage, search, uuid, userType, sortBy, sortOrder],
     queryFn: () =>
       listUsers({
         page,
         per_page: perPage,
         search: search || undefined,
+        uuid: uuid || undefined,
         user_type: userType || undefined,
         sort_by: sortBy,
         sort_order: sortOrder,
@@ -57,6 +60,7 @@ export default function UserListPage() {
   const handleSearch = () => {
     setPage(1);
     setSearch(searchInput);
+    setUuid(uuidInput.trim());
   };
 
   const handleSort = (nextSortBy: UserSortBy) => {
@@ -123,6 +127,14 @@ export default function UserListPage() {
           onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           placeholder={t('searchPlaceholder')}
+          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:max-w-xs"
+        />
+        <input
+          type="text"
+          value={uuidInput}
+          onChange={(e) => setUuidInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          placeholder={t('uuidSearchPlaceholder')}
           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:max-w-xs"
         />
         <select

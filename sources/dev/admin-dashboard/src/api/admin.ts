@@ -54,6 +54,7 @@ export const listUsers = (params: {
   page?: number;
   per_page?: number;
   search?: string;
+  uuid?: string;
   user_type?: UserType;
   sort_by?: 'name' | 'last_login_at';
   sort_order?: 'asc' | 'desc';

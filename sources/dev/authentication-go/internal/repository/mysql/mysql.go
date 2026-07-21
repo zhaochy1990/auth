@@ -730,7 +730,7 @@ func (r *userRepo) CountSince(ctx context.Context, since time.Time) (uint64, err
 	return n, nil
 }
 
-func (r *userRepo) ListPaginated(ctx context.Context, search string, userType *domain.UserType, sortSpec repository.UserListSort, offset, limit uint64) ([]domain.User, uint64, error) {
+func (r *userRepo) ListPaginated(ctx context.Context, search, idSearch string, userType *domain.UserType, sortSpec repository.UserListSort, offset, limit uint64) ([]domain.User, uint64, error) {
 	if limit < 1 {
 		limit = 20
 	}
@@ -744,6 +744,10 @@ func (r *userRepo) ListPaginated(ctx context.Context, search string, userType *d
 		clauses = append(clauses, "(LOWER(COALESCE(email, '')) LIKE ? OR LOWER(COALESCE(name, '')) LIKE ?)")
 		pattern := "%" + strings.ToLower(strings.TrimSpace(search)) + "%"
 		args = append(args, pattern, pattern)
+	}
+	if strings.TrimSpace(idSearch) != "" {
+		clauses = append(clauses, "LOWER(id) LIKE ?")
+		args = append(args, "%"+strings.ToLower(strings.TrimSpace(idSearch))+"%")
 	}
 	if userType != nil {
 		clauses = append(clauses, "user_type = ?")
