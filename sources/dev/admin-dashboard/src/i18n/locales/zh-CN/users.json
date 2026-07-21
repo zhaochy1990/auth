@@ -1,6 +1,7 @@
 {
   "title": "用户管理",
   "searchPlaceholder": "按邮箱或姓名搜索...",
+  "uuidSearchPlaceholder": "按 UUID 搜索...",
   "createBtn": "创建用户",
   "table": {
     "email": "邮箱",

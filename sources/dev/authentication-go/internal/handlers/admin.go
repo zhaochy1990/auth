@@ -481,7 +481,7 @@ func (h *Handler) ListUsers(c *gin.Context) {
 		userType = &t
 	}
 
-	users, total, err := h.Repo.Users().ListPaginated(c.Request.Context(), c.Query("search"), userType, sort, offset, perPage)
+	users, total, err := h.Repo.Users().ListPaginated(c.Request.Context(), c.Query("search"), c.Query("uuid"), userType, sort, offset, perPage)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return

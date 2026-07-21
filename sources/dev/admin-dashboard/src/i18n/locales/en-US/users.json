@@ -1,6 +1,7 @@
 {
   "title": "Users",
   "searchPlaceholder": "Search by email or name...",
+  "uuidSearchPlaceholder": "Search by UUID...",
   "createBtn": "Create User",
   "table": {
     "email": "Email",
