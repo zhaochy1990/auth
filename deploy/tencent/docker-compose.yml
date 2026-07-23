@@ -1,0 +1,31 @@
+services:
+  auth:
+    image: ghcr.io/zhaochy1990/auth-backend:${AUTH_IMAGE_TAG:-latest}
+    container_name: auth-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./keys:/app/keys:ro
+    ports:
+      # Loopback only; Caddy reaches the backend over the compose network (auth:3000).
+      - "127.0.0.1:3000:3000"
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    container_name: auth-caddy
+    restart: unless-stopped
+    depends_on:
+      - auth
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./www:/srv/www:ro          # admin dashboard static build (synced by CI)
+      - caddy_data:/data           # keep this volume name — holds the issued ACME cert
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

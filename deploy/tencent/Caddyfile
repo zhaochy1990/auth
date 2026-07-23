@@ -1,0 +1,23 @@
+{
+	default_sni 124.221.38.59
+}
+
+124.221.38.59 {
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			profile shortlived
+		}
+	}
+
+	# Backend API / auth endpoints → auth container
+	@backend path /api/* /admin/* /oauth/* /health
+	reverse_proxy @backend auth:3000
+
+	# Admin dashboard SPA (static) with client-side routing fallback
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+}

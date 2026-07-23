@@ -18,4 +18,4 @@ infra/main.json
 prod-recent-logins.png
 
 # Local credentials
-credentials.local
+.credentials.local

@@ -10,16 +10,28 @@ permissions:
   contents: read
   packages: write
 
+# Serialize production deploys so overlapping runs never mutate the server
+# (or Azure) concurrently.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 env:
   GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/auth-backend
   BACKEND_APP_NAME: auth-backend
   RESOURCE_GROUP: rg-auth-prod
 
 jobs:
-  deploy-backend:
-    name: Deploy Backend
+  # ---------------------------------------------------------------------------
+  # Build the backend image once and push to GHCR. Both the Tencent (primary)
+  # and Azure (standby) deploys consume this same image.
+  # ---------------------------------------------------------------------------
+  build-push:
+    name: Build & Push Image
     runs-on: ubuntu-latest
     environment: production
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -71,6 +83,81 @@ jobs:
           docker push ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}
           docker push ${{ env.GHCR_IMAGE }}:latest
 
+  # ---------------------------------------------------------------------------
+  # PRIMARY: Tencent Cloud Lighthouse. Frontend + backend served same-origin
+  # behind Caddy on https://124.221.38.59. Frontend is built with an empty
+  # VITE_API_BASE_URL so it calls the API via relative paths on the same origin.
+  # ---------------------------------------------------------------------------
+  deploy-tencent:
+    name: Deploy to Tencent Lighthouse (primary)
+    runs-on: ubuntu-latest
+    needs: build-push
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sources/dev/admin-dashboard/package-lock.json
+
+      - name: Install dependencies
+        working-directory: sources/dev/admin-dashboard
+        run: npm ci
+
+      - name: Build frontend (same-origin)
+        working-directory: sources/dev/admin-dashboard
+        env:
+          VITE_API_CLIENT_ID: ${{ vars.VITE_API_CLIENT_ID }}
+          VITE_API_BASE_URL: ""   # same-origin: served by Caddy alongside the API
+          VITE_APP_VERSION: ${{ needs.build-push.outputs.version }}
+        run: npm run build
+
+      - name: Setup SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.TENCENT_SSH_KEY }}
+          SSH_HOST: ${{ vars.TENCENT_SSH_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync deploy files + frontend build
+        env:
+          SSH_USER: ${{ vars.TENCENT_SSH_USER }}
+          SSH_HOST: ${{ vars.TENCENT_SSH_HOST }}
+        run: |
+          SSH="ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=accept-new"
+          rsync -az -e "$SSH" \
+            deploy/tencent/docker-compose.yml \
+            deploy/tencent/Caddyfile \
+            deploy/tencent/remote-deploy.sh \
+            "$SSH_USER@$SSH_HOST:~/auth/"
+          rsync -az --delete -e "$SSH" \
+            sources/dev/admin-dashboard/dist/ \
+            "$SSH_USER@$SSH_HOST:~/auth/www/"
+
+      - name: Deploy + health check on server
+        env:
+          SSH_USER: ${{ vars.TENCENT_SSH_USER }}
+          SSH_HOST: ${{ vars.TENCENT_SSH_HOST }}
+          VERSION: ${{ needs.build-push.outputs.version }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=accept-new "$SSH_USER@$SSH_HOST" \
+            "bash ~/auth/remote-deploy.sh '$VERSION'"
+
+  # ---------------------------------------------------------------------------
+  # STANDBY (rollback): Azure Container Apps backend. Kept warm so we can fall
+  # back by pointing users at the Azure Static Web App URL.
+  # ---------------------------------------------------------------------------
+  deploy-azure-backend:
+    name: Deploy Backend (Azure, standby)
+    runs-on: ubuntu-latest
+    needs: build-push
+    environment: production
+    steps:
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -110,7 +197,7 @@ jobs:
           az containerapp update \
             --name ${{ env.BACKEND_APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }} \
+            --image ${{ env.GHCR_IMAGE }}:${{ needs.build-push.outputs.version }} \
             --set-env-vars "${env_vars[@]}"
 
       - name: Health check
@@ -131,10 +218,10 @@ jobs:
           echo "Health check failed after 5 minutes"
           exit 1
 
-  deploy-frontend:
-    name: Deploy Frontend
+  deploy-azure-frontend:
+    name: Deploy Frontend (Azure SWA, standby)
     runs-on: ubuntu-latest
-    needs: deploy-backend
+    needs: [build-push, deploy-azure-backend]
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -149,22 +236,12 @@ jobs:
         working-directory: sources/dev/admin-dashboard
         run: npm ci
 
-      - name: Determine version
-        id: version
-        run: |
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="${GITHUB_SHA::7}"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Build frontend
         working-directory: sources/dev/admin-dashboard
         env:
           VITE_API_CLIENT_ID: ${{ vars.VITE_API_CLIENT_ID }}
           VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
-          VITE_APP_VERSION: ${{ steps.version.outputs.version }}
+          VITE_APP_VERSION: ${{ needs.build-push.outputs.version }}
         run: npm run build
 
       - name: Deploy to Static Web Apps
