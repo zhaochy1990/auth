@@ -139,6 +139,21 @@ jobs:
             sources/dev/admin-dashboard/dist/ \
             "$SSH_USER@$SSH_HOST:~/auth/www/"
 
+      - name: Transfer backend image to server (GHCR → docker load over SSH)
+        env:
+          SSH_USER: ${{ vars.TENCENT_SSH_USER }}
+          SSH_HOST: ${{ vars.TENCENT_SSH_HOST }}
+          VERSION: ${{ needs.build-push.outputs.version }}
+        run: |
+          # The runner pulls from GHCR (fast, outside China) and streams the image
+          # to the server over SSH. The mainland-China server cannot reliably pull
+          # from GHCR's CDN directly (TLS handshake timeouts).
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker pull "$GHCR_IMAGE:$VERSION"
+          docker save "$GHCR_IMAGE:$VERSION" | gzip \
+            | ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=accept-new \
+                "$SSH_USER@$SSH_HOST" 'gunzip | docker load'
+
       - name: Deploy + health check on server
         env:
           SSH_USER: ${{ vars.TENCENT_SSH_USER }}

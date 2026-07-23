@@ -15,7 +15,10 @@ cd "$(dirname "$0")"
 
 export AUTH_IMAGE_TAG="$VERSION"
 
-docker compose pull auth
+# The image is pre-loaded on this host by CI (docker save | ssh docker load),
+# because this mainland-China server cannot reliably pull from GHCR's CDN
+# (pkg-containers.githubusercontent.com → TLS handshake timeout). So we do NOT
+# `docker compose pull` here; compose uses the already-loaded local image.
 docker compose up -d
 
 # Apply any Caddyfile change without a full recreate; fall back to restart.
