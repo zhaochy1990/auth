@@ -10,9 +10,14 @@
 		}
 	}
 
-	# Backend API / auth endpoints → auth container
+	# Backend API / auth endpoints → auth container.
+	# Both branches use handle{} so they are mutually exclusive and matched in
+	# source order (a bare reverse_proxy + catch-all handle would let the SPA
+	# file_server swallow API paths, because Caddy orders directives, not lines).
 	@backend path /api/* /admin/* /oauth/* /health
-	reverse_proxy @backend auth:3000
+	handle @backend {
+		reverse_proxy auth:3000
+	}
 
 	# Admin dashboard SPA (static) with client-side routing fallback
 	handle {
