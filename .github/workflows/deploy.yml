@@ -10,8 +10,8 @@ permissions:
   contents: read
   packages: write
 
-# Serialize production deploys so overlapping runs never mutate the server
-# (or Azure) concurrently.
+# Serialize production deploys so overlapping runs never mutate Azure
+# concurrently.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -23,8 +23,10 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Build the backend image once and push to GHCR. Both the Tencent (primary)
-  # and Azure (standby) deploys consume this same image.
+  # Build the backend image once and push to GHCR (CalVer + :latest). The Azure
+  # standby deploy below consumes it directly; the Tencent PRIMARY stack is now
+  # released via GitOps — Renovate in stride-devops watches GHCR and opens a PR
+  # bumping AUTH_IMAGE_TAG in tencent/versions.env (no SSH deploy from this repo).
   # ---------------------------------------------------------------------------
   build-push:
     name: Build & Push Image
@@ -82,106 +84,6 @@ jobs:
             .
           docker push ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}
           docker push ${{ env.GHCR_IMAGE }}:latest
-
-  # ---------------------------------------------------------------------------
-  # PRIMARY: Tencent Cloud Lighthouse. Frontend + backend served same-origin
-  # behind Caddy on https://124.221.38.59. Frontend is built with an empty
-  # VITE_API_BASE_URL so it calls the API via relative paths on the same origin.
-  # ---------------------------------------------------------------------------
-  deploy-tencent:
-    name: Deploy to Tencent Lighthouse (primary)
-    runs-on: ubuntu-latest
-    needs: build-push
-    environment: production
-    # Fail fast instead of hanging for hours if the cross-border link stalls.
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: sources/dev/admin-dashboard/package-lock.json
-
-      - name: Install dependencies
-        working-directory: sources/dev/admin-dashboard
-        run: npm ci
-
-      - name: Build frontend (same-origin)
-        working-directory: sources/dev/admin-dashboard
-        env:
-          VITE_API_CLIENT_ID: ${{ vars.VITE_API_CLIENT_ID }}
-          VITE_API_BASE_URL: ""   # same-origin: served by Caddy alongside the API
-          VITE_APP_VERSION: ${{ needs.build-push.outputs.version }}
-        run: npm run build
-
-      - name: Setup SSH
-        env:
-          DEPLOY_KEY: ${{ secrets.TENCENT_SSH_KEY }}
-          SSH_HOST: ${{ vars.TENCENT_SSH_HOST }}
-          SSH_USER: ${{ vars.TENCENT_SSH_USER }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "$DEPLOY_KEY" > ~/.ssh/id_deploy
-          chmod 600 ~/.ssh/id_deploy
-          # Alias with keepalives so a stalled cross-border TCP connection aborts
-          # (ServerAlive*) instead of hanging forever, plus a connect timeout.
-          cat > ~/.ssh/config <<EOF
-          Host tencent
-            HostName $SSH_HOST
-            User $SSH_USER
-            IdentityFile ~/.ssh/id_deploy
-            StrictHostKeyChecking accept-new
-            ConnectTimeout 30
-            ServerAliveInterval 15
-            ServerAliveCountMax 4
-            TCPKeepAlive yes
-          EOF
-          chmod 600 ~/.ssh/config
-          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-
-      - name: Sync deploy files + frontend build
-        run: |
-          set -euo pipefail
-          for n in 1 2 3; do
-            if rsync -az --timeout=120 -e ssh \
-                 deploy/tencent/docker-compose.yml \
-                 deploy/tencent/Caddyfile \
-                 deploy/tencent/remote-deploy.sh \
-                 tencent:~/auth/ \
-               && rsync -az --delete --timeout=120 -e ssh \
-                 sources/dev/admin-dashboard/dist/ \
-                 tencent:~/auth/www/; then
-              echo "sync ok"; break
-            fi
-            echo "sync attempt $n failed"; [ "$n" = 3 ] && exit 1; sleep 10
-          done
-
-      - name: Transfer backend image to server (GHCR → docker load over SSH)
-        env:
-          VERSION: ${{ needs.build-push.outputs.version }}
-        run: |
-          set -euo pipefail
-          # Runner pulls from GHCR (fast, outside China) and streams the image to
-          # the server over SSH; the mainland-China server cannot reliably pull
-          # from GHCR's CDN directly (TLS handshake timeouts).
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker pull "$GHCR_IMAGE:$VERSION"
-          docker save "$GHCR_IMAGE:$VERSION" | gzip > /tmp/auth-image.tgz
-          echo "image size: $(du -h /tmp/auth-image.tgz | cut -f1)"
-          for n in 1 2 3; do
-            if ssh tencent 'gunzip | docker load' < /tmp/auth-image.tgz; then
-              echo "image load ok"; break
-            fi
-            echo "image transfer attempt $n failed"; [ "$n" = 3 ] && exit 1; sleep 10
-          done
-
-      - name: Deploy + health check on server
-        env:
-          VERSION: ${{ needs.build-push.outputs.version }}
-        run: |
-          ssh tencent "bash ~/auth/remote-deploy.sh '$VERSION'"
 
   # ---------------------------------------------------------------------------
   # STANDBY (rollback): Azure Container Apps backend. Kept warm so we can fall
