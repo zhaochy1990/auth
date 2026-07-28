@@ -189,3 +189,19 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  frontend-docker:
+    name: Frontend Docker Build
+    needs: [changes, frontend-check]
+    if: needs.changes.outputs.frontend == 'true' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sources/dev/admin-dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      # Dry-run the production image build (npm ci + vite build happen inside the
+      # multi-stage Dockerfile). Build args are inert here — no push.
+      - name: Docker build (dry run)
+        run: docker build -t auth-frontend:ci .

@@ -18,18 +18,20 @@ concurrency:
 
 env:
   GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/auth-backend
+  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/auth-frontend
   BACKEND_APP_NAME: auth-backend
   RESOURCE_GROUP: rg-auth-prod
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Build the backend image once and push to GHCR (CalVer + :latest). The Azure
-  # standby deploy below consumes it directly; the Tencent PRIMARY stack is now
-  # released via GitOps — the final step here runs Renovate against stride-devops
-  # to open a PR bumping AUTH_IMAGE_TAG in tencent/versions.env (no SSH deploy).
+  # Build the backend + frontend images and push to GHCR (CalVer + :latest). The
+  # Azure standby deploy below consumes the backend image directly; the Tencent
+  # PRIMARY stack is released via GitOps — the final step here runs Renovate
+  # against stride-devops to open a PR bumping AUTH_IMAGE_TAG /
+  # AUTH_FRONTEND_IMAGE_TAG in tencent/versions.env (no SSH deploy from this repo).
   # ---------------------------------------------------------------------------
   build-push:
-    name: Build & Push Image
+    name: Build & Push Images
     runs-on: ubuntu-latest
     environment: production
     outputs:
@@ -85,10 +87,28 @@ jobs:
           docker push ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}
           docker push ${{ env.GHCR_IMAGE }}:latest
 
-      # Run Renovate against stride-devops right after the image lands, so its
-      # tencent/versions.env bump PR (AUTH_IMAGE_TAG -> this CalVer) opens within
-      # seconds — no poll/runner in stride-devops. Renovate clones stride-devops,
-      # reads its renovate.json, sees the new GHCR tag, and opens the PR there.
+      - name: Build and push frontend image
+        working-directory: sources/dev/admin-dashboard
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Same-origin build (VITE_API_BASE_URL="") — the SPA calls the API via
+          # relative paths behind Caddy, which reverse-proxies to this container.
+          docker build \
+            --build-arg VITE_API_CLIENT_ID="${{ vars.VITE_API_CLIENT_ID }}" \
+            --build-arg VITE_API_BASE_URL="" \
+            --build-arg VITE_APP_VERSION="$VERSION" \
+            -t ${{ env.FRONTEND_IMAGE }}:"$VERSION" \
+            -t ${{ env.FRONTEND_IMAGE }}:latest \
+            .
+          docker push ${{ env.FRONTEND_IMAGE }}:"$VERSION"
+          docker push ${{ env.FRONTEND_IMAGE }}:latest
+
+      # Run Renovate against stride-devops right after the images land, so its
+      # tencent/versions.env bump PR (AUTH_IMAGE_TAG / AUTH_FRONTEND_IMAGE_TAG ->
+      # this CalVer) opens within seconds — no poll/runner in stride-devops.
+      # Renovate clones stride-devops, reads its renovate.json, sees the new GHCR
+      # tags, and opens the PR there. Runs last so both images are already pushed.
       # Best effort: a missing token or Renovate hiccup must NOT fail the publish.
       #   RENOVATE_TOKEN  — PAT/App token with contents+pull-requests write on
       #                     zhaochy1990/stride-devops (Renovate opens the PR there).
