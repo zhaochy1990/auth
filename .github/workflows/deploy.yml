@@ -65,6 +65,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Also publish to Aliyun ACR (China mirror) so the Tencent CVM can pull
+      # in-region — GHCR's blob CDN is throttled from mainland China. Host in the
+      # ALIYUN_ACR_REGISTRY repo variable; creds in secrets.
+      - name: Login to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.ALIYUN_ACR_REGISTRY }}
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
@@ -78,19 +88,26 @@ jobs:
 
       - name: Build and push Docker image
         working-directory: sources/dev/authentication-go
+        env:
+          ACR_IMAGE: ${{ vars.ALIYUN_ACR_REGISTRY }}/stride/auth-backend
         run: |
           docker build \
             --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
             -t ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }} \
             -t ${{ env.GHCR_IMAGE }}:latest \
+            -t "$ACR_IMAGE":${{ steps.version.outputs.version }} \
+            -t "$ACR_IMAGE":latest \
             .
           docker push ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}
           docker push ${{ env.GHCR_IMAGE }}:latest
+          docker push "$ACR_IMAGE":${{ steps.version.outputs.version }}
+          docker push "$ACR_IMAGE":latest
 
       - name: Build and push frontend image
         working-directory: sources/dev/admin-dashboard
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          ACR_IMAGE: ${{ vars.ALIYUN_ACR_REGISTRY }}/stride/auth-frontend
         run: |
           # Same-origin build (VITE_API_BASE_URL="") — the SPA calls the API via
           # relative paths behind Caddy, which reverse-proxies to this container.
@@ -100,9 +117,13 @@ jobs:
             --build-arg VITE_APP_VERSION="$VERSION" \
             -t ${{ env.FRONTEND_IMAGE }}:"$VERSION" \
             -t ${{ env.FRONTEND_IMAGE }}:latest \
+            -t "$ACR_IMAGE":"$VERSION" \
+            -t "$ACR_IMAGE":latest \
             .
           docker push ${{ env.FRONTEND_IMAGE }}:"$VERSION"
           docker push ${{ env.FRONTEND_IMAGE }}:latest
+          docker push "$ACR_IMAGE":"$VERSION"
+          docker push "$ACR_IMAGE":latest
 
       # Run Renovate against stride-devops right after the images land, so its
       # tencent/versions.env bump PR (AUTH_IMAGE_TAG / AUTH_FRONTEND_IMAGE_TAG ->
