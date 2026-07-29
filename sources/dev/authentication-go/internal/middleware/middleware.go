@@ -367,8 +367,18 @@ func (l *RateLimiter) Middleware() gin.HandlerFunc {
 
 // --- CORS ---
 
-// CORS mirrors the tower-http CorsLayer: echo allowed origins (or "*"), allow
-// any method/header, and short-circuit preflight requests.
+// corsAllowedHeaders is the explicit allow-list echoed on preflight responses.
+// It must name every non-safelisted request header clients send. Authorization
+// is listed explicitly on purpose: per the Fetch spec the "*" wildcard does NOT
+// cover Authorization, so a wildcard would silently break cross-origin Bearer
+// (and Basic, for /oauth) requests. X-Client-Id is the app identity header.
+const corsAllowedHeaders = "Authorization, Content-Type, X-Client-Id"
+
+// corsAllowedMethods is the explicit method allow-list for preflight responses.
+const corsAllowedMethods = "GET, POST, PATCH, DELETE, OPTIONS"
+
+// CORS mirrors the tower-http CorsLayer: echo allowed origins (or "*") and the
+// explicit method/header allow-lists, then short-circuit preflight requests.
 func CORS(allowedOrigins string) gin.HandlerFunc {
 	wildcard := strings.TrimSpace(allowedOrigins) == "*"
 	set := map[string]bool{}
@@ -388,8 +398,8 @@ func CORS(allowedOrigins string) gin.HandlerFunc {
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Vary", "Origin")
 		}
-		c.Header("Access-Control-Allow-Methods", "*")
-		c.Header("Access-Control-Allow-Headers", "*")
+		c.Header("Access-Control-Allow-Methods", corsAllowedMethods)
+		c.Header("Access-Control-Allow-Headers", corsAllowedHeaders)
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
 			return

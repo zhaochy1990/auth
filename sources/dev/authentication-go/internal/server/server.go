@@ -49,7 +49,9 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		oauth.POST("/introspect", h.Introspect)
 	}
 
-	// Auth endpoints (X-Client-Id, except logout which is Bearer).
+	// Auth endpoints (X-Client-Id). Logout revokes by refresh_token in the body,
+	// so it uses ClientApp() like refresh instead of requiring a Bearer token;
+	// this keeps logout idempotent even when the access token has expired.
 	authGroup := r.Group("/api/auth")
 	authGroup.Use(authLimiter.Middleware())
 	{
@@ -57,7 +59,7 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		authGroup.POST("/login", am.ClientApp(), h.Login)
 		authGroup.POST("/provider/:provider_id/login", am.ClientApp(), h.ProviderLogin)
 		authGroup.POST("/refresh", am.ClientApp(), h.Refresh)
-		authGroup.POST("/logout", am.AuthenticatedUser(), h.Logout)
+		authGroup.POST("/logout", am.ClientApp(), h.Logout)
 	}
 
 	// User endpoints (Bearer).
