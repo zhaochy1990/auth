@@ -241,9 +241,11 @@ func TestRegisterLoginRefreshLogout(t *testing.T) {
 	}, ta.clientHeaders())
 	mustStatus(t, reuse, http.StatusUnauthorized)
 
+	// Logout authenticates via X-Client-Id (like refresh) and revokes by the
+	// refresh_token in the body, so it does not require a Bearer access token.
 	logout := ta.do(http.MethodPost, "/api/auth/logout", map[string]any{
 		"refresh_token": refreshResp.RefreshToken,
-	}, ta.bearer(refreshResp.AccessToken))
+	}, ta.clientHeaders())
 	mustStatus(t, logout, http.StatusOK)
 }
 
