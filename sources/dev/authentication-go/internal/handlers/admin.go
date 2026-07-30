@@ -237,6 +237,19 @@ type adminTeamMembershipResponse struct {
 // --- Application handlers ---
 
 // CreateApplication registers a new OAuth2 application.
+//
+// @Summary     Create application
+// @Tags        admin
+// @Accept      json
+// @Produce     json
+// @Param       body  body  createApplicationRequest  true  "Application to create"
+// @Success     200  {object}  createApplicationResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/applications [post]
 func (h *Handler) CreateApplication(c *gin.Context) {
 	var req createApplicationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -277,6 +290,17 @@ func (h *Handler) CreateApplication(c *gin.Context) {
 }
 
 // ListApplications lists all applications.
+//
+// @Summary     List applications
+// @Tags        admin
+// @Produce     json
+// @Success     200  {array}  applicationResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/applications [get]
 func (h *Handler) ListApplications(c *gin.Context) {
 	apps, err := h.Repo.Applications().FindAll(c.Request.Context())
 	if err != nil {
@@ -303,6 +327,21 @@ func toApplicationResponse(a *domain.Application) applicationResponse {
 }
 
 // UpdateApplication patches an application.
+//
+// @Summary     Update application
+// @Tags        admin
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string  true  "Application ID"
+// @Param       body  body  updateApplicationRequest  true  "Fields to update"
+// @Success     200  {object}  applicationResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/applications/{id} [patch]
 func (h *Handler) UpdateApplication(c *gin.Context) {
 	var req updateApplicationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -342,6 +381,21 @@ func (h *Handler) UpdateApplication(c *gin.Context) {
 }
 
 // AddProvider attaches an auth provider to an application.
+//
+// @Summary     Add application provider
+// @Tags        admin
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string  true  "Application ID"
+// @Param       body  body  addProviderRequest  true  "Provider to attach"
+// @Success     200  {object}  providerResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/applications/{id}/providers [post]
 func (h *Handler) AddProvider(c *gin.Context) {
 	var req addProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -385,6 +439,19 @@ func (h *Handler) AddProvider(c *gin.Context) {
 }
 
 // RemoveProvider detaches a provider from an application.
+//
+// @Summary     Remove application provider
+// @Tags        admin
+// @Produce     json
+// @Param       id           path  string  true  "Application ID"
+// @Param       provider_id  path  string  true  "Provider ID"
+// @Success     200  {object}  StatusResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/applications/{id}/providers/{provider_id} [delete]
 func (h *Handler) RemoveProvider(c *gin.Context) {
 	ctx := c.Request.Context()
 	provider, err := h.Repo.AppProviders().FindByAppAndProvider(ctx, c.Param("id"), c.Param("provider_id"))
@@ -404,6 +471,19 @@ func (h *Handler) RemoveProvider(c *gin.Context) {
 }
 
 // RotateSecret rotates an application's client secret.
+//
+// @Summary     Rotate application secret
+// @Tags        admin
+// @Produce     json
+// @Param       id  path  string  true  "Application ID"
+// @Success     200  {object}  rotateSecretResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/applications/{id}/rotate-secret [post]
 func (h *Handler) RotateSecret(c *gin.Context) {
 	ctx := c.Request.Context()
 	app, err := h.Repo.Applications().FindByID(ctx, c.Param("id"))
@@ -426,6 +506,19 @@ func (h *Handler) RotateSecret(c *gin.Context) {
 }
 
 // ListProviders lists an application's providers.
+//
+// @Summary     List application providers
+// @Tags        admin
+// @Produce     json
+// @Param       id  path  string  true  "Application ID"
+// @Success     200  {array}  providerResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/applications/{id}/providers [get]
 func (h *Handler) ListProviders(c *gin.Context) {
 	ctx := c.Request.Context()
 	appID := c.Param("id")
@@ -459,6 +552,17 @@ func (h *Handler) ListProviders(c *gin.Context) {
 // --- User handlers ---
 
 // ListUsers lists users with pagination and optional search.
+//
+// @Summary     List users
+// @Tags        admin
+// @Produce     json
+// @Success     200  {object}  userListResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/users [get]
 func (h *Handler) ListUsers(c *gin.Context) {
 	page := parseUintDefault(c.Query("page"), 1)
 	if page < 1 {
@@ -494,6 +598,19 @@ func (h *Handler) ListUsers(c *gin.Context) {
 }
 
 // GetUser returns a single user.
+//
+// @Summary     Get user
+// @Tags        admin
+// @Produce     json
+// @Param       id  path  string  true  "User ID"
+// @Success     200  {object}  userResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/users/{id} [get]
 func (h *Handler) GetUser(c *gin.Context) {
 	user, err := h.Repo.Users().FindByID(c.Request.Context(), c.Param("id"))
 	if err != nil {
@@ -508,6 +625,19 @@ func (h *Handler) GetUser(c *gin.Context) {
 }
 
 // GetUserAccounts lists a user's linked accounts.
+//
+// @Summary     List user accounts
+// @Tags        admin
+// @Produce     json
+// @Param       id  path  string  true  "User ID"
+// @Success     200  {array}  userAccountResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/users/{id}/accounts [get]
 func (h *Handler) GetUserAccounts(c *gin.Context) {
 	ctx := c.Request.Context()
 	userID := c.Param("id")
@@ -535,6 +665,20 @@ func (h *Handler) GetUserAccounts(c *gin.Context) {
 }
 
 // CreateUser creates a user with a password account.
+//
+// @Summary     Create user
+// @Tags        admin
+// @Accept      json
+// @Produce     json
+// @Param       body  body  createUserRequest  true  "User to create"
+// @Success     200  {object}  userResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     409  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/users [post]
 func (h *Handler) CreateUser(c *gin.Context) {
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -604,6 +748,21 @@ func (h *Handler) CreateUser(c *gin.Context) {
 }
 
 // UpdateUser patches a user.
+//
+// @Summary     Update user
+// @Tags        admin
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string  true  "User ID"
+// @Param       body  body  updateUserRequest  true  "Fields to update"
+// @Success     200  {object}  userResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/users/{id} [patch]
 func (h *Handler) UpdateUser(c *gin.Context) {
 	var req updateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -678,6 +837,18 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 }
 
 // DeleteUser deletes a user account (admin).
+//
+// @Summary     Delete user
+// @Tags        admin
+// @Param       id  path  string  true  "User ID"
+// @Success     204  "No Content"
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/users/{id} [delete]
 func (h *Handler) DeleteUser(c *gin.Context) {
 	if err := h.deleteUserAccount(c.Request.Context(), c.Param("id")); err != nil {
 		middleware.RespondError(c, err)
@@ -687,6 +858,21 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 }
 
 // ResetUserPassword sets a new password for a user, optionally revoking sessions.
+//
+// @Summary     Reset user password
+// @Tags        admin
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string  true  "User ID"
+// @Param       body  body  resetUserPasswordRequest  true  "New password"
+// @Success     200  {object}  resetUserPasswordResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/users/{id}/reset-password [post]
 func (h *Handler) ResetUserPassword(c *gin.Context) {
 	var req resetUserPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -742,6 +928,20 @@ func (h *Handler) ResetUserPassword(c *gin.Context) {
 }
 
 // AdminUnlinkAccount unlinks a provider account from a user (never the last).
+//
+// @Summary     Unlink user account
+// @Tags        admin
+// @Produce     json
+// @Param       id           path  string  true  "User ID"
+// @Param       provider_id  path  string  true  "Provider ID"
+// @Success     200  {object}  StatusResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/users/{id}/accounts/{provider_id} [delete]
 func (h *Handler) AdminUnlinkAccount(c *gin.Context) {
 	ctx := c.Request.Context()
 	userID := c.Param("id")
@@ -781,6 +981,17 @@ func (h *Handler) AdminUnlinkAccount(c *gin.Context) {
 }
 
 // Stats returns application and user counts.
+//
+// @Summary     Get admin stats
+// @Tags        admin
+// @Produce     json
+// @Success     200  {object}  statsResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/stats [get]
 func (h *Handler) Stats(c *gin.Context) {
 	ctx := c.Request.Context()
 	totalApps, err := h.Repo.Applications().CountAll(ctx)
@@ -812,6 +1023,17 @@ func (h *Handler) Stats(c *gin.Context) {
 // --- Invite code handlers ---
 
 // CreateInviteCode mints an invite code.
+//
+// @Summary     Create invite code
+// @Tags        admin
+// @Produce     json
+// @Success     200  {object}  inviteCodeResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/invite-codes [post]
 func (h *Handler) CreateInviteCode(c *gin.Context) {
 	kind := domain.InviteKindFromString(c.Query("kind"))
 	var grants *domain.MembershipTier
@@ -849,6 +1071,17 @@ func (h *Handler) CreateInviteCode(c *gin.Context) {
 }
 
 // ListInviteCodes lists invite codes, optionally filtered by used status.
+//
+// @Summary     List invite codes
+// @Tags        admin
+// @Produce     json
+// @Success     200  {array}  inviteCodeResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/invite-codes [get]
 func (h *Handler) ListInviteCodes(c *gin.Context) {
 	var used *bool
 	if u := c.Query("used"); u == "true" || u == "false" {
@@ -868,6 +1101,18 @@ func (h *Handler) ListInviteCodes(c *gin.Context) {
 }
 
 // RevokeInviteCode revokes an invite code.
+//
+// @Summary     Revoke invite code
+// @Tags        admin
+// @Produce     json
+// @Param       code  path  string  true  "Invite code"
+// @Success     200  {object}  StatusResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/invite-codes/{code} [delete]
 func (h *Handler) RevokeInviteCode(c *gin.Context) {
 	if err := h.Repo.InviteCodes().Revoke(c.Request.Context(), c.Param("code")); err != nil {
 		middleware.RespondError(c, err)
@@ -879,6 +1124,20 @@ func (h *Handler) RevokeInviteCode(c *gin.Context) {
 // --- Admin team management ---
 
 // AdminCreateTeam creates a team on behalf of a user.
+//
+// @Summary     Create team (admin)
+// @Tags        admin
+// @Accept      json
+// @Produce     json
+// @Param       body  body  adminCreateTeamRequest  true  "Team to create"
+// @Success     200  {object}  teamResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/teams [post]
 func (h *Handler) AdminCreateTeam(c *gin.Context) {
 	var req adminCreateTeamRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -923,6 +1182,21 @@ func (h *Handler) AdminCreateTeam(c *gin.Context) {
 }
 
 // AdminAddTeamMember adds a user to a team.
+//
+// @Summary     Add team member (admin)
+// @Tags        admin
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string  true  "Team ID"
+// @Param       body  body  adminAddMemberRequest  true  "Member to add"
+// @Success     200  {object}  adminTeamMembershipResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/teams/{id}/members [post]
 func (h *Handler) AdminAddTeamMember(c *gin.Context) {
 	var req adminAddMemberRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -980,6 +1254,20 @@ func (h *Handler) AdminAddTeamMember(c *gin.Context) {
 }
 
 // AdminRemoveTeamMember removes a non-owner member from a team.
+//
+// @Summary     Remove team member (admin)
+// @Tags        admin
+// @Produce     json
+// @Param       id       path  string  true  "Team ID"
+// @Param       user_id  path  string  true  "User ID"
+// @Success     200  {object}  StatusResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /admin/teams/{id}/members/{user_id} [delete]
 func (h *Handler) AdminRemoveTeamMember(c *gin.Context) {
 	ctx := c.Request.Context()
 	teamID := c.Param("id")

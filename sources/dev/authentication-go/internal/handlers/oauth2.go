@@ -55,6 +55,21 @@ type introspectResponse struct {
 // --- Handlers ---
 
 // Token implements the OAuth2 token endpoint (multiple grant types).
+//
+// @Summary		OAuth2 token endpoint
+// @Description	Issues tokens for the authorization_code, client_credentials, refresh_token, and password grant types. The client authenticates with HTTP Basic (client_id:client_secret).
+// @Tags			oauth
+// @Accept			json
+// @Produce		json
+// @Param			body	body		tokenRequest	true	"Grant request"
+// @Success		200		{object}	oauthTokenResponse
+// @Failure		400		{object}	ErrorResponse
+// @Failure		401		{object}	ErrorResponse
+// @Failure		403		{object}	ErrorResponse
+// @Failure		404		{object}	ErrorResponse
+// @Failure		500		{object}	ErrorResponse
+// @Security		BasicAuth
+// @Router			/oauth/token [post]
 func (h *Handler) Token(c *gin.Context) {
 	var req tokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -263,6 +278,16 @@ func (h *Handler) handlePasswordGrant(c *gin.Context, req *tokenRequest) {
 }
 
 // Revoke revokes a refresh token. Per RFC 7009, always returns 200.
+//
+// @Summary		Revoke a token (RFC 7009)
+// @Tags			oauth
+// @Accept			json
+// @Produce		json
+// @Param			body	body	revokeRequest	true	"Token to revoke"
+// @Success		200		"Token revoked (always 200 per RFC 7009)"
+// @Failure		400		{object}	ErrorResponse
+// @Security		BasicAuth
+// @Router			/oauth/revoke [post]
 func (h *Handler) Revoke(c *gin.Context) {
 	var req revokeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -274,6 +299,16 @@ func (h *Handler) Revoke(c *gin.Context) {
 }
 
 // Introspect reports whether an access token is active (RFC 7662 subset).
+//
+// @Summary		Introspect a token (RFC 7662 subset)
+// @Tags			oauth
+// @Accept			json
+// @Produce		json
+// @Param			body	body		introspectRequest	true	"Token to introspect"
+// @Success		200		{object}	introspectResponse
+// @Failure		400		{object}	ErrorResponse
+// @Security		BasicAuth
+// @Router			/oauth/introspect [post]
 func (h *Handler) Introspect(c *gin.Context) {
 	var req introspectRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

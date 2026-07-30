@@ -964,19 +964,6 @@ func (r *userRepo) listUnfilteredPage(ctx context.Context, indexes []indexEntity
 	return out, total, nil
 }
 
-func (r *userRepo) migrateSortIndexes(ctx context.Context) (int, error) {
-	es, err := queryEntities[userEntity](ctx, r.c, "PartitionKey eq 'user'")
-	if err != nil {
-		return 0, err
-	}
-	for i := range es {
-		if err := r.upsertSortIndexes(ctx, &es[i]); err != nil {
-			return i, err
-		}
-	}
-	return len(es), nil
-}
-
 // ─── Application ─────────────────────────────────────────────────────────────
 
 type appEntity struct {
@@ -1843,62 +1830,6 @@ func (r *teamMembershipRepo) DeleteAllByUser(ctx context.Context, userID string)
 		}
 	}
 	return nil
-}
-
-// ─── Migrations ──────────────────────────────────────────────────────────────
-
-// MigrateInviteCodeKinds backfills the `kind` field on every invite-code row.
-func (r *Repository) MigrateInviteCodeKinds(ctx context.Context) (int, error) {
-	es, err := queryEntities[inviteCodeEntity](ctx, r.inviteCodes, "PartitionKey eq 'invite_code'")
-	if err != nil {
-		return 0, err
-	}
-	count := 0
-	for i := range es {
-		if es[i].Kind == "" {
-			es[i].Kind = string(domain.InviteSingleUse)
-		}
-		if err := upsertEntity(ctx, r.inviteCodes, &es[i]); err != nil {
-			return count, err
-		}
-		count++
-	}
-	return count, nil
-}
-
-// MigrateUserInviteCodes backfills users.invite_code from each single-use
-// code's used_by linkage.
-func (r *Repository) MigrateUserInviteCodes(ctx context.Context) (int, error) {
-	codes, err := queryEntities[inviteCodeEntity](ctx, r.inviteCodes, "PartitionKey eq 'invite_code'")
-	if err != nil {
-		return 0, err
-	}
-	count := 0
-	for _, c := range codes {
-		if c.UsedBy == nil {
-			continue
-		}
-		var ue userEntity
-		ok, err := getEntity(ctx, r.users, "user", *c.UsedBy, &ue)
-		if err != nil {
-			return count, err
-		}
-		if !ok || ue.InviteCode != nil {
-			continue
-		}
-		rowKey := c.RowKey
-		ue.InviteCode = &rowKey
-		if err := upsertEntity(ctx, r.users, &ue); err != nil {
-			return count, err
-		}
-		count++
-	}
-	return count, nil
-}
-
-// MigrateUserSortIndexes backfills the admin user-list sort indexes.
-func (r *Repository) MigrateUserSortIndexes(ctx context.Context) (int, error) {
-	return r.userRepo.migrateSortIndexes(ctx)
 }
 
 var _ repository.Repository = (*Repository)(nil)

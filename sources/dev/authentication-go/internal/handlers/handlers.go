@@ -26,6 +26,20 @@ type Handler struct {
 	Cfg  *config.Config
 }
 
+// ErrorResponse is the JSON body returned for every error. It mirrors
+// middleware.RespondError: a stable machine-readable `error` code plus a
+// human-readable `message`. Referenced by the Swagger `@Failure` annotations.
+type ErrorResponse struct {
+	Error   string `json:"error" example:"invalid_credentials"`
+	Message string `json:"message" example:"Invalid credentials"`
+}
+
+// StatusResponse is the JSON body for endpoints that only acknowledge success
+// (e.g. logout, revoke). Referenced by Swagger `@Success` annotations.
+type StatusResponse struct {
+	Status string `json:"status" example:"ok"`
+}
+
 // New builds a Handler.
 func New(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Config) *Handler {
 	return &Handler{Repo: repo, JWT: jwt, Cfg: cfg}
