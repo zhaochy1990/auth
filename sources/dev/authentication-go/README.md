@@ -15,8 +15,6 @@ cmd/auth-service/               unified cobra CLI (one binary, subcommands)
   main.go                       root command + Swagger general API info
   cmd_serve.go                  `serve`  — start the Gin HTTP server
   cmd_seed.go                   `seed`   — bootstrap the admin user + app client
-  cmd_migrate.go                `migrate`— backfill legacy Azure Table rows
-  cmd_migrate_storage.go        `migrate-storage azure-to-mysql`
   docs/                         generated OpenAPI/Swagger docs (`make swagger`)
 internal/
   config/        env-based configuration
@@ -41,8 +39,6 @@ The service is one binary with cobra subcommands (`auth-service <command>`):
 |---------|---------|
 | `serve` | Start the Gin HTTP server (default container command) |
 | `seed [email] [password]` | Bootstrap the admin user and Admin Dashboard app client |
-| `migrate` | Backfill legacy Azure Table rows (no-op on the MySQL backend) |
-| `migrate-storage azure-to-mysql [--dry-run] [--clear-target]` | Copy Azure Tables data into MySQL for the cutover |
 
 Run `auth-service <command> --help` for flags.
 
@@ -104,28 +100,6 @@ STORAGE_BACKEND=mysql MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth"
 Plain `go build` / `go test` never need the generated package (a build-tagged
 no-op stub replaces the UI), so the default build stays lean.
 
-
-## Azure Tables To MySQL Migration
-
-Dry-run export from the legacy Azure Tables backend:
-
-```bash
-AZURE_STORAGE_CONNECTION_STRING="..." \
-go run ./cmd/auth-service migrate-storage azure-to-mysql --dry-run
-```
-
-Import into MySQL:
-
-```bash
-AZURE_STORAGE_CONNECTION_STRING="..." \
-MYSQL_DSN="mysql://user:password@tcp-host:3306/auth" \
-go run ./cmd/auth-service migrate-storage azure-to-mysql
-```
-
-Without `--clear-target`, the command requires every target MySQL table to be
-empty before importing. `--clear-target` deletes target MySQL rows and imports
-the snapshot in one transaction. If the import fails, the target rows are rolled
-back. Use it only for a fresh rehearsal or planned cutover window.
 
 ## Tencent Cloud MySQL
 

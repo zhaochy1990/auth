@@ -34,11 +34,9 @@ via `seed.Bootstrap`.
 
 `cmd/auth-service` is a single `github.com/spf13/cobra` binary. `main.go` is a
 thin root that wires subcommands, each in its own `cmd_*.go` file: `serve` (HTTP
-server), `seed`, `migrate`, and `migrate-storage`. The container default command
-is `serve`; maintenance tasks run by overriding it. Keep subcommands thin —
-config load + dependency wiring only; all logic lives in `internal/`. The
-`compareCounts`/`countsEmpty` helpers (covered by `main_test.go`) live in
-`cmd_migrate_storage.go`.
+server) and `seed`. The container default command is `serve`; maintenance tasks
+run by overriding it. Keep subcommands thin — config load + dependency wiring
+only; all logic lives in `internal/`.
 
 ## Swagger
 
@@ -64,7 +62,7 @@ Layered with a swappable storage adapter (see README for the full tree):
   Azure Table secondary-index rows; invite codes are consumed atomically with a
   conditional `UPDATE ... WHERE used_at IS NULL`.
 - `internal/repository/aztables` — legacy Azure Table implementation plus
-  `ExportSnapshot`, used by `migrate-storage azure-to-mysql`.
+  `ExportSnapshot` (storage-neutral snapshot export helper).
 - `internal/auth` — JWT issue/verify (custom claims so `aud` stays a single
   string and `membership` is a snake_case string), argon2id passwords,
   SHA-256 client secrets (with legacy argon2 fallback), PKCE, OAuth2 helpers.

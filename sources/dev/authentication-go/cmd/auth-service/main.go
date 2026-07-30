@@ -4,8 +4,6 @@
 //
 //	auth-service serve              start the Gin HTTP server (default runtime)
 //	auth-service seed [email] [pw]  bootstrap the admin user + dashboard app client
-//	auth-service migrate            backfill legacy Azure Table rows (no-op on MySQL)
-//	auth-service migrate-storage    copy Azure Tables data into MySQL for cutover
 //
 // Each subcommand stays thin: load config, open storage, run. All logic lives
 // in internal/.
@@ -58,8 +56,6 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newServeCmd(),
 		newSeedCmd(),
-		newMigrateCmd(),
-		newMigrateStorageCmd(),
 	)
 	return root
 }
