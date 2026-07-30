@@ -49,6 +49,16 @@ type linkAccountRequest struct {
 // --- Handlers ---
 
 // GetProfile returns the authenticated user's profile.
+//
+// @Summary		Get the current user's profile
+// @Tags			users
+// @Produce		json
+// @Success		200	{object}	userProfileResponse
+// @Failure		401	{object}	ErrorResponse
+// @Failure		404	{object}	ErrorResponse
+// @Failure		500	{object}	ErrorResponse
+// @Security		BearerAuth
+// @Router			/api/users/me [get]
 func (h *Handler) GetProfile(c *gin.Context) {
 	ctx := c.Request.Context()
 	user, err := h.Repo.Users().FindByID(ctx, middleware.UserID(c))
@@ -76,6 +86,19 @@ func (h *Handler) GetProfile(c *gin.Context) {
 }
 
 // UpdateProfile updates the authenticated user's name/avatar.
+//
+// @Summary		Update the current user's profile
+// @Tags			users
+// @Accept			json
+// @Produce		json
+// @Param			body	body		updateProfileRequest	true	"Fields to update"
+// @Success		200		{object}	userProfileResponse
+// @Failure		400		{object}	ErrorResponse
+// @Failure		401		{object}	ErrorResponse
+// @Failure		404		{object}	ErrorResponse
+// @Failure		500		{object}	ErrorResponse
+// @Security		BearerAuth
+// @Router			/api/users/me [patch]
 func (h *Handler) UpdateProfile(c *gin.Context) {
 	var req updateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -122,6 +145,15 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 }
 
 // ListAccounts lists the authenticated user's linked accounts.
+//
+// @Summary		List the current user's linked accounts
+// @Tags			users
+// @Produce		json
+// @Success		200	{array}		accountResponse
+// @Failure		401	{object}	ErrorResponse
+// @Failure		500	{object}	ErrorResponse
+// @Security		BearerAuth
+// @Router			/api/users/me/accounts [get]
 func (h *Handler) ListAccounts(c *gin.Context) {
 	accounts, err := h.Repo.Accounts().FindAllByUser(c.Request.Context(), middleware.UserID(c))
 	if err != nil {
@@ -140,6 +172,21 @@ func (h *Handler) ListAccounts(c *gin.Context) {
 }
 
 // LinkAccount links an external provider account to the authenticated user.
+//
+// @Summary		Link an external provider account
+// @Tags			users
+// @Accept			json
+// @Produce		json
+// @Param			provider_id	path		string				true	"Provider id"
+// @Param			body		body		linkAccountRequest	true	"Provider credential"
+// @Success		200			{object}	accountResponse
+// @Failure		400			{object}	ErrorResponse
+// @Failure		401			{object}	ErrorResponse
+// @Failure		404			{object}	ErrorResponse
+// @Failure		409			{object}	ErrorResponse
+// @Failure		500			{object}	ErrorResponse
+// @Security		BearerAuth
+// @Router			/api/users/me/accounts/{provider_id}/link [post]
 func (h *Handler) LinkAccount(c *gin.Context) {
 	providerID := c.Param("provider_id")
 	var req linkAccountRequest
@@ -222,6 +269,18 @@ func (h *Handler) LinkAccount(c *gin.Context) {
 }
 
 // UnlinkAccount unlinks a provider account (never the last one).
+//
+// @Summary		Unlink a provider account
+// @Description	Unlinks a linked provider account. Refuses to remove the user's last remaining account.
+// @Tags			users
+// @Produce		json
+// @Param			provider_id	path		string	true	"Provider id"
+// @Success		200			{object}	StatusResponse
+// @Failure		400			{object}	ErrorResponse
+// @Failure		401			{object}	ErrorResponse
+// @Failure		500			{object}	ErrorResponse
+// @Security		BearerAuth
+// @Router			/api/users/me/accounts/{provider_id} [delete]
 func (h *Handler) UnlinkAccount(c *gin.Context) {
 	providerID := c.Param("provider_id")
 	ctx := c.Request.Context()
@@ -255,6 +314,18 @@ func (h *Handler) UnlinkAccount(c *gin.Context) {
 }
 
 // DeleteMe deletes the authenticated user's account.
+//
+// @Summary		Delete the current user's account
+// @Description	Deletes the authenticated user and all dependent rows. Refuses if the user still owns any team.
+// @Tags			users
+// @Produce		json
+// @Success		204	"No Content"
+// @Failure		401	{object}	ErrorResponse
+// @Failure		404	{object}	ErrorResponse
+// @Failure		409	{object}	ErrorResponse
+// @Failure		500	{object}	ErrorResponse
+// @Security		BearerAuth
+// @Router			/api/users/me [delete]
 func (h *Handler) DeleteMe(c *gin.Context) {
 	if err := h.deleteUserAccount(c.Request.Context(), middleware.UserID(c)); err != nil {
 		middleware.RespondError(c, err)

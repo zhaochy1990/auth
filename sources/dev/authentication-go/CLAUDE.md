@@ -18,13 +18,39 @@ gofmt -w .                                       # auto-format
 go test ./...                                    # all tests (server suite needs MySQL)
 go test ./internal/auth/                         # pure unit tests, no MySQL
 go test ./internal/server/ -run TestX -v         # a single integration test
+make swagger                                     # regenerate cmd/auth-service/docs
+go build -tags swagger ./...                     # build incl. the Swagger UI
 ```
+
+A `Makefile` wraps these (`make build|vet|fmt|test|swagger|build-service-swagger`).
 
 Integration tests (`internal/server/integration_test.go`) require MySQL on
 `127.0.0.1:3306` by default; they `t.Skip` if it is unreachable. Start it with
 `docker compose up -d mysql`. Override the endpoint with `TEST_MYSQL_DSN`. Each
 test calls `newTestApp`, which clears all MySQL tables, then bootstraps an admin
 via `seed.Bootstrap`.
+
+## CLI (cobra)
+
+`cmd/auth-service` is a single `github.com/spf13/cobra` binary. `main.go` is a
+thin root that wires subcommands, each in its own `cmd_*.go` file: `serve` (HTTP
+server), `seed`, `migrate`, and `migrate-storage`. The container default command
+is `serve`; maintenance tasks run by overriding it. Keep subcommands thin —
+config load + dependency wiring only; all logic lives in `internal/`. The
+`compareCounts`/`countsEmpty` helpers (covered by `main_test.go`) live in
+`cmd_migrate_storage.go`.
+
+## Swagger
+
+Endpoints carry [swaggo/swag](https://github.com/swaggo/swag) annotations; the
+general API info (title, `securityDefinitions`: `ClientID`, `BearerAuth`,
+`BasicAuth`) lives on `cmd/auth-service/main.go` (the `swag init -g` entry file).
+The generated `cmd/auth-service/docs` package is committed. The UI mount
+(`internal/server/swagger.go`) is behind the `swagger` build tag with a no-op
+stub (`swagger_stub.go`) for the default build, so plain `go build`/`go test`
+never need the generated code. `server.NewRouter` calls `mountSwagger` and the
+UI is served only when `SWAGGER_ENABLED=true`. After changing routes/DTOs or
+their annotations, rerun `make swagger` and commit the regenerated docs.
 
 ## Architecture
 
@@ -69,5 +95,6 @@ Layered with a swappable storage adapter (see README for the full tree):
 ## Dependencies
 
 `go.mod` uses a local `replace github.com/zhaochy1990/x => ../../../../x` for the
-shared `x` library. Docker builds use `go mod vendor` to capture it (vendor/ is
-gitignored — run `go mod vendor` before `docker build`).
+shared `x` library. Docker builds use `go mod vendor` to capture it — and the
+swaggo packages needed by the `-tags swagger` image build — into vendor/
+(gitignored; run `go mod vendor` before `docker build`).

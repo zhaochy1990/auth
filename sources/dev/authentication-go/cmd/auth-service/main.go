@@ -1,270 +1,65 @@
-// Command auth-service is the entrypoint for the Go auth microservice. It loads
-// config from the environment, opens the configured storage backend, and either
-// runs a subcommand or starts the Gin HTTP server.
+// Command auth-service is the single entry point for the Go auth microservice.
+// Every operation is a cobra subcommand of one binary (built once, deployed as
+// different container entrypoints, e.g. `auth-service serve`):
+//
+//	auth-service serve              start the Gin HTTP server (default runtime)
+//	auth-service seed [email] [pw]  bootstrap the admin user + dashboard app client
+//	auth-service migrate            backfill legacy Azure Table rows (no-op on MySQL)
+//	auth-service migrate-storage    copy Azure Tables data into MySQL for cutover
+//
+// Each subcommand stays thin: load config, open storage, run. All logic lives
+// in internal/.
+//
+// The Swagger general API info below is attached to this file because
+// `swag init -g cmd/auth-service/main.go` reads it from the -g entry package.
+//
+//	@title						Auth Service API
+//	@version					1.0
+//	@description				Authentication microservice: password/provider login, OAuth2 token issuance, user & team management, and admin operations.
+//	@securityDefinitions.apikey	ClientID
+//	@in							header
+//	@name						X-Client-Id
+//	@description				Application client id for the /api/auth/* endpoints.
+//	@securityDefinitions.apikey	BearerAuth
+//	@in							header
+//	@name						Authorization
+//	@description				"Bearer <JWT>" for end-user and admin callers.
+//	@securityDefinitions.basic	BasicAuth
+//	@description				HTTP Basic auth (client_id:client_secret) for the /oauth/* endpoints.
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"sort"
-	"strings"
 
-	"github.com/zhaochy1990/x/logger"
-
-	"github.com/zhaochy1990/auth-service/internal/auth"
-	"github.com/zhaochy1990/auth-service/internal/config"
-	"github.com/zhaochy1990/auth-service/internal/repository"
-	"github.com/zhaochy1990/auth-service/internal/repository/aztables"
-	mysqlrepo "github.com/zhaochy1990/auth-service/internal/repository/mysql"
-	"github.com/zhaochy1990/auth-service/internal/seed"
-	"github.com/zhaochy1990/auth-service/internal/server"
-	"github.com/zhaochy1990/auth-service/internal/storage"
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	log := logger.MustGetLogger(&logger.LoggerConfig{
-		Format:      config.EnvOr("LOG_FORMAT", "json"),
-		ServiceName: "auth-service",
-		Level:       config.EnvOr("LOG_LEVEL", "debug"),
-	}).Sugar()
-
-	args := os.Args
-	ctx := context.Background()
-	if len(args) > 1 && args[1] == "migrate-storage" {
-		runMigrateStorage(ctx, args)
-		return
-	}
-
-	cfg, err := config.FromEnv()
-	if err != nil {
-		log.Fatalw("failed to load configuration", "error", err)
-	}
-
-	log.Infow("opening storage backend", "backend", cfg.StorageBackend)
-	repo, err := storage.Open(ctx, cfg)
-	if err != nil {
-		log.Fatalw("failed to open storage", "backend", cfg.StorageBackend, "error", err)
-	}
-	log.Infow("storage ready", "backend", cfg.StorageBackend)
-
-	if len(args) > 1 && args[1] == "seed" {
-		runSeed(ctx, repo, args)
-		return
-	}
-	if len(args) > 1 && args[1] == "migrate" {
-		runMigrate(ctx, repo)
-		return
-	}
-	jwt, err := auth.NewJWTManager(cfg)
-	if err != nil {
-		log.Fatalw("failed to initialize JWT manager", "error", err)
-	}
-
-	r := server.NewRouter(repo, jwt, cfg)
-	log.Infow("starting server", "addr", cfg.Addr())
-	if err := r.Run(cfg.Addr()); err != nil {
-		log.Fatalw("server exited", "error", err)
+	if err := newRootCmd().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
 	}
 }
 
-func runSeed(ctx context.Context, repo repository.Repository, args []string) {
-	email := "admin@example.com"
-	if len(args) > 2 {
-		email = args[2]
+// newRootCmd builds the `auth-service` root and attaches every subcommand.
+// SilenceErrors/SilenceUsage keep runtime failures to a single "error: ..."
+// line (printed by main) instead of cobra also dumping usage.
+func newRootCmd() *cobra.Command {
+	root := &cobra.Command{
+		Use:   "auth-service",
+		Short: "Go auth microservice: HTTP server plus seed/migrate maintenance commands",
+		Long: "auth-service is the unified CLI for the Go auth module. The HTTP server and\n" +
+			"every maintenance task is a subcommand of one binary; containers set the\n" +
+			"entrypoint (e.g. `auth-service serve`).",
+		SilenceErrors: true,
+		SilenceUsage:  true,
 	}
-	var password *string
-	if len(args) > 3 {
-		password = &args[3]
-	}
-
-	fmt.Println("=== Auth Service Bootstrap ===")
-	fmt.Println()
-
-	result, err := seed.Bootstrap(ctx, repo, email, password)
-	if err != nil {
-		fmt.Println("bootstrap failed:", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("  Client ID: %s\n", result.AppClientID)
-	if result.AppClientSecret != nil {
-		fmt.Printf("  Client Secret: %s\n", *result.AppClientSecret)
-		fmt.Println("  (Save this secret — it won't be shown again!)")
-	} else {
-		fmt.Println("  Admin Dashboard application already exists.")
-	}
-	fmt.Println()
-
-	switch result.UserAction {
-	case "created":
-		fmt.Printf("Created admin user: %s\n", email)
-	case "promoted":
-		fmt.Printf("Promoted %s to admin role.\n", email)
-	case "already_admin":
-		fmt.Printf("User %s is already an admin.\n", email)
-	}
-
-	fmt.Println()
-	fmt.Println("=== Bootstrap complete ===")
-	fmt.Println()
-	fmt.Println("For frontend .env, set:")
-	fmt.Printf("  VITE_API_CLIENT_ID=%s\n", result.AppClientID)
-}
-
-func runMigrate(ctx context.Context, repo repository.Repository) {
-	azRepo, ok := repo.(*aztables.Repository)
-	if !ok {
-		fmt.Println("migrate is only needed for the legacy azure_table backend")
-		return
-	}
-	fmt.Println("=== Auth Service Migration ===")
-	fmt.Println()
-	kinds, err := azRepo.MigrateInviteCodeKinds(ctx)
-	if err != nil {
-		fmt.Println("migration failed:", err)
-		os.Exit(1)
-	}
-	fmt.Printf("  Invite codes backfilled with `kind`: %d\n", kinds)
-	users, err := azRepo.MigrateUserInviteCodes(ctx)
-	if err != nil {
-		fmt.Println("migration failed:", err)
-		os.Exit(1)
-	}
-	fmt.Printf("  Users backfilled with `invite_code`: %d\n", users)
-	sortIndexes, err := azRepo.MigrateUserSortIndexes(ctx)
-	if err != nil {
-		fmt.Println("migration failed:", err)
-		os.Exit(1)
-	}
-	fmt.Printf("  Users indexed for admin list sorting: %d\n", sortIndexes)
-	fmt.Println()
-	fmt.Println("=== Migration complete ===")
-}
-
-func runMigrateStorage(ctx context.Context, args []string) {
-	if len(args) < 3 || args[2] != "azure-to-mysql" {
-		fmt.Println("usage: auth-service migrate-storage azure-to-mysql [--dry-run] [--clear-target]")
-		os.Exit(2)
-	}
-	dryRun := hasArg(args[3:], "--dry-run")
-	clearTarget := hasArg(args[3:], "--clear-target")
-	azureConn := os.Getenv("AZURE_STORAGE_CONNECTION_STRING")
-	mysqlDSN := os.Getenv("MYSQL_DSN")
-	mysqlTLSCAPEM := os.Getenv("MYSQL_TLS_CA_PEM")
-	mysqlTLSCAPath := os.Getenv("MYSQL_TLS_CA_PATH")
-	if azureConn == "" {
-		fmt.Println("AZURE_STORAGE_CONNECTION_STRING is required")
-		os.Exit(2)
-	}
-	if mysqlDSN == "" && !dryRun {
-		fmt.Println("MYSQL_DSN is required unless --dry-run is set")
-		os.Exit(2)
-	}
-
-	source, err := aztables.New(azureConn)
-	if err != nil {
-		fmt.Println("failed to open Azure Tables source:", err)
-		os.Exit(1)
-	}
-	data, err := source.ExportSnapshot(ctx)
-	if err != nil {
-		fmt.Println("failed to export Azure Tables snapshot:", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("=== Azure Tables -> MySQL Storage Migration ===")
-	fmt.Println()
-	printCounts("exported", data.Counts())
-	if dryRun {
-		fmt.Println()
-		fmt.Println("Dry run complete; no MySQL rows were written.")
-		return
-	}
-
-	target, err := mysqlrepo.NewWithOptions(ctx, mysqlDSN, mysqlrepo.Options{TLSCAPEM: mysqlTLSCAPEM, TLSCAPath: mysqlTLSCAPath})
-	if err != nil {
-		fmt.Println("failed to open MySQL target:", err)
-		os.Exit(1)
-	}
-	defer target.Close()
-	if clearTarget {
-		err = target.ReplaceWithSnapshot(ctx, *data)
-	} else {
-		counts, err := target.SnapshotCounts(ctx)
-		if err != nil {
-			fmt.Println("failed to count MySQL target:", err)
-			os.Exit(1)
-		}
-		if !countsEmpty(counts) {
-			fmt.Println("MySQL target is not empty; use --clear-target for an atomic replacement during a planned cutover")
-			printCounts("existing", counts)
-			os.Exit(1)
-		}
-		err = target.ImportSnapshot(ctx, *data)
-	}
-	if err != nil {
-		fmt.Println("failed to import MySQL snapshot:", err)
-		os.Exit(1)
-	}
-	fmt.Println()
-	counts, err := target.SnapshotCounts(ctx)
-	if err != nil {
-		fmt.Println("failed to count MySQL target:", err)
-		os.Exit(1)
-	}
-	printCounts("imported", counts)
-	if err := compareCounts(data.Counts(), counts); err != nil {
-		fmt.Println("migration verification failed:", err)
-		os.Exit(1)
-	}
-	fmt.Println()
-	fmt.Println("Import complete.")
-}
-
-func compareCounts(want, got map[string]int) error {
-	keys := make([]string, 0, len(want))
-	for key := range want {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		if want[key] != got[key] {
-			return fmt.Errorf("%s count mismatch: exported=%d imported=%d", key, want[key], got[key])
-		}
-	}
-	return nil
-}
-
-func countsEmpty(counts map[string]int) bool {
-	for _, n := range counts {
-		if n != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func hasArg(args []string, want string) bool {
-	for _, arg := range args {
-		if arg == want {
-			return true
-		}
-	}
-	return false
-}
-
-func printCounts(label string, counts map[string]int) {
-	keys := make([]string, 0, len(counts))
-	for key := range counts {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	prefix := label
-	if label != "" {
-		prefix = strings.ToUpper(label[:1]) + label[1:]
-	}
-	for _, key := range keys {
-		fmt.Printf("  %s %-18s %d\n", prefix, key+":", counts[key])
-	}
+	root.AddCommand(
+		newServeCmd(),
+		newSeedCmd(),
+		newMigrateCmd(),
+		newMigrateStorageCmd(),
+	)
+	return root
 }

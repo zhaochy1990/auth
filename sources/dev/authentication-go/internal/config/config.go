@@ -24,6 +24,9 @@ type Config struct {
 	CORSAllowedOrigins           string
 	// EnableTestProviders gates the "test" auth provider. Off in production.
 	EnableTestProviders bool
+	// SwaggerEnabled gates the /swagger UI + spec. Off in production. The UI is
+	// only served when the binary is also built with `-tags swagger`.
+	SwaggerEnabled bool
 }
 
 const (
@@ -74,6 +77,7 @@ func FromEnv() (*Config, error) {
 		ServerPort:                   int(envInt64("SERVER_PORT", 3000)),
 		CORSAllowedOrigins:           EnvOr("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"),
 		EnableTestProviders:          envBool("AUTH_ENABLE_TEST_PROVIDERS", false),
+		SwaggerEnabled:               envBool("SWAGGER_ENABLED", false),
 	}, nil
 }
 

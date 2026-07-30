@@ -74,6 +74,18 @@ func toTeamResponse(t *domain.Team, count uint64) teamResponse {
 // --- Handlers ---
 
 // CreateTeam creates a team owned by the authenticated user.
+//
+// @Summary     Create a team
+// @Tags        teams
+// @Accept      json
+// @Produce     json
+// @Param       body  body  createTeamRequest  true  "Team to create"
+// @Success     200  {object}  teamResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /api/teams [post]
 func (h *Handler) CreateTeam(c *gin.Context) {
 	var req createTeamRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -111,6 +123,16 @@ func (h *Handler) CreateTeam(c *gin.Context) {
 }
 
 // ListTeams lists all open teams.
+//
+// @Summary     List open teams
+// @Tags        teams
+// @Produce     json
+// @Success     200  {object}  map[string]interface{}
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /api/teams [get]
 func (h *Handler) ListTeams(c *gin.Context) {
 	ctx := c.Request.Context()
 	teams, err := h.Repo.Teams().FindAllOpen(ctx)
@@ -131,6 +153,18 @@ func (h *Handler) ListTeams(c *gin.Context) {
 }
 
 // GetTeam returns a single team.
+//
+// @Summary     Get a team
+// @Tags        teams
+// @Produce     json
+// @Param       team_id  path  string  true  "Team id"
+// @Success     200  {object}  teamResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /api/teams/{team_id} [get]
 func (h *Handler) GetTeam(c *gin.Context) {
 	ctx := c.Request.Context()
 	team, err := h.Repo.Teams().FindByID(ctx, c.Param("team_id"))
@@ -151,6 +185,19 @@ func (h *Handler) GetTeam(c *gin.Context) {
 }
 
 // JoinTeam adds the authenticated user to an open team (idempotent).
+//
+// @Summary     Join a team
+// @Tags        teams
+// @Produce     json
+// @Param       team_id  path  string  true  "Team id"
+// @Success     200  {object}  teamMembershipResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /api/teams/{team_id}/join [post]
 func (h *Handler) JoinTeam(c *gin.Context) {
 	ctx := c.Request.Context()
 	teamID := c.Param("team_id")
@@ -192,6 +239,18 @@ func (h *Handler) JoinTeam(c *gin.Context) {
 }
 
 // LeaveTeam removes the authenticated user from a team.
+//
+// @Summary     Leave a team
+// @Tags        teams
+// @Produce     json
+// @Param       team_id  path  string  true  "Team id"
+// @Success     200  {object}  StatusResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /api/teams/{team_id}/leave [post]
 func (h *Handler) LeaveTeam(c *gin.Context) {
 	ctx := c.Request.Context()
 	teamID := c.Param("team_id")
@@ -234,6 +293,21 @@ func (h *Handler) LeaveTeam(c *gin.Context) {
 }
 
 // TransferOwner transfers team ownership to another member.
+//
+// @Summary     Transfer team ownership
+// @Tags        teams
+// @Accept      json
+// @Produce     json
+// @Param       team_id  path  string  true  "Team id"
+// @Param       body     body  transferOwnerRequest  true  "New owner"
+// @Success     200  {object}  teamResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /api/teams/{team_id}/transfer-owner [post]
 func (h *Handler) TransferOwner(c *gin.Context) {
 	var req transferOwnerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -309,6 +383,19 @@ func (h *Handler) TransferOwner(c *gin.Context) {
 }
 
 // DeleteTeam deletes a team owned by the authenticated user.
+//
+// @Summary     Delete a team
+// @Tags        teams
+// @Produce     json
+// @Param       team_id  path  string  true  "Team id"
+// @Success     200  {object}  StatusResponse
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     403  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /api/teams/{team_id} [delete]
 func (h *Handler) DeleteTeam(c *gin.Context) {
 	ctx := c.Request.Context()
 	teamID := c.Param("team_id")
@@ -337,6 +424,18 @@ func (h *Handler) DeleteTeam(c *gin.Context) {
 }
 
 // ListMembers lists a team's members with name/email.
+//
+// @Summary     List team members
+// @Tags        teams
+// @Produce     json
+// @Param       team_id  path  string  true  "Team id"
+// @Success     200  {object}  map[string]interface{}
+// @Failure     400  {object}  ErrorResponse
+// @Failure     401  {object}  ErrorResponse
+// @Failure     404  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /api/teams/{team_id}/members [get]
 func (h *Handler) ListMembers(c *gin.Context) {
 	ctx := c.Request.Context()
 	teamID := c.Param("team_id")
@@ -368,6 +467,15 @@ func (h *Handler) ListMembers(c *gin.Context) {
 }
 
 // ListMyTeams lists the teams the authenticated user belongs to.
+//
+// @Summary     List my teams
+// @Tags        teams
+// @Produce     json
+// @Success     200  {object}  map[string]interface{}
+// @Failure     401  {object}  ErrorResponse
+// @Failure     500  {object}  ErrorResponse
+// @Security    BearerAuth
+// @Router      /api/users/me/teams [get]
 func (h *Handler) ListMyTeams(c *gin.Context) {
 	ctx := c.Request.Context()
 	memberships, err := h.Repo.TeamMemberships().FindAllByUser(ctx, middleware.UserID(c))

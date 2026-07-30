@@ -59,6 +59,20 @@ type registerResponse struct {
 // --- Handlers ---
 
 // Register creates a password user (optionally invite-gated), and returns tokens.
+//
+// @Summary		Register a new password user
+// @Description	Creates a password user (optionally invite-gated) and returns access + refresh tokens.
+// @Tags			auth
+// @Accept			json
+// @Produce		json
+// @Param			body	body		registerRequest	true	"Registration details"
+// @Success		201		{object}	registerResponse
+// @Failure		400		{object}	ErrorResponse
+// @Failure		401		{object}	ErrorResponse
+// @Failure		409		{object}	ErrorResponse
+// @Failure		500		{object}	ErrorResponse
+// @Security		ClientID
+// @Router			/api/auth/register [post]
 func (h *Handler) Register(c *gin.Context) {
 	var req registerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -207,6 +221,19 @@ func (h *Handler) Register(c *gin.Context) {
 }
 
 // Login authenticates a password user and returns tokens.
+//
+// @Summary		Log in with email and password
+// @Tags			auth
+// @Accept			json
+// @Produce		json
+// @Param			body	body		loginRequest	true	"Login credentials"
+// @Success		200		{object}	tokenResponse
+// @Failure		400		{object}	ErrorResponse
+// @Failure		401		{object}	ErrorResponse
+// @Failure		403		{object}	ErrorResponse
+// @Failure		500		{object}	ErrorResponse
+// @Security		ClientID
+// @Router			/api/auth/login [post]
 func (h *Handler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -273,6 +300,22 @@ func (h *Handler) Login(c *gin.Context) {
 
 // ProviderLogin authenticates via an external provider, creating the user on
 // first sign-in.
+//
+// @Summary		Log in via an external identity provider
+// @Description	Authenticates against a configured provider, creating the user on first sign-in, and returns tokens.
+// @Tags			auth
+// @Accept			json
+// @Produce		json
+// @Param			provider_id	path		string					true	"Provider id"
+// @Param			body		body		providerLoginRequest	true	"Provider credential"
+// @Success		200			{object}	tokenResponse
+// @Failure		400			{object}	ErrorResponse
+// @Failure		401			{object}	ErrorResponse
+// @Failure		403			{object}	ErrorResponse
+// @Failure		404			{object}	ErrorResponse
+// @Failure		500			{object}	ErrorResponse
+// @Security		ClientID
+// @Router			/api/auth/provider/{provider_id}/login [post]
 func (h *Handler) ProviderLogin(c *gin.Context) {
 	providerID := c.Param("provider_id")
 	var req providerLoginRequest
@@ -396,6 +439,20 @@ func (h *Handler) ProviderLogin(c *gin.Context) {
 }
 
 // Refresh rotates a refresh token and issues a new access token.
+//
+// @Summary		Rotate a refresh token
+// @Tags			auth
+// @Accept			json
+// @Produce		json
+// @Param			body	body		refreshRequest	true	"Refresh token"
+// @Success		200		{object}	tokenResponse
+// @Failure		400		{object}	ErrorResponse
+// @Failure		401		{object}	ErrorResponse
+// @Failure		403		{object}	ErrorResponse
+// @Failure		404		{object}	ErrorResponse
+// @Failure		500		{object}	ErrorResponse
+// @Security		ClientID
+// @Router			/api/auth/refresh [post]
 func (h *Handler) Refresh(c *gin.Context) {
 	var req refreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -437,6 +494,17 @@ func (h *Handler) Refresh(c *gin.Context) {
 }
 
 // Logout revokes a refresh token.
+//
+// @Summary		Log out (revoke a refresh token)
+// @Tags			auth
+// @Accept			json
+// @Produce		json
+// @Param			body	body		logoutRequest	true	"Refresh token to revoke"
+// @Success		200		{object}	StatusResponse
+// @Failure		400		{object}	ErrorResponse
+// @Failure		500		{object}	ErrorResponse
+// @Security		ClientID
+// @Router			/api/auth/logout [post]
 func (h *Handler) Logout(c *gin.Context) {
 	var req logoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

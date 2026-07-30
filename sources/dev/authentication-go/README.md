@@ -11,7 +11,13 @@ Azure Table adapter retained for migration and rollback during the cutover.
 ## Architecture
 
 ```text
-cmd/auth-service/main.go        entrypoint + seed/migrate subcommands
+cmd/auth-service/               unified cobra CLI (one binary, subcommands)
+  main.go                       root command + Swagger general API info
+  cmd_serve.go                  `serve`  — start the Gin HTTP server
+  cmd_seed.go                   `seed`   — bootstrap the admin user + app client
+  cmd_migrate.go                `migrate`— backfill legacy Azure Table rows
+  cmd_migrate_storage.go        `migrate-storage azure-to-mysql`
+  docs/                         generated OpenAPI/Swagger docs (`make swagger`)
 internal/
   config/        env-based configuration
   domain/        storage-agnostic entity models + value types
@@ -27,6 +33,19 @@ internal/
   seed/          admin bootstrap
 ```
 
+## CLI
+
+The service is one binary with cobra subcommands (`auth-service <command>`):
+
+| Command | Purpose |
+|---------|---------|
+| `serve` | Start the Gin HTTP server (default container command) |
+| `seed [email] [password]` | Bootstrap the admin user and Admin Dashboard app client |
+| `migrate` | Backfill legacy Azure Table rows (no-op on the MySQL backend) |
+| `migrate-storage azure-to-mysql [--dry-run] [--clear-target]` | Copy Azure Tables data into MySQL for the cutover |
+
+Run `auth-service <command> --help` for flags.
+
 ## Build, Test, Run
 
 Start local MySQL:
@@ -35,13 +54,14 @@ Start local MySQL:
 docker compose up -d mysql
 ```
 
-Run checks:
+Run checks (a `Makefile` wraps these):
 
 ```bash
-go build ./...
-go vet ./...
-gofmt -l .
-go test ./... -count=1
+make build          # go build ./...
+make vet            # go vet ./...
+make fmt-check      # gofmt -l .
+make test           # go test ./...
+make swagger        # regenerate cmd/auth-service/docs from swag annotations
 ```
 
 The integration suite uses MySQL. Override the local test database with:
@@ -55,7 +75,7 @@ Run the service locally:
 ```bash
 STORAGE_BACKEND=mysql \
 MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
-go run ./cmd/auth-service
+go run ./cmd/auth-service serve
 ```
 
 Bootstrap the first admin:
@@ -65,6 +85,25 @@ STORAGE_BACKEND=mysql \
 MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
 go run ./cmd/auth-service seed admin@example.com MyPassword1!
 ```
+
+## Swagger / OpenAPI
+
+Endpoints are annotated with [swaggo/swag](https://github.com/swaggo/swag). The
+generated spec lives in `cmd/auth-service/docs` (committed; regenerate with
+`make swagger`). The Swagger UI is compiled in only with the `swagger` build tag
+and served at `/swagger/index.html` when `SWAGGER_ENABLED=true`:
+
+```bash
+make build-service-swagger      # go build -tags swagger ...
+SWAGGER_ENABLED=true \
+STORAGE_BACKEND=mysql MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
+./bin/auth-service serve
+# open http://127.0.0.1:3000/swagger/index.html
+```
+
+Plain `go build` / `go test` never need the generated package (a build-tagged
+no-op stub replaces the UI), so the default build stays lean.
+
 
 ## Azure Tables To MySQL Migration
 
@@ -135,13 +174,17 @@ Cutover checklist:
 ## Docker
 
 The module uses a local `replace` for the sibling `x` library. Build images from
-vendored dependencies:
+vendored dependencies (the image is built with `-tags swagger`, so the UI is
+available at runtime when `SWAGGER_ENABLED=true`):
 
 ```bash
 go mod vendor
 docker build -t auth-service-go .
 docker compose up --build
 ```
+
+The image bundles every subcommand; the default command is `serve`. Override it
+to run maintenance tasks, e.g. `docker run auth-service-go seed admin@example.com`.
 
 ## Environment Variables
 
@@ -161,6 +204,7 @@ docker compose up --build
 | `SERVER_PORT` | No | `3000` |
 | `CORS_ALLOWED_ORIGINS` | No | `http://localhost:5173,http://localhost:3000` |
 | `AUTH_ENABLE_TEST_PROVIDERS` | No | `false` |
+| `SWAGGER_ENABLED` | No | `false` (UI also requires the `swagger` build tag) |
 | `STRIDE_REQUIRE_INVITE_CODE` | No | `false` |
 | `APP_VERSION` | No | `dev` |
 | `LOG_LEVEL` / `LOG_FORMAT` | No | `debug` / `json` |
@@ -175,3 +219,4 @@ docker compose up --build
 | `/api/teams/*` | Bearer | team CRUD, join/leave/transfer-owner, members |
 | `/admin/*` | Bearer admin | app/provider/user/team/invite-code management |
 | `/health` | none | health + version |
+| `/swagger/*` | none | Swagger UI (when `SWAGGER_ENABLED=true` + `swagger` build tag) |

@@ -23,6 +23,10 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	r.Use(gin.Recovery())
 	r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
 
+	// Swagger UI at /swagger/*any (only when built with `-tags swagger` and
+	// SwaggerEnabled is set; a no-op stub otherwise).
+	mountSwagger(r, cfg.SwaggerEnabled)
+
 	h := handlers.New(repo, jwt, cfg)
 	am := &middleware.Auth{Repo: repo, JWT: jwt}
 
