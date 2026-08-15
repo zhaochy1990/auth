@@ -2,10 +2,12 @@
 
 ## Repository shape
 
-This is a two-app monorepo, not an npm workspace. The root `package.json` only contains commitlint dependencies.
+This repository owns the Go auth backend. The root `package.json` only contains
+commitlint dependencies.
 
 - `sources\dev\authentication-go` is the Go auth service.
-- `sources\dev\admin-dashboard` is the React/TypeScript admin UI.
+- The React/TypeScript admin UI lives in the `stride-devops` repository under
+  `admin-dashboard`.
 
 ## Build, test, and lint commands
 
@@ -28,18 +30,6 @@ go test ./internal/auth/ -count=1
 go test ./internal/server/ -run TestHealth -v -count=1
 Remove-Item Env:TEST_MYSQL_DSN
 ```
-
-Run frontend commands from `sources\dev\admin-dashboard`:
-
-```powershell
-npm ci
-npm run dev
-npm run lint
-npm run build
-npm run preview
-```
-
-Playwright MCP is configured in `.vscode\mcp.json` for browser-driven frontend checks. Start the Vite dev server with `npm run dev` from `sources\dev\admin-dashboard` before using it against the admin UI.
 
 Run commit message validation from the repository root:
 
@@ -93,13 +83,23 @@ Feature pages keep API calls in `src\api\admin.ts`, shared TypeScript contracts 
 - Admin access is normal JWT auth with an admin role claim; there is no static admin API key.
 - Client secrets are only exposed at creation, rotation, or bootstrap time; store hashes in persisted application records.
 - Fields such as redirect URIs, scopes, provider config, and metadata are often stored as JSON strings in backend models/MySQL rows but exposed as arrays or objects in HTTP/frontend types.
-- Frontend mutations use TanStack Query invalidation for the affected query keys and rely on the global mutation error toast configured in `main.tsx`.
-- UI text should use i18next namespaces; add keys for both `zh-CN` and `en-US` when adding or changing visible strings.
-- When adding a cross-cutting feature, update all relevant surfaces together: backend model/repository/table implementation/handler/routes/tests, then frontend API types/client functions/routes/sidebar/pages/i18n as applicable.
-- CI path filters run backend jobs for `sources\dev\authentication-go\**` changes and frontend jobs for `sources\dev\admin-dashboard\**` changes. Backend CI uses `gofmt`, `go vet`, MySQL-backed `go test`, and Docker dry-run builds.
-- Versions use CalVer `YYYY.M.MICRO` and are synchronized across root `package.json` and `sources\dev\admin-dashboard\package.json` by the release workflow. Backend runtime version is injected with `APP_VERSION` during deployment.
+- Cross-cutting frontend changes belong in the `stride-devops` repository under
+  `admin-dashboard/`.
+- CI path filters run backend jobs for `sources\dev\authentication-go\**`
+  changes. Backend CI uses `gofmt`, `go vet`, MySQL-backed `go test`,
+  and Docker dry-run builds.
+- Versions use CalVer `YYYY.M.MICRO` and are stored in the root
+  `package.json`. Backend runtime version is injected with `APP_VERSION`
+  during deployment.
 - Commit messages follow Conventional Commits, enforced by commitlint; use `type(scope): description` such as `feat(auth): add provider`.
 
 ## Deployment context
 
-Release runs after CI succeeds on `main`, bumps versions, creates a `vYYYY.M.MICRO` tag, and triggers deployment. Deployment vendors the Go backend dependencies, builds the Docker image from `sources\dev\authentication-go`, pushes it to GHCR, configures Azure Container Apps with `STORAGE_BACKEND=mysql`, the production `MYSQL_DSN` secret, and optional `MYSQL_TLS_CA_PEM`, then builds the frontend with `VITE_API_CLIENT_ID`, `VITE_API_BASE_URL`, and `VITE_APP_VERSION` for Azure Static Web Apps.
+Release runs after CI succeeds on `main`, bumps the backend version, creates a
+`vYYYY.M.MICRO` tag, and triggers the deploy workflow. Deploy vendors the Go
+dependencies, builds `auth-backend` from `sources\dev\authentication-go`,
+pushes it to GHCR + Aliyun ACR, and refreshes the Azure Container Apps backend
+standby. Tencent production is released via a Renovate PR
+against `stride-devops` that bumps `AUTH_IMAGE_TAG` in the root
+`versions.env`. The admin dashboard and its release workflow live in
+`stride-devops/admin-dashboard`.

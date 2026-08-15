@@ -9,4 +9,6 @@ Guidance for coding agents working in this repository.
 
 ## Frontend
 
-- `sources/dev/admin-dashboard/` is the maintained React/TypeScript admin UI.
+- The React/TypeScript admin UI and its CI/CD live in the `stride-devops`
+  repository under `admin-dashboard/`. This repository owns the auth backend
+  only.
