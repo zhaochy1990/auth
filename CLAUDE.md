@@ -57,9 +57,11 @@ Release is automated: CI pass on `main` -> Release workflow calculates next vers
 
 ## Deployment Topology
 
-Single target: **Tencent Cloud** (the former Azure Container Apps + Static Web App standby stack has been retired).
+Primary target: **Tencent Cloud**. The Azure Container Apps backend remains a
+warm rollback standby; the former Azure Static Web Apps frontend is retired.
 
 - **Backend**: Docker container on a Tencent Cloud CVM, pulling the `auth-backend` image from Aliyun ACR (in-region mirror of GHCR). Uses Tencent Cloud MySQL for data persistence; the Azure Table adapter is retained only as a legacy migration/rollback source. Runs with `STORAGE_BACKEND=mysql`, the production `MYSQL_DSN`, and `MYSQL_TLS_CA_PEM` when the Tencent MySQL instance requires a custom CA. JWT keys are mounted into the container.
+- **Backend standby**: Azure Container Apps consumes the same GHCR backend image and is health-checked by the auth deploy workflow.
 - **Frontend**: Owned and released from `stride-devops/admin-dashboard`.
 - **Release**: GitOps via `stride-devops` (root `versions.env`); the backend
   image tag is bumped by Renovate. No cloud deploy runs from this repo.
