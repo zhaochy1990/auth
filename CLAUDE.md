@@ -4,10 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Structure
 
-Monorepo with two applications:
+Repository for the auth backend:
 
 - **`sources/dev/authentication-go/`** - Go backend (auth microservice). Has its own `CLAUDE.md` with detailed architecture, build commands, and conventions.
-- **`sources/dev/admin-dashboard/`** - React/TypeScript frontend (admin UI).
 - Root `package.json` - Only holds commitlint devDependencies (not an npm workspaces setup).
 
 ## Build & Dev Commands
@@ -32,17 +31,6 @@ go mod vendor
 docker build -t auth-service-go .
 ```
 
-### Frontend (run from `sources/dev/admin-dashboard/`)
-
-```bash
-npm ci           # Install dependencies
-npm run dev      # Vite dev server
-npm run build    # tsc + vite build
-npm run lint     # ESLint
-```
-
-Build-time env vars: `VITE_API_CLIENT_ID`, `VITE_API_BASE_URL`, `VITE_APP_VERSION`.
-
 ## Commit Conventions
 
 Uses [Conventional Commits](https://www.conventionalcommits.org/) enforced by commitlint (`@commitlint/config-conventional`). PR commits are validated in CI.
@@ -51,29 +39,27 @@ Format: `type(scope): description` - e.g., `feat(auth): add WeChat provider`, `f
 
 ## Versioning & Release Pipeline
 
-CalVer scheme: `YYYY.M.MICRO` (e.g., `2026.2.1`). Version is synchronized across `package.json` (root) and `sources/dev/admin-dashboard/package.json`. Backend runtime version is passed to the container as `APP_VERSION` during deploy.
+CalVer scheme: `YYYY.M.MICRO` (e.g., `2026.2.1`). The version is stored in
+the root `package.json`. Backend runtime version is passed to the container as
+`APP_VERSION` during deploy.
 
 Release is automated: CI pass on `main` -> Release workflow calculates next version -> bumps version files -> creates git tag (`vYYYY.M.MICRO`) -> triggers Deploy workflow.
 
 ## CI/CD Architecture
 
-- **CI** (`ci.yml`): Uses path filtering - backend jobs run when `sources/dev/authentication-go/**` changes, frontend jobs run when `sources/dev/admin-dashboard/**` changes. Backend CI runs `gofmt`, `go vet`, MySQL-backed tests, and Docker dry-run builds.
+- **CI** (`ci.yml`): Backend jobs run when
+  `sources/dev/authentication-go/**` changes. CI runs `gofmt`, `go vet`,
+  MySQL-backed tests, and Docker dry-run builds.
 - **Release** (`release.yml`): Triggers after CI succeeds on `main`. Auto-bumps version and creates annotated tag.
-- **Deploy** (`deploy.yml`): Triggers on `v*` tags. Backend -> Go Docker build -> GHCR -> Azure Container Apps with `STORAGE_BACKEND=mysql`, the production `MYSQL_DSN` secret, and optional `MYSQL_TLS_CA_PEM`. Frontend -> Vite build -> Azure Static Web Apps.
+- **Deploy** (`deploy.yml`): Triggers on `v*` tags. Builds the backend Docker
+  image and pushes it to GHCR + Aliyun ACR (CalVer + `:latest`), then runs
+  Renovate against `stride-devops` to open an `AUTH_IMAGE_TAG` bump PR.
 
 ## Deployment Topology
 
-- **Backend**: Docker container on Azure Container Apps, pulling from GHCR (`ghcr.io/<owner>/auth-backend`). Uses MySQL for data persistence; the Azure Table adapter is retained only as a legacy migration/rollback source. JWT keys are mounted into the container. Production requires the GitHub Environment secret `MYSQL_DSN`; set `MYSQL_TLS_CA_PEM` too when the Tencent Cloud MySQL instance requires a custom CA.
-- **Frontend**: Azure Static Web Apps (SPA with `navigationFallback` rewrite to `index.html`).
-- **Auth**: GitHub OIDC federated credentials for Azure (no stored Azure secrets in GitHub).
+Single target: **Tencent Cloud** (the former Azure Container Apps + Static Web App standby stack has been retired).
 
-## Frontend Architecture
-
-React 19 + TypeScript + Vite + Tailwind CSS 4. Key libraries:
-- **State**: Zustand (`store/authStore.ts`)
-- **Data fetching**: TanStack React Query + Axios (`api/client.ts`, `api/admin.ts`)
-- **Routing**: React Router v7 (`router/`)
-- **i18n**: i18next + react-i18next (`i18n/`)
-- **UI**: Lucide icons, react-hot-toast
-
-Pages: `LoginPage`, `DashboardPage`, `NotFoundPage`, plus feature pages under `pages/applications/` and `pages/users/`.
+- **Backend**: Docker container on a Tencent Cloud CVM, pulling the `auth-backend` image from Aliyun ACR (in-region mirror of GHCR). Uses Tencent Cloud MySQL for data persistence; the Azure Table adapter is retained only as a legacy migration/rollback source. Runs with `STORAGE_BACKEND=mysql`, the production `MYSQL_DSN`, and `MYSQL_TLS_CA_PEM` when the Tencent MySQL instance requires a custom CA. JWT keys are mounted into the container.
+- **Frontend**: Owned and released from `stride-devops/admin-dashboard`.
+- **Release**: GitOps via `stride-devops` (root `versions.env`); the backend
+  image tag is bumped by Renovate. No cloud deploy runs from this repo.

@@ -31,7 +31,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
-      frontend: ${{ steps.filter.outputs.frontend }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -40,8 +39,6 @@ jobs:
           filters: |
             backend:
               - 'sources/dev/authentication-go/**'
-            frontend:
-              - 'sources/dev/admin-dashboard/**'
 
   backend-check:
     name: Backend Lint
@@ -163,45 +160,3 @@ jobs:
 
       - name: Docker build (dry run)
         run: docker build -t auth-backend:ci .
-
-  frontend-check:
-    name: Frontend Lint & Build
-    needs: changes
-    if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sources/dev/admin-dashboard
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: sources/dev/admin-dashboard/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Build
-        run: npm run build
-
-  frontend-docker:
-    name: Frontend Docker Build
-    needs: [changes, frontend-check]
-    if: needs.changes.outputs.frontend == 'true' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sources/dev/admin-dashboard
-    steps:
-      - uses: actions/checkout@v4
-
-      # Dry-run the production image build (npm ci + vite build happen inside the
-      # multi-stage Dockerfile). Build args are inert here — no push.
-      - name: Docker build (dry run)
-        run: docker build -t auth-frontend:ci .

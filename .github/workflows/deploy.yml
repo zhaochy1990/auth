@@ -6,29 +6,24 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write
   contents: read
   packages: write
 
-# Serialize production deploys so overlapping runs never mutate Azure
-# concurrently.
+# Serialize production releases so overlapping runs never open conflicting
+# version-bump PRs against stride-devops.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
 env:
   GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/auth-backend
-  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/auth-frontend
-  BACKEND_APP_NAME: auth-backend
-  RESOURCE_GROUP: rg-auth-prod
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Build the backend + frontend images and push to GHCR (CalVer + :latest). The
-  # Azure standby deploy below consumes the backend image directly; the Tencent
-  # PRIMARY stack is released via GitOps — the final step here runs Renovate
-  # against stride-devops to open a PR bumping AUTH_IMAGE_TAG /
-  # AUTH_FRONTEND_IMAGE_TAG in tencent/versions.env (no SSH deploy from this repo).
+  # Build the backend image and push to GHCR + Aliyun ACR (CalVer + :latest).
+  # The Tencent PRIMARY stack is released via GitOps — the final step runs
+  # Renovate against stride-devops to open an AUTH_IMAGE_TAG bump PR. The admin
+  # dashboard and auth-frontend image are owned by stride-devops.
   # ---------------------------------------------------------------------------
   build-push:
     name: Build & Push Images
@@ -103,33 +98,11 @@ jobs:
           docker push "$ACR_IMAGE":${{ steps.version.outputs.version }}
           docker push "$ACR_IMAGE":latest
 
-      - name: Build and push frontend image
-        working-directory: sources/dev/admin-dashboard
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          ACR_IMAGE: ${{ vars.ALIYUN_ACR_REGISTRY }}/stride/auth-frontend
-        run: |
-          # Same-origin build (VITE_API_BASE_URL="") — the SPA calls the API via
-          # relative paths behind Caddy, which reverse-proxies to this container.
-          docker build \
-            --build-arg VITE_API_CLIENT_ID="${{ vars.VITE_API_CLIENT_ID }}" \
-            --build-arg VITE_API_BASE_URL="" \
-            --build-arg VITE_APP_VERSION="$VERSION" \
-            -t ${{ env.FRONTEND_IMAGE }}:"$VERSION" \
-            -t ${{ env.FRONTEND_IMAGE }}:latest \
-            -t "$ACR_IMAGE":"$VERSION" \
-            -t "$ACR_IMAGE":latest \
-            .
-          docker push ${{ env.FRONTEND_IMAGE }}:"$VERSION"
-          docker push ${{ env.FRONTEND_IMAGE }}:latest
-          docker push "$ACR_IMAGE":"$VERSION"
-          docker push "$ACR_IMAGE":latest
-
       # Run Renovate against stride-devops right after the images land, so its
-      # tencent/versions.env bump PR (AUTH_IMAGE_TAG / AUTH_FRONTEND_IMAGE_TAG ->
-      # this CalVer) opens within seconds — no poll/runner in stride-devops.
+      # versions.env AUTH_IMAGE_TAG bump PR opens within seconds.
       # Renovate clones stride-devops, reads its renovate.json, sees the new GHCR
-      # tags, and opens the PR there. Runs last so both images are already pushed.
+      # tag, and opens the PR there. The frontend is released independently by
+      # stride-devops and is intentionally not part of this version.
       # Best effort: a missing token or Renovate hiccup must NOT fail the publish.
       #   RENOVATE_TOKEN  — PAT/App token with contents+pull-requests write on
       #                     zhaochy1990/stride-devops (Renovate opens the PR there).
@@ -167,109 +140,3 @@ jobs:
           done
           echo "Renovate did not succeed after 3 attempts."
           exit 1
-
-  # ---------------------------------------------------------------------------
-  # STANDBY (rollback): Azure Container Apps backend. Kept warm so we can fall
-  # back by pointing users at the Azure Static Web App URL.
-  # ---------------------------------------------------------------------------
-  deploy-azure-backend:
-    name: Deploy Backend (Azure, standby)
-    runs-on: ubuntu-latest
-    needs: build-push
-    environment: production
-    steps:
-      - name: Azure Login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Configure backend storage secrets
-        env:
-          MYSQL_DSN: ${{ secrets.MYSQL_DSN }}
-          MYSQL_TLS_CA_PEM: ${{ secrets.MYSQL_TLS_CA_PEM }}
-        run: |
-          if [ -z "$MYSQL_DSN" ]; then
-            echo "::error::production secret MYSQL_DSN is required for the MySQL backend"
-            exit 1
-          fi
-          az containerapp secret set \
-            --name ${{ env.BACKEND_APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --secrets mysql-dsn="$MYSQL_DSN"
-          if [ -n "$MYSQL_TLS_CA_PEM" ]; then
-            az containerapp secret set \
-              --name ${{ env.BACKEND_APP_NAME }} \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --secrets mysql-tls-ca-pem="$MYSQL_TLS_CA_PEM"
-          fi
-
-      - name: Deploy to Container Apps
-        run: |
-          env_vars=(STORAGE_BACKEND=mysql MYSQL_DSN=secretref:mysql-dsn)
-          if az containerapp secret show \
-            --name ${{ env.BACKEND_APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --secret-name mysql-tls-ca-pem >/dev/null 2>&1; then
-            env_vars+=(MYSQL_TLS_CA_PEM=secretref:mysql-tls-ca-pem)
-          fi
-          az containerapp update \
-            --name ${{ env.BACKEND_APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.GHCR_IMAGE }}:${{ needs.build-push.outputs.version }} \
-            --set-env-vars "${env_vars[@]}"
-
-      - name: Health check
-        run: |
-          FQDN=$(az containerapp show \
-            --name ${{ env.BACKEND_APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --query "properties.configuration.ingress.fqdn" -o tsv)
-          echo "Backend FQDN: $FQDN"
-          for i in $(seq 1 30); do
-            if curl -sf "https://$FQDN/health" | grep -q '"status":"ok"'; then
-              echo "Health check passed"
-              exit 0
-            fi
-            echo "Attempt $i/30 - waiting 10s..."
-            sleep 10
-          done
-          echo "Health check failed after 5 minutes"
-          exit 1
-
-  deploy-azure-frontend:
-    name: Deploy Frontend (Azure SWA, standby)
-    runs-on: ubuntu-latest
-    needs: [build-push, deploy-azure-backend]
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: sources/dev/admin-dashboard/package-lock.json
-
-      - name: Install dependencies
-        working-directory: sources/dev/admin-dashboard
-        run: npm ci
-
-      - name: Build frontend
-        working-directory: sources/dev/admin-dashboard
-        env:
-          VITE_API_CLIENT_ID: ${{ vars.VITE_API_CLIENT_ID }}
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
-          VITE_APP_VERSION: ${{ needs.build-push.outputs.version }}
-        run: npm run build
-
-      - name: Deploy to Static Web Apps
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOY_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: upload
-          app_location: sources/dev/admin-dashboard/dist
-          skip_app_build: true
-          skip_api_build: true
