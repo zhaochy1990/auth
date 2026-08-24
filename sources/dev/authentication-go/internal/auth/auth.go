@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -97,6 +98,8 @@ type JWTManager struct {
 
 // NewJWTManager loads the RSA keypair from disk.
 func NewJWTManager(cfg *config.Config) (*JWTManager, error) {
+	fmt.Println()
+	fmt.Printf("loading JWT keys from %s and %s\n", cfg.JWTPrivateKeyPath, cfg.JWTPublicKeyPath)
 	privBytes, err := os.ReadFile(cfg.JWTPrivateKeyPath)
 	if err != nil {
 		return nil, err
