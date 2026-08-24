@@ -1008,6 +1008,8 @@ type appEntity struct {
 	ClientSecretHash string `json:"client_secret_hash"`
 	RedirectURIs     string `json:"redirect_uris"`
 	AllowedScopes    string `json:"allowed_scopes"`
+	WeChatAppID      string `json:"wechat_app_id"`
+	WeChatAppSecret  string `json:"wechat_app_secret"`
 	IsActive         *bool  `json:"is_active,omitempty"`
 	CreatedAt        string `json:"created_at"`
 	UpdatedAt        string `json:"updated_at"`
@@ -1017,7 +1019,8 @@ func appToEntity(a *domain.Application) appEntity {
 	return appEntity{
 		PartitionKey: "app", RowKey: a.ID, Name: a.Name, ClientID: a.ClientID,
 		ClientSecretHash: a.ClientSecretHash, RedirectURIs: a.RedirectURIs,
-		AllowedScopes: a.AllowedScopes, IsActive: boolPtr(a.IsActive),
+		AllowedScopes: a.AllowedScopes, WeChatAppID: a.WeChatAppID,
+		WeChatAppSecret: a.WeChatAppSecret, IsActive: boolPtr(a.IsActive),
 		CreatedAt: fmtDT(a.CreatedAt), UpdatedAt: fmtDT(a.UpdatedAt),
 	}
 }
@@ -1027,6 +1030,7 @@ func (e *appEntity) toModel() *domain.Application {
 		ID: e.RowKey, Name: e.Name, ClientID: e.ClientID,
 		ClientSecretHash: e.ClientSecretHash, RedirectURIs: e.RedirectURIs,
 		AllowedScopes: e.AllowedScopes, IsActive: boolOr(e.IsActive, false),
+		WeChatAppID: e.WeChatAppID, WeChatAppSecret: e.WeChatAppSecret,
 		CreatedAt: parseDT(e.CreatedAt), UpdatedAt: parseDT(e.UpdatedAt),
 	}
 }

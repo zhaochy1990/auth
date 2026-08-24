@@ -371,8 +371,9 @@ func (l *RateLimiter) Middleware() gin.HandlerFunc {
 // It must name every non-safelisted request header clients send. Authorization
 // is listed explicitly on purpose: per the Fetch spec the "*" wildcard does NOT
 // cover Authorization, so a wildcard would silently break cross-origin Bearer
-// (and Basic, for /oauth) requests. X-Client-Id is the app identity header.
-const corsAllowedHeaders = "Authorization, Content-Type, X-Client-Id"
+// (and Basic, for /oauth) requests. X-Client-Id is the app identity header;
+// X-Client-Secret authenticates the app on the WeChat login endpoints.
+const corsAllowedHeaders = "Authorization, Content-Type, X-Client-Id, X-Client-Secret"
 
 // corsAllowedMethods is the explicit method allow-list for preflight responses.
 const corsAllowedMethods = "GET, POST, PATCH, DELETE, OPTIONS"

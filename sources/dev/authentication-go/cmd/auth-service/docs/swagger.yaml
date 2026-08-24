@@ -114,6 +114,10 @@ definitions:
         items:
           type: string
         type: array
+      wechat_app_id:
+        type: string
+      wechat_enabled:
+        type: boolean
     type: object
   internal_handlers.createApplicationRequest:
     properties:
@@ -127,6 +131,10 @@ definitions:
         items:
           type: string
         type: array
+      wechat_app_id:
+        type: string
+      wechat_app_secret:
+        type: string
     type: object
   internal_handlers.createApplicationResponse:
     properties:
@@ -146,6 +154,10 @@ definitions:
         items:
           type: string
         type: array
+      wechat_app_id:
+        type: string
+      wechat_enabled:
+        type: boolean
     type: object
   internal_handlers.createTeamRequest:
     properties:
@@ -421,6 +433,10 @@ definitions:
         items:
           type: string
         type: array
+      wechat_app_id:
+        type: string
+      wechat_app_secret:
+        type: string
     type: object
   internal_handlers.updateProfileRequest:
     properties:

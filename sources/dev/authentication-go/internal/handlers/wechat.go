@@ -10,6 +10,7 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/middleware"
+	"github.com/zhaochy1990/auth-service/internal/wechat"
 	"github.com/zhaochy1990/x/logger"
 )
 
@@ -41,6 +42,53 @@ type wechatUserResponse struct {
 	WeChatBound bool    `json:"wechat_bound"`
 }
 
+// clientSecretHeader carries the application's OAuth2 client secret. Only the
+// two WeChat login endpoints require it — verified here in the handlers, not
+// in a shared middleware — because they let a client log users in / bind
+// WeChat identities to accounts.
+const clientSecretHeader = "X-Client-Secret"
+
+// wechatConfigFor loads the caller's application (resolved by the ClientApp
+// middleware), requires proof of possession of its OAuth2 client secret, and
+// returns a WeChat client bound to the app's configured mini-program
+// credentials. The WeChat credentials live on the Application row — configured
+// per app via the admin API — never in process environment.
+func (h *Handler) wechatConfigFor(c *gin.Context) (*wechat.Client, error) {
+	app, err := h.Repo.Applications().FindByID(c.Request.Context(), middleware.AppID(c))
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, apperror.ApplicationNotFound()
+	}
+	// Authenticate the caller first: only an application that knows its own
+	// client secret may drive WeChat login for it.
+	if err := requireClientSecret(c, app); err != nil {
+		return nil, err
+	}
+	if app.WeChatAppID == "" || app.WeChatAppSecret == "" {
+		return nil, apperror.New(http.StatusBadRequest, "wechat_not_configured", "WeChat login is not configured for this application")
+	}
+	return wechat.NewClient(app.WeChatAppID, app.WeChatAppSecret, h.Cfg.WeChatCode2SessionURL), nil
+}
+
+// requireClientSecret verifies the X-Client-Secret header against the
+// application's OAuth2 client secret hash (constant-time).
+func requireClientSecret(c *gin.Context, app *domain.Application) error {
+	provided := c.GetHeader(clientSecretHeader)
+	if provided == "" {
+		return apperror.New(http.StatusUnauthorized, "client_secret_required", "Missing "+clientSecretHeader+" header")
+	}
+	ok, err := auth.VerifyClientSecret(provided, app.ClientSecretHash)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return apperror.New(http.StatusUnauthorized, "invalid_credentials", "Invalid client secret")
+	}
+	return nil
+}
+
 // WeChatLogin logs in a user via WeChat mini-program code.
 //
 // @Summary		Log in with WeChat mini-program code
@@ -63,7 +111,15 @@ func (h *Handler) WeChatLogin(c *gin.Context) {
 	logger.S().Infow("WeChat login request", "code", req.Code)
 	ctx := c.Request.Context()
 
-	session, err := h.WeChat.Code2Session(ctx, req.Code)
+	// Resolve the app's WeChat mini-program config and require the caller to
+	// prove possession of the app's OAuth2 client secret before calling WeChat.
+	client, err := h.wechatConfigFor(c)
+	if err != nil {
+		middleware.RespondError(c, err)
+		return
+	}
+
+	session, err := client.Code2Session(ctx, req.Code)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -109,6 +165,16 @@ func (h *Handler) WeChatBind(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 
+	// Resolve the app's WeChat mini-program config and require the caller to
+	// prove possession of the app's OAuth2 client secret before doing any
+	// further work (so the email/password check below never leaks to
+	// unauthenticated callers).
+	client, err := h.wechatConfigFor(c)
+	if err != nil {
+		middleware.RespondError(c, err)
+		return
+	}
+
 	// Verify email + password first.
 	user, err := h.Repo.Users().FindByEmail(ctx, req.Email)
 	if err != nil {
@@ -143,7 +209,7 @@ func (h *Handler) WeChatBind(c *gin.Context) {
 	}
 
 	// Exchange code for openid.
-	session, err := h.WeChat.Code2Session(ctx, req.Code)
+	session, err := client.Code2Session(ctx, req.Code)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return

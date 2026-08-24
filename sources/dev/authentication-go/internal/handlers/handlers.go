@@ -17,15 +17,13 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/config"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/repository"
-	"github.com/zhaochy1990/auth-service/internal/wechat"
 )
 
 // Handler bundles the dependencies shared by all HTTP handlers.
 type Handler struct {
-	Repo   repository.Repository
-	JWT    *auth.JWTManager
-	Cfg    *config.Config
-	WeChat *wechat.Client
+	Repo repository.Repository
+	JWT  *auth.JWTManager
+	Cfg  *config.Config
 }
 
 // ErrorResponse is the JSON body returned for every error. It mirrors
@@ -45,10 +43,9 @@ type StatusResponse struct {
 // New builds a Handler.
 func New(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Config) *Handler {
 	return &Handler{
-		Repo:   repo,
-		JWT:    jwt,
-		Cfg:    cfg,
-		WeChat: wechat.NewClient(cfg.WeChatAppID, cfg.WeChatAppSecret, cfg.WeChatCode2SessionURL),
+		Repo: repo,
+		JWT:  jwt,
+		Cfg:  cfg,
 	}
 }
 

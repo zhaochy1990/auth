@@ -235,6 +235,12 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 	if err := r.ensureUniqueIndex(ctx, "auth_users", "uq_auth_users_wechat_unionid", "wechat_unionid"); err != nil {
 		return err
 	}
+	if err := r.ensureColumn(ctx, "auth_applications", "wechat_app_id", "VARCHAR(128) NULL AFTER allowed_scopes"); err != nil {
+		return err
+	}
+	if err := r.ensureColumn(ctx, "auth_applications", "wechat_app_secret", "TEXT NULL AFTER wechat_app_id"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -305,6 +311,8 @@ var schemaStatements = []string{
 		redirect_uris TEXT NOT NULL,
 		allowed_scopes TEXT NOT NULL,
 		is_active BOOLEAN NOT NULL,
+		wechat_app_id VARCHAR(128) NULL,
+		wechat_app_secret TEXT NULL,
 		created_at DATETIME(6) NOT NULL,
 		updated_at DATETIME(6) NOT NULL,
 		UNIQUE KEY uq_auth_applications_client_id (client_id),
@@ -439,6 +447,15 @@ func nullString(p *string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: *p, Valid: true}
+}
+
+// nullStringFromPlain maps an empty plain string to NULL so optional columns
+// stay NULL instead of an empty string.
+func nullStringFromPlain(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
 }
 
 func ptrString(ns sql.NullString) *string {
@@ -851,15 +868,18 @@ func (r *userRepo) RecordLogin(ctx context.Context, userID, ip string) error {
 	return r.Update(ctx, u)
 }
 
-const appColumns = `id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, created_at, updated_at`
+const appColumns = `id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, wechat_app_id, wechat_app_secret, created_at, updated_at`
 
 type appRepo struct{ db dbConn }
 
 func scanApp(s rowScanner) (*domain.Application, error) {
 	var a domain.Application
-	if err := s.Scan(&a.ID, &a.Name, &a.ClientID, &a.ClientSecretHash, &a.RedirectURIs, &a.AllowedScopes, &a.IsActive, &a.CreatedAt, &a.UpdatedAt); err != nil {
+	var waID, waSecret sql.NullString
+	if err := s.Scan(&a.ID, &a.Name, &a.ClientID, &a.ClientSecretHash, &a.RedirectURIs, &a.AllowedScopes, &a.IsActive, &waID, &waSecret, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, err
 	}
+	a.WeChatAppID = waID.String
+	a.WeChatAppSecret = waSecret.String
 	a.CreatedAt = a.CreatedAt.UTC()
 	a.UpdatedAt = a.UpdatedAt.UTC()
 	a.RedirectURIs = defaultJSONArr(a.RedirectURIs)
@@ -918,7 +938,7 @@ func (r *appRepo) FindAll(ctx context.Context) ([]domain.Application, error) {
 }
 
 func (r *appRepo) Insert(ctx context.Context, a *domain.Application) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_applications (id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, a.ID, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, a.CreatedAt.UTC(), a.UpdatedAt.UTC())
+	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_applications (id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, wechat_app_id, wechat_app_secret, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, a.ID, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, nullStringFromPlain(a.WeChatAppID), nullStringFromPlain(a.WeChatAppSecret), a.CreatedAt.UTC(), a.UpdatedAt.UTC())
 	if err != nil {
 		return dbErr(err)
 	}
@@ -926,7 +946,7 @@ func (r *appRepo) Insert(ctx context.Context, a *domain.Application) error {
 }
 
 func (r *appRepo) Update(ctx context.Context, a *domain.Application) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE auth_applications SET name = ?, client_id = ?, client_secret_hash = ?, redirect_uris = ?, allowed_scopes = ?, is_active = ?, updated_at = ? WHERE id = ?`, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, a.UpdatedAt.UTC(), a.ID)
+	_, err := r.db.ExecContext(ctx, `UPDATE auth_applications SET name = ?, client_id = ?, client_secret_hash = ?, redirect_uris = ?, allowed_scopes = ?, is_active = ?, wechat_app_id = ?, wechat_app_secret = ?, updated_at = ? WHERE id = ?`, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, nullStringFromPlain(a.WeChatAppID), nullStringFromPlain(a.WeChatAppSecret), a.UpdatedAt.UTC(), a.ID)
 	return dbErr(err)
 }
 

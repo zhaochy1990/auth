@@ -180,7 +180,6 @@ to run maintenance tasks, e.g. `docker run auth-service-go seed admin@example.co
 | `AUTH_ENABLE_TEST_PROVIDERS` | No | `false` |
 | `SWAGGER_ENABLED` | No | `false` (UI also requires the `swagger` build tag) |
 | `STRIDE_REQUIRE_INVITE_CODE` | No | `false` |
-| `WECHAT_APP_ID` / `WECHAT_APP_SECRET` | For WeChat login | - |
 | `WECHAT_CODE2SESSION_URL` | No | WeChat's public `jscode2session` endpoint (tests) |
 | `APP_VERSION` | No | `dev` |
 | `LOG_LEVEL` / `LOG_FORMAT` | No | `debug` / `json` |
@@ -196,3 +195,14 @@ to run maintenance tasks, e.g. `docker run auth-service-go seed admin@example.co
 | `/admin/*` | Bearer admin | app/provider/user/team/invite-code management |
 | `/health` | none | health + version |
 | `/swagger/*` | none | Swagger UI (when `SWAGGER_ENABLED=true` + `swagger` build tag) |
+
+### WeChat mini-program login
+
+WeChat credentials are configured per application via the admin API
+(`wechat_app_id` / `wechat_app_secret` on `POST|PATCH /admin/applications`),
+stored on the `Application` row — they are **not** read from environment
+variables. The two WeChat endpoints additionally require the caller to
+authenticate as the application by sending its OAuth2 client secret in the
+`X-Client-Secret` header (checked inside the handlers, not middleware);
+requests without a valid secret are rejected with `401`, and apps without
+WeChat config with `400 wechat_not_configured`.

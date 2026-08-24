@@ -10,6 +10,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/sources/dev/authentication-go/cmd/auth-service",
+            "buildFlags": ["-tags", "swagger"],
             "args": [
                 "serve"
             ],

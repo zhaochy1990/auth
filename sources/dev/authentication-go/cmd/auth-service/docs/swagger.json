@@ -2977,6 +2977,12 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "wechat_app_id": {
+                    "type": "string"
+                },
+                "wechat_enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -2997,6 +3003,12 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "wechat_app_id": {
+                    "type": "string"
+                },
+                "wechat_app_secret": {
+                    "type": "string"
                 }
             }
         },
@@ -3026,6 +3038,12 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "wechat_app_id": {
+                    "type": "string"
+                },
+                "wechat_enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -3449,6 +3467,12 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "wechat_app_id": {
+                    "type": "string"
+                },
+                "wechat_app_secret": {
+                    "type": "string"
                 }
             }
         },
