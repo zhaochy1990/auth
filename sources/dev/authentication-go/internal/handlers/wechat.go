@@ -10,6 +10,7 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/middleware"
+	"github.com/zhaochy1990/x/logger"
 )
 
 // --- Request / Response types ---
@@ -59,6 +60,7 @@ func (h *Handler) WeChatLogin(c *gin.Context) {
 		middleware.RespondError(c, apperror.BadRequest("Invalid request body"))
 		return
 	}
+	logger.S().Infow("WeChat login request", "code", req.Code)
 	ctx := c.Request.Context()
 
 	session, err := h.WeChat.Code2Session(ctx, req.Code)
