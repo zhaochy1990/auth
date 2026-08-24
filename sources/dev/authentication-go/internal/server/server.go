@@ -62,6 +62,8 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		authGroup.POST("/register", am.ClientApp(), h.Register)
 		authGroup.POST("/login", am.ClientApp(), h.Login)
 		authGroup.POST("/provider/:provider_id/login", am.ClientApp(), h.ProviderLogin)
+		authGroup.POST("/wechat-login", am.ClientApp(), h.WeChatLogin)
+		authGroup.POST("/wechat-bind", am.ClientApp(), h.WeChatBind)
 		authGroup.POST("/refresh", am.ClientApp(), h.Refresh)
 		authGroup.POST("/logout", am.ClientApp(), h.Logout)
 	}

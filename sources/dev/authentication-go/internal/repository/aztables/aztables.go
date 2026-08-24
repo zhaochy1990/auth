@@ -480,6 +480,8 @@ type userEntity struct {
 	InviteCode          *string `json:"invite_code,omitempty"`
 	Membership          string  `json:"membership"`
 	MembershipExpiresAt *string `json:"membership_expires_at,omitempty"`
+	WeChatOpenID        *string `json:"wechat_openid,omitempty"`
+	WeChatUnionID       *string `json:"wechat_unionid,omitempty"`
 }
 
 func serializeLogins(records []domain.LoginRecord) *string {
@@ -564,6 +566,8 @@ func userToEntity(u *domain.User) userEntity {
 		InviteCode:          u.InviteCode,
 		Membership:          membership,
 		MembershipExpiresAt: fmtDTPtr(u.MembershipExpiresAt),
+		WeChatOpenID:        u.WeChatOpenID,
+		WeChatUnionID:       u.WeChatUnionID,
 	}
 }
 
@@ -594,6 +598,8 @@ func (e *userEntity) toModel() *domain.User {
 		InviteCode:          e.InviteCode,
 		Membership:          domain.MembershipFromString(membership),
 		MembershipExpiresAt: parseDTPtr(e.MembershipExpiresAt),
+		WeChatOpenID:        e.WeChatOpenID,
+		WeChatUnionID:       e.WeChatUnionID,
 	}
 }
 
@@ -618,6 +624,34 @@ func (r *userRepo) FindByEmail(ctx context.Context, email string) (*domain.User,
 		return nil, err
 	}
 	return r.FindByID(ctx, idx.TargetID)
+}
+
+func (r *userRepo) FindByWeChatOpenID(ctx context.Context, openid string) (*domain.User, error) {
+	// Rollback-only adapter: no index rows for WeChat openids, so scan the
+	// user partition in-app. MySQL is the runtime store for WeChat binding.
+	es, err := queryEntities[userEntity](ctx, r.c, "PartitionKey eq 'user'")
+	if err != nil {
+		return nil, err
+	}
+	for i := range es {
+		if es[i].WeChatOpenID != nil && *es[i].WeChatOpenID == openid {
+			return es[i].toModel(), nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *userRepo) FindByWeChatUnionID(ctx context.Context, unionid string) (*domain.User, error) {
+	es, err := queryEntities[userEntity](ctx, r.c, "PartitionKey eq 'user'")
+	if err != nil {
+		return nil, err
+	}
+	for i := range es {
+		if es[i].WeChatUnionID != nil && *es[i].WeChatUnionID == unionid {
+			return es[i].toModel(), nil
+		}
+	}
+	return nil, nil
 }
 
 func (r *userRepo) Insert(ctx context.Context, u *domain.User) error {

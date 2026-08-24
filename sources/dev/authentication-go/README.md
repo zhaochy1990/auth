@@ -180,6 +180,8 @@ to run maintenance tasks, e.g. `docker run auth-service-go seed admin@example.co
 | `AUTH_ENABLE_TEST_PROVIDERS` | No | `false` |
 | `SWAGGER_ENABLED` | No | `false` (UI also requires the `swagger` build tag) |
 | `STRIDE_REQUIRE_INVITE_CODE` | No | `false` |
+| `WECHAT_APP_ID` / `WECHAT_APP_SECRET` | For WeChat login | - |
+| `WECHAT_CODE2SESSION_URL` | No | WeChat's public `jscode2session` endpoint (tests) |
 | `APP_VERSION` | No | `dev` |
 | `LOG_LEVEL` / `LOG_FORMAT` | No | `debug` / `json` |
 
@@ -188,7 +190,7 @@ to run maintenance tasks, e.g. `docker run auth-service-go seed admin@example.co
 | Prefix | Auth | Endpoints |
 |--------|------|-----------|
 | `/oauth/*` | Basic | `token`, `revoke`, `introspect` |
-| `/api/auth/*` | `X-Client-Id` | `register`, `login`, `provider/:id/login`, `refresh`, `logout` |
+| `/api/auth/*` | `X-Client-Id` | `register`, `login`, `provider/:id/login`, `refresh`, `logout`, `wechat-login`, `wechat-bind` |
 | `/api/users/*` | Bearer | `me`, accounts, teams |
 | `/api/teams/*` | Bearer | team CRUD, join/leave/transfer-owner, members |
 | `/admin/*` | Bearer admin | app/provider/user/team/invite-code management |

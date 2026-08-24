@@ -27,6 +27,12 @@ type Config struct {
 	// SwaggerEnabled gates the /swagger UI + spec. Off in production. The UI is
 	// only served when the binary is also built with `-tags swagger`.
 	SwaggerEnabled bool
+	// WeChatAppID is the WeChat mini-program app id.
+	WeChatAppID string
+	// WeChatAppSecret is the WeChat mini-program app secret.
+	WeChatAppSecret string
+	// WeChatCode2SessionURL overrides the WeChat code2Session endpoint (tests).
+	WeChatCode2SessionURL string
 }
 
 const (
@@ -78,6 +84,9 @@ func FromEnv() (*Config, error) {
 		CORSAllowedOrigins:           EnvOr("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"),
 		EnableTestProviders:          envBool("AUTH_ENABLE_TEST_PROVIDERS", false),
 		SwaggerEnabled:               envBool("SWAGGER_ENABLED", false),
+		WeChatAppID:                  os.Getenv("WECHAT_APP_ID"),
+		WeChatAppSecret:              os.Getenv("WECHAT_APP_SECRET"),
+		WeChatCode2SessionURL:        os.Getenv("WECHAT_CODE2SESSION_URL"),
 	}, nil
 }
 

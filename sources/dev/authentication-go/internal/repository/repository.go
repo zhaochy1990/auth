@@ -56,6 +56,8 @@ func ParseUserListSort(sortBy, sortOrder string) UserListSort {
 type UserRepository interface {
 	FindByID(ctx context.Context, id string) (*domain.User, error)
 	FindByEmail(ctx context.Context, email string) (*domain.User, error)
+	FindByWeChatOpenID(ctx context.Context, openid string) (*domain.User, error)
+	FindByWeChatUnionID(ctx context.Context, unionid string) (*domain.User, error)
 	Insert(ctx context.Context, u *domain.User) error
 	Update(ctx context.Context, u *domain.User) error
 	DeleteByID(ctx context.Context, id string) error

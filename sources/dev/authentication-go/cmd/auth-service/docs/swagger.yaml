@@ -499,6 +499,8 @@ definitions:
         type: string
       user_type:
         $ref: '#/definitions/github_com_zhaochy1990_auth-service_internal_domain.UserType'
+      wechat_bound:
+        type: boolean
     type: object
   internal_handlers.userResponse:
     properties:
@@ -537,6 +539,8 @@ definitions:
         type: string
       user_type:
         $ref: '#/definitions/github_com_zhaochy1990_auth-service_internal_domain.UserType'
+      wechat_bound:
+        type: boolean
     type: object
   internal_handlers.userStats:
     properties:
@@ -544,6 +548,46 @@ definitions:
         type: integer
       total:
         type: integer
+    type: object
+  internal_handlers.wechatBindRequest:
+    properties:
+      code:
+        type: string
+      email:
+        type: string
+      password:
+        type: string
+    type: object
+  internal_handlers.wechatLoginRequest:
+    properties:
+      code:
+        type: string
+    type: object
+  internal_handlers.wechatLoginResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        type: integer
+      needs_binding:
+        type: boolean
+      refresh_token:
+        type: string
+      token_type:
+        type: string
+      user:
+        $ref: '#/definitions/internal_handlers.wechatUserResponse'
+    type: object
+  internal_handlers.wechatUserResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      wechat_bound:
+        type: boolean
     type: object
 info:
   contact: {}
@@ -1633,6 +1677,84 @@ paths:
       security:
       - ClientID: []
       summary: Register a new password user
+      tags:
+      - auth
+  /api/auth/wechat-bind:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: WeChat code + email + password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.wechatBindRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.wechatLoginResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - ClientID: []
+      summary: Bind WeChat to an existing account
+      tags:
+      - auth
+  /api/auth/wechat-login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: WeChat login code
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.wechatLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.wechatLoginResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - ClientID: []
+      summary: Log in with WeChat mini-program code
       tags:
       - auth
   /api/teams:

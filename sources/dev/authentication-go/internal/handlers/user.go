@@ -26,6 +26,7 @@ type userProfileResponse struct {
 	UserType            domain.UserType       `json:"user_type"`
 	Membership          domain.MembershipTier `json:"membership"`
 	MembershipExpiresAt *string               `json:"membership_expires_at"`
+	WeChatBound         bool                  `json:"wechat_bound"`
 	CustomAttributes    map[string]any        `json:"custom_attributes"`
 	CreatedAt           string                `json:"created_at"`
 }
@@ -80,6 +81,7 @@ func (h *Handler) GetProfile(c *gin.Context) {
 		UserType:            domain.UserTypeFromString(string(user.UserType)),
 		Membership:          membership,
 		MembershipExpiresAt: displayDTPtr(user.MembershipExpiresAt),
+		WeChatBound:         user.WeChatBound(),
 		CustomAttributes:    customAttributesOrEmpty(user.CustomAttributes),
 		CreatedAt:           displayDT(user.CreatedAt),
 	})
@@ -139,6 +141,7 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 		UserType:            domain.UserTypeFromString(string(user.UserType)),
 		Membership:          user.EffectiveMembership(now),
 		MembershipExpiresAt: displayDTPtr(user.MembershipExpiresAt),
+		WeChatBound:         user.WeChatBound(),
 		CustomAttributes:    customAttributesOrEmpty(user.CustomAttributes),
 		CreatedAt:           displayDT(user.CreatedAt),
 	})

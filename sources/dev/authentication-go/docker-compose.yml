@@ -36,6 +36,10 @@ services:
       SWAGGER_ENABLED: "true"
       LOG_LEVEL: "debug"
       LOG_FORMAT: "json"
+      # WeChat mini-program login (optional; endpoints return "not configured"
+      # until set).
+      WECHAT_APP_ID: "${WECHAT_APP_ID:-}"
+      WECHAT_APP_SECRET: "${WECHAT_APP_SECRET:-}"
     depends_on:
       mysql:
         condition: service_healthy
