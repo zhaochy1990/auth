@@ -120,12 +120,8 @@ DSN, so certificate verification stays enabled.
 
 Deployment expects the production GitHub Environment secret `MYSQL_DSN` to be set
 before the release tag is deployed. If the Tencent instance requires a custom CA,
-also set `MYSQL_TLS_CA_PEM`. The container environment sets:
-
-```text
-MYSQL_DSN=secretref:mysql-dsn
-MYSQL_TLS_CA_PEM=secretref:mysql-tls-ca-pem  # only when configured
-```
+also set `MYSQL_TLS_CA_PEM`. The Tencent Cloud container is configured with the
+`MYSQL_DSN` and optional `MYSQL_TLS_CA_PEM` environment variables.
 
 ## Docker
 

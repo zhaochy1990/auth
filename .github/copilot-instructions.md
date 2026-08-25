@@ -98,8 +98,7 @@ Feature pages keep API calls in `src\api\admin.ts`, shared TypeScript contracts 
 Release runs after CI succeeds on `main`, bumps the backend version, creates a
 `vYYYY.M.MICRO` tag, and triggers the deploy workflow. Deploy vendors the Go
 dependencies, builds `auth-backend` from `sources\dev\authentication-go`,
-pushes it to GHCR + Aliyun ACR, and refreshes the Azure Container Apps backend
-standby. Tencent production is released via a Renovate PR
+pushes it to GHCR + Aliyun ACR. Tencent production is released via a Renovate PR
 against `stride-devops` that bumps `AUTH_IMAGE_TAG` in the root
 `versions.env`. The admin dashboard and its release workflow live in
 `stride-devops/admin-dashboard`.
