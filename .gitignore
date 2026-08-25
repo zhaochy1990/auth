@@ -19,3 +19,6 @@ prod-recent-logins.png
 
 # Local credentials
 .credentials.local
+
+# Local JWT keys (never commit)
+/keys/
