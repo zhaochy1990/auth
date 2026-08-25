@@ -228,14 +228,6 @@ func (ta *testApp) clientHeaders() map[string]string {
 	return map[string]string{"X-Client-Id": ta.clientID}
 }
 
-// wechatHeaders adds the OAuth2 client secret header the two WeChat login
-// endpoints require on top of the client identity headers.
-func (ta *testApp) wechatHeaders() map[string]string {
-	h := ta.clientHeaders()
-	h["X-Client-Secret"] = ta.clientSecret
-	return h
-}
-
 func (ta *testApp) bearer(token string) map[string]string {
 	return map[string]string{"Authorization": "Bearer " + token}
 }
@@ -992,44 +984,105 @@ func (ta *testApp) registerUser(t *testing.T, email string) string {
 	return r.AccessToken
 }
 
-type wechatLoginResp struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int64  `json:"expires_in"`
-	NeedsBinding bool   `json:"needs_binding"`
-	User         struct {
-		ID          string  `json:"id"`
-		Email       *string `json:"email"`
-		Name        *string `json:"name"`
-		WeChatBound bool    `json:"wechat_bound"`
-	} `json:"user"`
+// --- WeChat token exchange (RFC 8693 token_exchange grant) ---
+
+type oauthTokenResp struct {
+	AccessToken  string  `json:"access_token"`
+	RefreshToken *string `json:"refresh_token"`
+	TokenType    string  `json:"token_type"`
+	ExpiresIn    int64   `json:"expires_in"`
+	Scope        *string `json:"scope"`
 }
 
-func TestWeChatLoginNeedsBinding(t *testing.T) {
-	ta := newTestApp(t)
+// doForm posts a form-urlencoded body (the standard token-endpoint format).
+func (ta *testApp) doForm(method, path string, form url.Values, headers map[string]string) *httptest.ResponseRecorder {
+	ta.t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	ta.engine.ServeHTTP(w, req)
+	return w
+}
 
-	// A code whose openid has never been bound → needs_binding, no tokens.
-	w := ta.do(http.MethodPost, "/api/auth/wechat-login", map[string]any{
-		"code": "code-bindable",
-	}, ta.wechatHeaders())
+// wechatExchange posts a token_exchange request for the bootstrap app as a
+// public client (client_id in the body, no Basic auth). extra merges into the
+// form (e.g. email/password for the bind flow).
+func (ta *testApp) wechatExchange(t *testing.T, code string, extra url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	form := url.Values{
+		"grant_type":         {"token_exchange"},
+		"client_id":          {ta.clientID},
+		"subject_token":      {code},
+		"subject_token_type": {"wechat_mini_program"},
+	}
+	for k, vs := range extra {
+		for _, v := range vs {
+			form.Add(k, v)
+		}
+	}
+	return ta.doForm(http.MethodPost, "/oauth/token", form, nil)
+}
+
+// bindUser registers a fresh account and binds the code-bindable identity
+// (openid wx_bindable) to it.
+func (ta *testApp) bindUser(t *testing.T, email string) {
+	t.Helper()
+	ta.registerUser(t, email)
+	w := ta.wechatExchange(t, "code-bindable", url.Values{
+		"email": {email}, "password": {"Password1!"},
+	})
 	mustStatus(t, w, http.StatusOK)
-	var resp wechatLoginResp
+}
+
+// Login with a bound identity → standard token response; the token works and
+// /api/users/me reports wechat_bound=true.
+func TestTokenExchangeWeChatLoginBound(t *testing.T) {
+	ta := newTestApp(t)
+	ta.bindUser(t, "wx1@example.com")
+
+	w := ta.wechatExchange(t, "code-bindable", nil)
+	mustStatus(t, w, http.StatusOK)
+	var resp oauthTokenResp
 	decode(t, w, &resp)
-	if !resp.NeedsBinding {
-		t.Fatalf("expected needs_binding=true for unbound openid, got %+v", resp)
+	if resp.AccessToken == "" || resp.RefreshToken == nil || *resp.RefreshToken == "" {
+		t.Fatalf("expected token pair, got %+v", resp)
 	}
-	if resp.AccessToken != "" || resp.RefreshToken != "" {
-		t.Fatalf("expected no tokens when unbound, got %+v", resp)
+	if resp.TokenType != "Bearer" {
+		t.Fatalf("token_type = %q, want Bearer", resp.TokenType)
+	}
+
+	me := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(resp.AccessToken))
+	mustStatus(t, me, http.StatusOK)
+	var meResp struct {
+		WeChatBound bool `json:"wechat_bound"`
+	}
+	decode(t, me, &meResp)
+	if !meResp.WeChatBound {
+		t.Fatalf("expected wechat_bound=true, got %+v", meResp)
 	}
 }
 
-func TestWeChatLoginInvalidCode(t *testing.T) {
+// Unbound identity → 400 wechat_needs_binding, no tokens.
+func TestTokenExchangeWeChatNeedsBinding(t *testing.T) {
 	ta := newTestApp(t)
 
-	w := ta.do(http.MethodPost, "/api/auth/wechat-login", map[string]any{
-		"code": "code-bad",
-	}, ta.wechatHeaders())
+	w := ta.wechatExchange(t, "code-bindable", nil)
+	mustStatus(t, w, http.StatusBadRequest)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "wechat_needs_binding" {
+		t.Fatalf("error = %v, want wechat_needs_binding", body["error"])
+	}
+}
+
+// WeChat rejects the code → 400 with a mapped error code.
+func TestTokenExchangeWeChatInvalidCode(t *testing.T) {
+	ta := newTestApp(t)
+
+	w := ta.wechatExchange(t, "code-bad", nil)
 	mustStatus(t, w, http.StatusBadRequest)
 	var body map[string]any
 	decode(t, w, &body)
@@ -1038,42 +1091,50 @@ func TestWeChatLoginInvalidCode(t *testing.T) {
 	}
 }
 
-func TestWeChatLoginRequiresAppSecret(t *testing.T) {
+// A public client must identify itself via client_id in the body.
+func TestTokenExchangeRequiresClientID(t *testing.T) {
 	ta := newTestApp(t)
 
-	// Missing X-Client-Secret header → 401 client_secret_required.
-	w := ta.do(http.MethodPost, "/api/auth/wechat-login", map[string]any{
-		"code": "code-bindable",
-	}, ta.clientHeaders())
-	mustStatus(t, w, http.StatusUnauthorized)
+	form := url.Values{
+		"grant_type":         {"token_exchange"},
+		"subject_token":      {"code-bindable"},
+		"subject_token_type": {"wechat_mini_program"},
+	}
+	w := ta.doForm(http.MethodPost, "/oauth/token", form, nil)
+	mustStatus(t, w, http.StatusBadRequest)
 	var body map[string]any
 	decode(t, w, &body)
-	if body["error"] != "client_secret_required" {
-		t.Fatalf("error = %v, want client_secret_required", body["error"])
-	}
-
-	// Wrong client secret → 401 invalid_credentials.
-	headers := ta.clientHeaders()
-	headers["X-Client-Secret"] = "wrong-secret"
-	w = ta.do(http.MethodPost, "/api/auth/wechat-login", map[string]any{
-		"code": "code-bindable",
-	}, headers)
-	mustStatus(t, w, http.StatusUnauthorized)
-	decode(t, w, &body)
-	if body["error"] != "invalid_credentials" {
-		t.Fatalf("error = %v, want invalid_credentials", body["error"])
+	if body["error"] != "missing_client_id" {
+		t.Fatalf("error = %v, want missing_client_id", body["error"])
 	}
 }
 
-// TestWeChatUsesPerAppCredentials asserts the code2Session call carries the
-// WeChat appid/secret configured on the application row, not any global value.
-func TestWeChatUsesPerAppCredentials(t *testing.T) {
+// Unknown client_id → application_not_found.
+func TestTokenExchangeUnknownClientID(t *testing.T) {
 	ta := newTestApp(t)
 
-	w := ta.do(http.MethodPost, "/api/auth/wechat-login", map[string]any{
-		"code": "code-bindable",
-	}, ta.wechatHeaders())
-	mustStatus(t, w, http.StatusOK)
+	form := url.Values{
+		"grant_type":         {"token_exchange"},
+		"client_id":          {"no-such-client"},
+		"subject_token":      {"code-bindable"},
+		"subject_token_type": {"wechat_mini_program"},
+	}
+	w := ta.doForm(http.MethodPost, "/oauth/token", form, nil)
+	mustStatus(t, w, http.StatusNotFound)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "application_not_found" {
+		t.Fatalf("error = %v, want application_not_found", body["error"])
+	}
+}
+
+// The code2Session upstream call must carry the app's configured WeChat
+// credentials (per-app config, not env).
+func TestTokenExchangeUsesPerAppCredentials(t *testing.T) {
+	ta := newTestApp(t)
+
+	w := ta.wechatExchange(t, "code-bindable", nil)
+	mustStatus(t, w, http.StatusBadRequest) // needs_binding; the upstream call still happened
 
 	appID, appSecret := ta.wechatSrv.lastCredentials()
 	if appID != "test-appid" || appSecret != "test-secret" {
@@ -1081,25 +1142,26 @@ func TestWeChatUsesPerAppCredentials(t *testing.T) {
 	}
 }
 
-func TestWeChatLoginNotConfigured(t *testing.T) {
+// An app without WeChat config rejects the exchange even with a valid client_id.
+func TestTokenExchangeWeChatNotConfigured(t *testing.T) {
 	ta := newTestApp(t)
 
-	// A fresh app created without WeChat config rejects WeChat login even with
-	// a valid OAuth2 client secret.
 	create := ta.do(http.MethodPost, "/admin/applications", map[string]any{
 		"name": "No WeChat App",
 	}, ta.bearer(ta.adminToken))
 	mustStatus(t, create, http.StatusOK)
 	var app struct {
-		ClientID     string `json:"client_id"`
-		ClientSecret string `json:"client_secret"`
+		ClientID string `json:"client_id"`
 	}
 	decode(t, create, &app)
 
-	headers := map[string]string{"X-Client-Id": app.ClientID, "X-Client-Secret": app.ClientSecret}
-	w := ta.do(http.MethodPost, "/api/auth/wechat-login", map[string]any{
-		"code": "code-bindable",
-	}, headers)
+	form := url.Values{
+		"grant_type":         {"token_exchange"},
+		"client_id":          {app.ClientID},
+		"subject_token":      {"code-bindable"},
+		"subject_token_type": {"wechat_mini_program"},
+	}
+	w := ta.doForm(http.MethodPost, "/oauth/token", form, nil)
 	mustStatus(t, w, http.StatusBadRequest)
 	var body map[string]any
 	decode(t, w, &body)
@@ -1108,67 +1170,23 @@ func TestWeChatLoginNotConfigured(t *testing.T) {
 	}
 }
 
-func TestWeChatBindAndLogin(t *testing.T) {
+// Bind flow: unknown account → 401; wrong password → 401 and nothing bound;
+// correct credentials → bound + tokens.
+func TestTokenExchangeWeChatBind(t *testing.T) {
 	ta := newTestApp(t)
 
-	// Bind a brand-new openid to an existing account.
-	w := ta.do(http.MethodPost, "/api/auth/wechat-bind", map[string]any{
-		"code": "code-bindable", "email": "wx1@example.com", "password": "Password1!",
-	}, ta.wechatHeaders())
 	// No such account → invalid credentials.
+	w := ta.wechatExchange(t, "code-bindable", url.Values{
+		"email": {"wx1@example.com"}, "password": {"Password1!"},
+	})
 	mustStatus(t, w, http.StatusUnauthorized)
 
 	ta.registerUser(t, "wx1@example.com")
 
-	w = ta.do(http.MethodPost, "/api/auth/wechat-bind", map[string]any{
-		"code": "code-bindable", "email": "wx1@example.com", "password": "Password1!",
-	}, ta.wechatHeaders())
-	mustStatus(t, w, http.StatusOK)
-	var bindResp wechatLoginResp
-	decode(t, w, &bindResp)
-	if bindResp.AccessToken == "" || bindResp.RefreshToken == "" {
-		t.Fatalf("expected tokens from wechat-bind, got %+v", bindResp)
-	}
-	if !bindResp.User.WeChatBound {
-		t.Fatalf("expected wechat_bound=true, got %+v", bindResp.User)
-	}
-	if bindResp.NeedsBinding {
-		t.Fatalf("expected needs_binding=false, got %+v", bindResp)
-	}
-
-	// Now wechat-login with the same code → direct login (no needs_binding).
-	w = ta.do(http.MethodPost, "/api/auth/wechat-login", map[string]any{
-		"code": "code-bindable",
-	}, ta.wechatHeaders())
-	mustStatus(t, w, http.StatusOK)
-	var loginResp wechatLoginResp
-	decode(t, w, &loginResp)
-	if loginResp.AccessToken == "" {
-		t.Fatal("expected access token from wechat-login for bound openid")
-	}
-	if loginResp.NeedsBinding || !loginResp.User.WeChatBound {
-		t.Fatalf("unexpected login response: %+v", loginResp)
-	}
-
-	// /api/users/me reports wechat_bound=true.
-	me := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(loginResp.AccessToken))
-	mustStatus(t, me, http.StatusOK)
-	var meResp struct {
-		WeChatBound bool `json:"wechat_bound"`
-	}
-	decode(t, me, &meResp)
-	if !meResp.WeChatBound {
-		t.Fatalf("expected /api/users/me wechat_bound=true, got %+v", meResp)
-	}
-}
-
-func TestWeChatBindWrongPassword(t *testing.T) {
-	ta := newTestApp(t)
-	ta.registerUser(t, "wx2@example.com")
-
-	w := ta.do(http.MethodPost, "/api/auth/wechat-bind", map[string]any{
-		"code": "code-bindable", "email": "wx2@example.com", "password": "WrongPass1!",
-	}, ta.wechatHeaders())
+	// Wrong password → 401, identity must NOT be bound afterwards.
+	w = ta.wechatExchange(t, "code-bindable", url.Values{
+		"email": {"wx1@example.com"}, "password": {"WrongPass1!"},
+	})
 	mustStatus(t, w, http.StatusUnauthorized)
 	var body map[string]any
 	decode(t, w, &body)
@@ -1176,33 +1194,39 @@ func TestWeChatBindWrongPassword(t *testing.T) {
 		t.Fatalf("error = %v, want invalid_credentials", body["error"])
 	}
 
-	// The openid must NOT be bound after a failed password attempt.
-	w = ta.do(http.MethodPost, "/api/auth/wechat-login", map[string]any{
-		"code": "code-bindable",
-	}, ta.wechatHeaders())
+	w = ta.wechatExchange(t, "code-bindable", nil)
+	mustStatus(t, w, http.StatusBadRequest) // still unbound after the failed bind
+	decode(t, w, &body)
+	if body["error"] != "wechat_needs_binding" {
+		t.Fatalf("error = %v, want wechat_needs_binding after failed bind", body["error"])
+	}
+
+	// Correct credentials → bound + tokens.
+	w = ta.wechatExchange(t, "code-bindable", url.Values{
+		"email": {"wx1@example.com"}, "password": {"Password1!"},
+	})
 	mustStatus(t, w, http.StatusOK)
-	var resp wechatLoginResp
+	var resp oauthTokenResp
 	decode(t, w, &resp)
-	if !resp.NeedsBinding {
-		t.Fatalf("openid should not be bound after wrong-password bind, got %+v", resp)
+	if resp.AccessToken == "" {
+		t.Fatal("expected access token from bind")
 	}
 }
 
-func TestWeChatBindAlreadyBoundToAnotherUser(t *testing.T) {
+// A WeChat identity already bound to another account → 409.
+func TestTokenExchangeWeChatBindAlreadyBoundToAnotherUser(t *testing.T) {
 	ta := newTestApp(t)
 
-	// User A binds the openid.
 	ta.registerUser(t, "wx-a@example.com")
-	w := ta.do(http.MethodPost, "/api/auth/wechat-bind", map[string]any{
-		"code": "code-bindable", "email": "wx-a@example.com", "password": "Password1!",
-	}, ta.wechatHeaders())
+	w := ta.wechatExchange(t, "code-bindable", url.Values{
+		"email": {"wx-a@example.com"}, "password": {"Password1!"},
+	})
 	mustStatus(t, w, http.StatusOK)
 
-	// User B tries to bind the same openid → 409 wechat_already_bound.
 	ta.registerUser(t, "wx-b@example.com")
-	w = ta.do(http.MethodPost, "/api/auth/wechat-bind", map[string]any{
-		"code": "code-bindable", "email": "wx-b@example.com", "password": "Password1!",
-	}, ta.wechatHeaders())
+	w = ta.wechatExchange(t, "code-bindable", url.Values{
+		"email": {"wx-b@example.com"}, "password": {"Password1!"},
+	})
 	mustStatus(t, w, http.StatusConflict)
 	var body map[string]any
 	decode(t, w, &body)
@@ -1211,28 +1235,83 @@ func TestWeChatBindAlreadyBoundToAnotherUser(t *testing.T) {
 	}
 }
 
-func TestWeChatBindUnionIDCollision(t *testing.T) {
+// Two different openids sharing a unionid cannot bind to different accounts.
+func TestTokenExchangeWeChatBindUnionIDCollision(t *testing.T) {
 	ta := newTestApp(t)
 
-	// User A binds the openid from "code-bound", which carries unionid
-	// "wx_union_bound".
 	ta.registerUser(t, "wx-union-a@example.com")
-	w := ta.do(http.MethodPost, "/api/auth/wechat-bind", map[string]any{
-		"code": "code-bound", "email": "wx-union-a@example.com", "password": "Password1!",
-	}, ta.wechatHeaders())
+	w := ta.wechatExchange(t, "code-bound", url.Values{ // openid wx_bound, unionid wx_union_bound
+		"email": {"wx-union-a@example.com"}, "password": {"Password1!"},
+	})
 	mustStatus(t, w, http.StatusOK)
 
-	// User B binds "code-unionid": different openid ("wx_unionids") but the
-	// SAME unionid → must 409, not 500.
 	ta.registerUser(t, "wx-union-b@example.com")
-	w = ta.do(http.MethodPost, "/api/auth/wechat-bind", map[string]any{
-		"code": "code-unionid", "email": "wx-union-b@example.com", "password": "Password1!",
-	}, ta.wechatHeaders())
+	w = ta.wechatExchange(t, "code-unionid", url.Values{ // openid wx_unionids, SAME unionid
+		"email": {"wx-union-b@example.com"}, "password": {"Password1!"},
+	})
 	mustStatus(t, w, http.StatusConflict)
 	var body map[string]any
 	decode(t, w, &body)
 	if body["error"] != "wechat_already_bound" {
 		t.Fatalf("error = %v, want wechat_already_bound", body["error"])
+	}
+}
+
+// An already-bound user binding a different WeChat identity → 409 (rebind is
+// out of scope and will be redesigned).
+func TestTokenExchangeWeChatBindDifferentWeChatRejected(t *testing.T) {
+	ta := newTestApp(t)
+
+	ta.bindUser(t, "wx-rebind@example.com") // binds openid wx_bindable
+
+	w := ta.wechatExchange(t, "code-bound", url.Values{ // different openid wx_bound
+		"email": {"wx-rebind@example.com"}, "password": {"Password1!"},
+	})
+	mustStatus(t, w, http.StatusConflict)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "wechat_already_bound" {
+		t.Fatalf("error = %v, want wechat_already_bound", body["error"])
+	}
+}
+
+// A confidential caller may authenticate with Basic auth instead of body
+// client_id.
+func TestTokenExchangeWeChatWithBasicAuth(t *testing.T) {
+	ta := newTestApp(t)
+	ta.bindUser(t, "wx-basic@example.com")
+
+	form := url.Values{
+		"grant_type":         {"token_exchange"},
+		"subject_token":      {"code-bindable"},
+		"subject_token_type": {"wechat_mini_program"},
+	}
+	basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(ta.clientID+":"+ta.clientSecret))
+	w := ta.doForm(http.MethodPost, "/oauth/token", form, map[string]string{"Authorization": basic})
+	mustStatus(t, w, http.StatusOK)
+	var resp oauthTokenResp
+	decode(t, w, &resp)
+	if resp.AccessToken == "" {
+		t.Fatal("expected access token via Basic auth")
+	}
+}
+
+// A JSON body is also accepted (compat with the rest of /oauth/token).
+func TestTokenExchangeWeChatJSONBody(t *testing.T) {
+	ta := newTestApp(t)
+	ta.bindUser(t, "wx-json@example.com")
+
+	w := ta.do(http.MethodPost, "/oauth/token", map[string]any{
+		"grant_type":         "token_exchange",
+		"client_id":          ta.clientID,
+		"subject_token":      "code-bindable",
+		"subject_token_type": "wechat_mini_program",
+	}, nil)
+	mustStatus(t, w, http.StatusOK)
+	var resp oauthTokenResp
+	decode(t, w, &resp)
+	if resp.AccessToken == "" {
+		t.Fatal("expected access token via JSON body")
 	}
 }
 

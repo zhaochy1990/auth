@@ -1709,130 +1709,6 @@
                 }
             }
         },
-        "/api/auth/wechat-bind": {
-            "post": {
-                "security": [
-                    {
-                        "ClientID": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "auth"
-                ],
-                "summary": "Bind WeChat to an existing account",
-                "parameters": [
-                    {
-                        "description": "WeChat code + email + password",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.wechatBindRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.wechatLoginResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/auth/wechat-login": {
-            "post": {
-                "security": [
-                    {
-                        "ClientID": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "auth"
-                ],
-                "summary": "Log in with WeChat mini-program code",
-                "parameters": [
-                    {
-                        "description": "WeChat login code",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.wechatLoginRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.wechatLoginResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/teams": {
             "get": {
                 "security": [
@@ -2742,9 +2618,10 @@
                         "BasicAuth": []
                     }
                 ],
-                "description": "Issues tokens for the authorization_code, client_credentials, refresh_token, and password grant types. The client authenticates with HTTP Basic (client_id:client_secret).",
+                "description": "Issues tokens for the authorization_code, client_credentials, refresh_token, password, and token_exchange (RFC 8693) grant types. The client authenticates with HTTP Basic (client_id:client_secret); token_exchange additionally accepts a public client identified by client_id in the request body. Accepts both application/x-www-form-urlencoded (standard) and application/json bodies.",
                 "consumes": [
-                    "application/json"
+                    "application/json",
+                    "application/x-www-form-urlencoded"
                 ],
                 "produces": [
                     "application/json"
@@ -3392,11 +3269,19 @@
         "internal_handlers.tokenRequest": {
             "type": "object",
             "properties": {
+                "client_id": {
+                    "description": "token_exchange flow (RFC 8693): client_id identifies a public client;\nsubject_token carries the third-party credential to exchange.",
+                    "type": "string"
+                },
                 "code": {
                     "description": "authorization_code flow",
                     "type": "string"
                 },
                 "code_verifier": {
+                    "type": "string"
+                },
+                "email": {
+                    "description": "wechat bind: email of the account to bind the exchanged identity to\n(with password, above).",
                     "type": "string"
                 },
                 "grant_type": {
@@ -3414,6 +3299,12 @@
                 },
                 "scope": {
                     "description": "common",
+                    "type": "string"
+                },
+                "subject_token": {
+                    "type": "string"
+                },
+                "subject_token_type": {
                     "type": "string"
                 },
                 "username": {
@@ -3665,68 +3556,6 @@
                 },
                 "total": {
                     "type": "integer"
-                }
-            }
-        },
-        "internal_handlers.wechatBindRequest": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "password": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_handlers.wechatLoginRequest": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_handlers.wechatLoginResponse": {
-            "type": "object",
-            "properties": {
-                "access_token": {
-                    "type": "string"
-                },
-                "expires_in": {
-                    "type": "integer"
-                },
-                "needs_binding": {
-                    "type": "boolean"
-                },
-                "refresh_token": {
-                    "type": "string"
-                },
-                "token_type": {
-                    "type": "string"
-                },
-                "user": {
-                    "$ref": "#/definitions/internal_handlers.wechatUserResponse"
-                }
-            }
-        },
-        "internal_handlers.wechatUserResponse": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "wechat_bound": {
-                    "type": "boolean"
                 }
             }
         }

@@ -44,13 +44,15 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": version})
 	})
 
-	// OAuth2 endpoints (Basic-auth client).
+	// OAuth2 endpoints. /oauth/token uses OptionalAppAuth because token_exchange
+	// accepts a public client (client_id in the body); revoke/introspect stay
+	// strict (Basic auth required).
 	oauth := r.Group("/oauth")
-	oauth.Use(oauthLimiter.Middleware(), am.AuthenticatedApp())
+	oauth.Use(oauthLimiter.Middleware())
 	{
-		oauth.POST("/token", h.Token)
-		oauth.POST("/revoke", h.Revoke)
-		oauth.POST("/introspect", h.Introspect)
+		oauth.POST("/token", am.OptionalAppAuth(), h.Token)
+		oauth.POST("/revoke", am.AuthenticatedApp(), h.Revoke)
+		oauth.POST("/introspect", am.AuthenticatedApp(), h.Introspect)
 	}
 
 	// Auth endpoints (X-Client-Id). Logout revokes by refresh_token in the body,
@@ -62,8 +64,6 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		authGroup.POST("/register", am.ClientApp(), h.Register)
 		authGroup.POST("/login", am.ClientApp(), h.Login)
 		authGroup.POST("/provider/:provider_id/login", am.ClientApp(), h.ProviderLogin)
-		authGroup.POST("/wechat-login", am.ClientApp(), h.WeChatLogin)
-		authGroup.POST("/wechat-bind", am.ClientApp(), h.WeChatBind)
 		authGroup.POST("/refresh", am.ClientApp(), h.Refresh)
 		authGroup.POST("/logout", am.ClientApp(), h.Logout)
 	}

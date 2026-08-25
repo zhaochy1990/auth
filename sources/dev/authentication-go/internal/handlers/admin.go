@@ -118,7 +118,7 @@ func toUserResponse(u *domain.User) userResponse {
 		UserType:            domain.UserTypeFromString(string(u.UserType)),
 		Membership:          u.Membership,
 		MembershipExpiresAt: displayDTPtr(u.MembershipExpiresAt),
-		WeChatBound:         u.WeChatBound(),
+		WeChatBound:         u.WeChatBound,
 		IsActive:            u.IsActive,
 		Note:                u.Note,
 		CustomAttributes:    customAttributesOrEmpty(u.CustomAttributes),

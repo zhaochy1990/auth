@@ -50,8 +50,8 @@ func newRootCmd() *cobra.Command {
 		Long: "auth-service is the unified CLI for the Go auth module. The HTTP server and\n" +
 			"every maintenance task is a subcommand of one binary; containers set the\n" +
 			"entrypoint (e.g. `auth-service serve`).",
-		// SilenceErrors: true,
-		// SilenceUsage:  true,
+		SilenceErrors: true,
+		SilenceUsage:  true,
 	}
 	root.AddCommand(
 		newServeCmd(),

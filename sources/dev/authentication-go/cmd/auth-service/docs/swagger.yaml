@@ -382,10 +382,20 @@ definitions:
     type: object
   internal_handlers.tokenRequest:
     properties:
+      client_id:
+        description: |-
+          token_exchange flow (RFC 8693): client_id identifies a public client;
+          subject_token carries the third-party credential to exchange.
+        type: string
       code:
         description: authorization_code flow
         type: string
       code_verifier:
+        type: string
+      email:
+        description: |-
+          wechat bind: email of the account to bind the exchanged identity to
+          (with password, above).
         type: string
       grant_type:
         type: string
@@ -398,6 +408,10 @@ definitions:
         type: string
       scope:
         description: common
+        type: string
+      subject_token:
+        type: string
+      subject_token_type:
         type: string
       username:
         description: password flow
@@ -564,46 +578,6 @@ definitions:
         type: integer
       total:
         type: integer
-    type: object
-  internal_handlers.wechatBindRequest:
-    properties:
-      code:
-        type: string
-      email:
-        type: string
-      password:
-        type: string
-    type: object
-  internal_handlers.wechatLoginRequest:
-    properties:
-      code:
-        type: string
-    type: object
-  internal_handlers.wechatLoginResponse:
-    properties:
-      access_token:
-        type: string
-      expires_in:
-        type: integer
-      needs_binding:
-        type: boolean
-      refresh_token:
-        type: string
-      token_type:
-        type: string
-      user:
-        $ref: '#/definitions/internal_handlers.wechatUserResponse'
-    type: object
-  internal_handlers.wechatUserResponse:
-    properties:
-      email:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      wechat_bound:
-        type: boolean
     type: object
 info:
   contact: {}
@@ -1695,84 +1669,6 @@ paths:
       summary: Register a new password user
       tags:
       - auth
-  /api/auth/wechat-bind:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: WeChat code + email + password
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_handlers.wechatBindRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_handlers.wechatLoginResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
-      security:
-      - ClientID: []
-      summary: Bind WeChat to an existing account
-      tags:
-      - auth
-  /api/auth/wechat-login:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: WeChat login code
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_handlers.wechatLoginRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_handlers.wechatLoginResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
-      security:
-      - ClientID: []
-      summary: Log in with WeChat mini-program code
-      tags:
-      - auth
   /api/teams:
     get:
       produces:
@@ -2348,8 +2244,12 @@ paths:
     post:
       consumes:
       - application/json
+      - application/x-www-form-urlencoded
       description: Issues tokens for the authorization_code, client_credentials, refresh_token,
-        and password grant types. The client authenticates with HTTP Basic (client_id:client_secret).
+        password, and token_exchange (RFC 8693) grant types. The client authenticates
+        with HTTP Basic (client_id:client_secret); token_exchange additionally accepts
+        a public client identified by client_id in the request body. Accepts both
+        application/x-www-form-urlencoded (standard) and application/json bodies.
       parameters:
       - description: Grant request
         in: body

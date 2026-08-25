@@ -115,14 +115,22 @@ type User struct {
 	// MembershipExpiresAt is when a paid membership lapses. Nil means no expiry
 	// (permanent grant, or a Regular user).
 	MembershipExpiresAt *time.Time
-	// WeChatOpenID is the WeChat mini-program openid, unique per user.
-	WeChatOpenID *string
-	// WeChatUnionID is the WeChat unionid for cross-app identity tracking.
-	WeChatUnionID *string
+	// WeChatBound reports whether the account has at least one bound WeChat
+	// identity (see WeChatLink). Populated by the repository layer.
+	WeChatBound bool
 }
 
-// WeChatBound reports whether a WeChat mini-program openid is bound.
-func (u *User) WeChatBound() bool { return u.WeChatOpenID != nil }
+// WeChatLink is a single bound WeChat identity: one mini-program appid and the
+// openid of the WeChat user within it. A user may hold links for several
+// mini-programs; the same WeChat person has a different openid per mini-program
+// and is correlated across mini-programs by UnionID (when present).
+type WeChatLink struct {
+	UserID      string
+	WeChatAppID string
+	OpenID      string
+	UnionID     *string
+	CreatedAt   time.Time
+}
 
 // IsMembershipExpired reports whether a paid membership has lapsed as of now.
 // Regular users and paid memberships without an expiry are never expired.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/zhaochy1990/auth-service/internal/apperror"
 	"github.com/zhaochy1990/auth-service/internal/auth"
+	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/repository"
 )
 
@@ -148,48 +149,82 @@ func (a *Auth) ClientApp() gin.HandlerFunc {
 // AuthenticatedApp authenticates a client application via Basic auth.
 func (a *Auth) AuthenticatedApp() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		encoded, ok := strings.CutPrefix(header, "Basic ")
-		if !ok {
+		if !strings.HasPrefix(c.GetHeader("Authorization"), "Basic ") {
 			RespondError(c, apperror.InvalidCredentials())
 			return
 		}
-		decoded, err := base64.StdEncoding.DecodeString(encoded)
-		if err != nil {
-			RespondError(c, apperror.InvalidCredentials())
-			return
-		}
-		clientID, secret, ok := strings.Cut(string(decoded), ":")
-		if !ok {
-			RespondError(c, apperror.InvalidCredentials())
-			return
-		}
-		app, err := a.Repo.Applications().FindByClientID(c.Request.Context(), clientID)
-		if err != nil {
-			RespondError(c, err)
-			return
-		}
-		if app == nil {
-			RespondError(c, apperror.ApplicationNotFound())
-			return
-		}
-		if !app.IsActive {
-			RespondError(c, apperror.ApplicationNotActive())
-			return
-		}
-		valid, err := auth.VerifyClientSecret(secret, app.ClientSecretHash)
-		if err != nil {
-			RespondError(c, err)
-			return
-		}
-		if !valid {
-			RespondError(c, apperror.InvalidCredentials())
-			return
-		}
-		c.Set(ctxAppID, app.ID)
-		c.Set(ctxClientID, app.ClientID)
-		c.Next()
+		a.authenticateBasicApp(c)
 	}
+}
+
+// OptionalAppAuth authenticates the client via Basic auth when the header is
+// present, but lets anonymous requests through. /oauth/token uses this because
+// the token_exchange grant lets a public client identify itself with a
+// client_id in the request body instead of a secret (see SetAppContext); the
+// handler enforces that the app is resolved for every grant.
+func (a *Auth) OptionalAppAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !strings.HasPrefix(c.GetHeader("Authorization"), "Basic ") {
+			c.Next()
+			return
+		}
+		a.authenticateBasicApp(c)
+	}
+}
+
+// authenticateBasicApp validates Basic credentials against an application and
+// populates the app context. It responds and aborts on failure.
+func (a *Auth) authenticateBasicApp(c *gin.Context) {
+	header := c.GetHeader("Authorization")
+	encoded, ok := strings.CutPrefix(header, "Basic ")
+	if !ok {
+		RespondError(c, apperror.InvalidCredentials())
+		return
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		RespondError(c, apperror.InvalidCredentials())
+		return
+	}
+	clientID, secret, ok := strings.Cut(string(decoded), ":")
+	if !ok {
+		RespondError(c, apperror.InvalidCredentials())
+		return
+	}
+	app, err := a.Repo.Applications().FindByClientID(c.Request.Context(), clientID)
+	if err != nil {
+		RespondError(c, err)
+		return
+	}
+	if app == nil {
+		RespondError(c, apperror.ApplicationNotFound())
+		return
+	}
+	if !app.IsActive {
+		RespondError(c, apperror.ApplicationNotActive())
+		return
+	}
+	valid, err := auth.VerifyClientSecret(secret, app.ClientSecretHash)
+	if err != nil {
+		RespondError(c, err)
+		return
+	}
+	if !valid {
+		RespondError(c, apperror.InvalidCredentials())
+		return
+	}
+	SetAppContext(c, app)
+	c.Next()
+}
+
+// SetAppContext populates the application identity context for a request, so
+// handlers can read middleware.AppID / ClientID / AllowedScopes. Used by
+// AuthenticatedApp and by token_exchange when the app is resolved from the
+// request body (public client) instead of Basic auth.
+func SetAppContext(c *gin.Context, app *domain.Application) {
+	c.Set(ctxAppID, app.ID)
+	c.Set(ctxClientID, app.ClientID)
+	c.Set(ctxAllowedScopes, auth.DecodeStringArray(app.AllowedScopes))
 }
 
 // AppTokenAuth requires a Bearer token issued via the client_credentials grant.
@@ -371,9 +406,8 @@ func (l *RateLimiter) Middleware() gin.HandlerFunc {
 // It must name every non-safelisted request header clients send. Authorization
 // is listed explicitly on purpose: per the Fetch spec the "*" wildcard does NOT
 // cover Authorization, so a wildcard would silently break cross-origin Bearer
-// (and Basic, for /oauth) requests. X-Client-Id is the app identity header;
-// X-Client-Secret authenticates the app on the WeChat login endpoints.
-const corsAllowedHeaders = "Authorization, Content-Type, X-Client-Id, X-Client-Secret"
+// (and Basic, for /oauth) requests. X-Client-Id is the app identity header.
+const corsAllowedHeaders = "Authorization, Content-Type, X-Client-Id"
 
 // corsAllowedMethods is the explicit method allow-list for preflight responses.
 const corsAllowedMethods = "GET, POST, PATCH, DELETE, OPTIONS"

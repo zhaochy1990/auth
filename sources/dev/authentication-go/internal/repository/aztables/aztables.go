@@ -480,8 +480,6 @@ type userEntity struct {
 	InviteCode          *string `json:"invite_code,omitempty"`
 	Membership          string  `json:"membership"`
 	MembershipExpiresAt *string `json:"membership_expires_at,omitempty"`
-	WeChatOpenID        *string `json:"wechat_openid,omitempty"`
-	WeChatUnionID       *string `json:"wechat_unionid,omitempty"`
 }
 
 func serializeLogins(records []domain.LoginRecord) *string {
@@ -566,8 +564,6 @@ func userToEntity(u *domain.User) userEntity {
 		InviteCode:          u.InviteCode,
 		Membership:          membership,
 		MembershipExpiresAt: fmtDTPtr(u.MembershipExpiresAt),
-		WeChatOpenID:        u.WeChatOpenID,
-		WeChatUnionID:       u.WeChatUnionID,
 	}
 }
 
@@ -598,8 +594,6 @@ func (e *userEntity) toModel() *domain.User {
 		InviteCode:          e.InviteCode,
 		Membership:          domain.MembershipFromString(membership),
 		MembershipExpiresAt: parseDTPtr(e.MembershipExpiresAt),
-		WeChatOpenID:        e.WeChatOpenID,
-		WeChatUnionID:       e.WeChatUnionID,
 	}
 }
 
@@ -626,32 +620,100 @@ func (r *userRepo) FindByEmail(ctx context.Context, email string) (*domain.User,
 	return r.FindByID(ctx, idx.TargetID)
 }
 
-func (r *userRepo) FindByWeChatOpenID(ctx context.Context, openid string) (*domain.User, error) {
-	// Rollback-only adapter: no index rows for WeChat openids, so scan the
-	// user partition in-app. MySQL is the runtime store for WeChat binding.
-	es, err := queryEntities[userEntity](ctx, r.c, "PartitionKey eq 'user'")
+// wechatLinkEntity persists one WeChat identity binding (see domain.WeChatLink).
+// Rollback-only adapter: lookups scan the wechat_link partition in-app; MySQL
+// is the runtime store for WeChat binding.
+type wechatLinkEntity struct {
+	PartitionKey string  `json:"PartitionKey"`
+	RowKey       string  `json:"RowKey"` // userID + "|" + wechatAppID
+	UserID       string  `json:"user_id"`
+	WeChatAppID  string  `json:"wechat_app_id"`
+	OpenID       string  `json:"openid"`
+	UnionID      *string `json:"unionid,omitempty"`
+	CreatedAt    string  `json:"created_at"`
+}
+
+func (r *userRepo) FindByWeChatOpenID(ctx context.Context, wechatAppID, openid string) (*domain.User, error) {
+	es, err := queryEntities[wechatLinkEntity](ctx, r.c, "PartitionKey eq 'wechat_link'")
 	if err != nil {
 		return nil, err
 	}
 	for i := range es {
-		if es[i].WeChatOpenID != nil && *es[i].WeChatOpenID == openid {
-			return es[i].toModel(), nil
+		if es[i].WeChatAppID == wechatAppID && es[i].OpenID == openid {
+			u, err := r.FindByID(ctx, es[i].UserID)
+			if u != nil {
+				u.WeChatBound = true
+			}
+			return u, err
 		}
 	}
 	return nil, nil
 }
 
 func (r *userRepo) FindByWeChatUnionID(ctx context.Context, unionid string) (*domain.User, error) {
-	es, err := queryEntities[userEntity](ctx, r.c, "PartitionKey eq 'user'")
+	es, err := queryEntities[wechatLinkEntity](ctx, r.c, "PartitionKey eq 'wechat_link'")
 	if err != nil {
 		return nil, err
 	}
 	for i := range es {
-		if es[i].WeChatUnionID != nil && *es[i].WeChatUnionID == unionid {
-			return es[i].toModel(), nil
+		if es[i].UnionID != nil && *es[i].UnionID == unionid {
+			u, err := r.FindByID(ctx, es[i].UserID)
+			if u != nil {
+				u.WeChatBound = true
+			}
+			return u, err
 		}
 	}
 	return nil, nil
+}
+
+func (r *userRepo) FindWeChatLink(ctx context.Context, userID, wechatAppID string) (*domain.WeChatLink, error) {
+	var e wechatLinkEntity
+	ok, err := getEntity(ctx, r.c, "wechat_link", userID+"|"+wechatAppID, &e)
+	if err != nil || !ok {
+		return nil, err
+	}
+	return &domain.WeChatLink{
+		UserID:      e.UserID,
+		WeChatAppID: e.WeChatAppID,
+		OpenID:      e.OpenID,
+		UnionID:     e.UnionID,
+		CreatedAt:   parseDT(e.CreatedAt),
+	}, nil
+}
+
+func (r *userRepo) LinkWeChat(ctx context.Context, userID, wechatAppID, openid string, unionid *string) error {
+	e := wechatLinkEntity{
+		PartitionKey: "wechat_link",
+		RowKey:       userID + "|" + wechatAppID,
+		UserID:       userID,
+		WeChatAppID:  wechatAppID,
+		OpenID:       openid,
+		UnionID:      unionid,
+		CreatedAt:    fmtDT(time.Now().UTC()),
+	}
+	if err := addEntity(ctx, r.c, &e); err != nil {
+		if isConflict(err) {
+			return apperror.WeChatAlreadyBound()
+		}
+		return dbErr(err)
+	}
+	return nil
+}
+
+func (r *userRepo) DeleteWeChatLinksByUser(ctx context.Context, userID string) error {
+	es, err := queryEntities[wechatLinkEntity](ctx, r.c, "PartitionKey eq 'wechat_link'")
+	if err != nil {
+		return err
+	}
+	for i := range es {
+		if es[i].UserID == userID {
+			if err := deleteEntity(ctx, r.c, "wechat_link", es[i].RowKey); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (r *userRepo) Insert(ctx context.Context, u *domain.User) error {
