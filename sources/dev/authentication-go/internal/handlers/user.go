@@ -20,6 +20,7 @@ import (
 type userProfileResponse struct {
 	ID                  string                `json:"id"`
 	Email               *string               `json:"email"`
+	Phone               *string               `json:"phone"`
 	Name                *string               `json:"name"`
 	AvatarURL           *string               `json:"avatar_url"`
 	EmailVerified       bool                  `json:"email_verified"`
@@ -75,6 +76,7 @@ func (h *Handler) GetProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, userProfileResponse{
 		ID:                  user.ID,
 		Email:               user.Email,
+		Phone:               user.Phone,
 		Name:                user.Name,
 		AvatarURL:           user.AvatarURL,
 		EmailVerified:       user.EmailVerified,
@@ -135,6 +137,7 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, userProfileResponse{
 		ID:                  user.ID,
 		Email:               user.Email,
+		Phone:               user.Phone,
 		Name:                user.Name,
 		AvatarURL:           user.AvatarURL,
 		EmailVerified:       user.EmailVerified,

@@ -465,6 +465,7 @@ type userEntity struct {
 	PartitionKey        string  `json:"PartitionKey"`
 	RowKey              string  `json:"RowKey"`
 	Email               *string `json:"email,omitempty"`
+	Phone               *string `json:"phone,omitempty"`
 	Name                *string `json:"name,omitempty"`
 	AvatarURL           *string `json:"avatar_url,omitempty"`
 	EmailVerified       bool    `json:"email_verified"`
@@ -549,6 +550,7 @@ func userToEntity(u *domain.User) userEntity {
 		PartitionKey:        "user",
 		RowKey:              u.ID,
 		Email:               u.Email,
+		Phone:               u.Phone,
 		Name:                u.Name,
 		AvatarURL:           u.AvatarURL,
 		EmailVerified:       u.EmailVerified,
@@ -579,6 +581,7 @@ func (e *userEntity) toModel() *domain.User {
 	return &domain.User{
 		ID:                  e.RowKey,
 		Email:               e.Email,
+		Phone:               e.Phone,
 		Name:                e.Name,
 		AvatarURL:           e.AvatarURL,
 		EmailVerified:       e.EmailVerified,
@@ -614,6 +617,15 @@ func (r *userRepo) FindByID(ctx context.Context, id string) (*domain.User, error
 func (r *userRepo) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	var idx indexEntity
 	ok, err := getEntity(ctx, r.c, "idx_email", strings.ToLower(email), &idx)
+	if err != nil || !ok {
+		return nil, err
+	}
+	return r.FindByID(ctx, idx.TargetID)
+}
+
+func (r *userRepo) FindByPhone(ctx context.Context, phone string) (*domain.User, error) {
+	var idx indexEntity
+	ok, err := getEntity(ctx, r.c, "idx_phone", phone, &idx)
 	if err != nil || !ok {
 		return nil, err
 	}
@@ -726,6 +738,15 @@ func (r *userRepo) Insert(ctx context.Context, u *domain.User) error {
 			return dbErr(err)
 		}
 	}
+	if u.Phone != nil {
+		idx := indexEntity{PartitionKey: "idx_phone", RowKey: *u.Phone, TargetID: u.ID}
+		if err := addEntity(ctx, r.c, &idx); err != nil {
+			if isConflict(err) {
+				return apperror.Database("Phone already exists")
+			}
+			return dbErr(err)
+		}
+	}
 	e := userToEntity(u)
 	if err := addEntity(ctx, r.c, &e); err != nil {
 		return dbErr(err)
@@ -735,6 +756,9 @@ func (r *userRepo) Insert(ctx context.Context, u *domain.User) error {
 		_ = deleteEntity(ctx, r.c, "user", u.ID)
 		if u.Email != nil {
 			_ = deleteEntity(ctx, r.c, "idx_email", strings.ToLower(*u.Email))
+		}
+		if u.Phone != nil {
+			_ = deleteEntity(ctx, r.c, "idx_phone", *u.Phone)
 		}
 		return err
 	}
@@ -769,6 +793,19 @@ func (r *userRepo) Update(ctx context.Context, u *domain.User) error {
 			}
 			if newEmail != nil {
 				idx := indexEntity{PartitionKey: "idx_email", RowKey: *newEmail, TargetID: u.ID}
+				if err := upsertEntity(ctx, r.c, &idx); err != nil {
+					return err
+				}
+			}
+		}
+		if !eqStrPtr(current.Phone, u.Phone) {
+			if current.Phone != nil {
+				if err := deleteEntity(ctx, r.c, "idx_phone", *current.Phone); err != nil {
+					return err
+				}
+			}
+			if u.Phone != nil {
+				idx := indexEntity{PartitionKey: "idx_phone", RowKey: *u.Phone, TargetID: u.ID}
 				if err := upsertEntity(ctx, r.c, &idx); err != nil {
 					return err
 				}
@@ -973,7 +1010,8 @@ func matchesUserSearch(e *userEntity, lower string) bool {
 	}
 	emailMatch := e.Email != nil && strings.Contains(strings.ToLower(*e.Email), lower)
 	nameMatch := e.Name != nil && strings.Contains(strings.ToLower(*e.Name), lower)
-	return emailMatch || nameMatch
+	phoneMatch := e.Phone != nil && strings.Contains(strings.ToLower(*e.Phone), lower)
+	return emailMatch || nameMatch || phoneMatch
 }
 
 func matchesUserID(e *userEntity, lower string) bool {

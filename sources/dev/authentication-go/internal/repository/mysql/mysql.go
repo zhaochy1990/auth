@@ -230,7 +230,10 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 	if err := r.ensureColumn(ctx, "auth_applications", "wechat_app_secret", "TEXT NULL AFTER wechat_app_id"); err != nil {
 		return err
 	}
-	return nil
+	if err := r.ensureColumn(ctx, "auth_users", "phone", "VARCHAR(20) NULL AFTER email_lookup"); err != nil {
+		return err
+	}
+	return r.ensureIndex(ctx, "auth_users", "uq_auth_users_phone", "UNIQUE", []string{"phone"})
 }
 
 func (r *Repository) ensureColumn(ctx context.Context, table, column, definition string) error {
@@ -240,6 +243,16 @@ func (r *Repository) ensureColumn(ctx context.Context, table, column, definition
 		return err
 	}
 	_, err = r.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition))
+	return err
+}
+
+func (r *Repository) ensureIndex(ctx context.Context, table, index, kind string, columns []string) error {
+	var count int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`, table, index).Scan(&count)
+	if err != nil || count > 0 {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD %s KEY %s (%s)", table, kind, index, strings.Join(columns, ",")))
 	return err
 }
 
@@ -302,6 +315,7 @@ var schemaStatements = []string{
 		id VARCHAR(64) NOT NULL PRIMARY KEY,
 		email VARCHAR(320) NULL,
 		email_lookup VARCHAR(320) NULL,
+		phone VARCHAR(20) NULL,
 		name VARCHAR(255) NULL,
 		avatar_url TEXT NULL,
 		email_verified BOOLEAN NOT NULL DEFAULT FALSE,
@@ -318,6 +332,7 @@ var schemaStatements = []string{
 		membership VARCHAR(32) NOT NULL DEFAULT 'regular',
 		membership_expires_at DATETIME(6) NULL,
 		UNIQUE KEY uq_auth_users_email_lookup (email_lookup),
+		UNIQUE KEY uq_auth_users_phone (phone),
 		KEY idx_auth_users_created_at (created_at)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 	`CREATE TABLE IF NOT EXISTS auth_user_wechat_links (
@@ -590,6 +605,9 @@ func userSortNameKey(u domain.User) string {
 	if u.Email != nil {
 		return normalizeUserSortName(*u.Email)
 	}
+	if u.Phone != nil {
+		return normalizeUserSortName(*u.Phone)
+	}
 	return ""
 }
 
@@ -638,15 +656,15 @@ func isDuplicate(err error) bool {
 	return errors.As(err, &me) && me.Number == 1062
 }
 
-const userColumns = `auth_users.id, auth_users.email, auth_users.name, auth_users.avatar_url, auth_users.email_verified, auth_users.role, auth_users.user_type, auth_users.is_active, auth_users.note, auth_users.custom_attributes, auth_users.created_at, auth_users.updated_at, auth_users.last_login_at, auth_users.recent_logins, auth_users.invite_code, auth_users.membership, auth_users.membership_expires_at, EXISTS(SELECT 1 FROM auth_user_wechat_links wl WHERE wl.user_id = auth_users.id) AS wechat_bound`
+const userColumns = `auth_users.id, auth_users.email, auth_users.name, auth_users.avatar_url, auth_users.email_verified, auth_users.role, auth_users.user_type, auth_users.is_active, auth_users.note, auth_users.custom_attributes, auth_users.created_at, auth_users.updated_at, auth_users.last_login_at, auth_users.recent_logins, auth_users.invite_code, auth_users.membership, auth_users.membership_expires_at, auth_users.phone, EXISTS(SELECT 1 FROM auth_user_wechat_links wl WHERE wl.user_id = auth_users.id) AS wechat_bound`
 
 type userRepo struct{ db dbConn }
 
 func scanUser(s rowScanner) (*domain.User, error) {
 	var u domain.User
-	var email, name, avatar, note, customAttrs, recent, invite, membership, userType sql.NullString
+	var email, name, avatar, note, customAttrs, recent, invite, membership, userType, phone sql.NullString
 	var lastLogin, membershipExpires sql.NullTime
-	if err := s.Scan(&u.ID, &email, &name, &avatar, &u.EmailVerified, &u.Role, &userType, &u.IsActive, &note, &customAttrs, &u.CreatedAt, &u.UpdatedAt, &lastLogin, &recent, &invite, &membership, &membershipExpires, &u.WeChatBound); err != nil {
+	if err := s.Scan(&u.ID, &email, &name, &avatar, &u.EmailVerified, &u.Role, &userType, &u.IsActive, &note, &customAttrs, &u.CreatedAt, &u.UpdatedAt, &lastLogin, &recent, &invite, &membership, &membershipExpires, &phone, &u.WeChatBound); err != nil {
 		return nil, err
 	}
 	if u.Role == "" {
@@ -657,6 +675,7 @@ func scanUser(s rowScanner) (*domain.User, error) {
 		mem = string(domain.MembershipRegular)
 	}
 	u.Email = ptrString(email)
+	u.Phone = ptrString(phone)
 	u.Name = ptrString(name)
 	u.AvatarURL = ptrString(avatar)
 	u.UserType = domain.UserTypeFromString(userType.String)
@@ -685,6 +704,17 @@ func (r *userRepo) FindByID(ctx context.Context, id string) (*domain.User, error
 
 func (r *userRepo) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	u, err := scanUser(r.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM auth_users WHERE email_lookup = ?", strings.ToLower(email)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, dbErr(err)
+	}
+	return u, nil
+}
+
+func (r *userRepo) FindByPhone(ctx context.Context, phone string) (*domain.User, error) {
+	u, err := scanUser(r.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM auth_users WHERE phone = ?", phone))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -757,9 +787,9 @@ func (r *userRepo) Insert(ctx context.Context, u *domain.User) error {
 	}
 	userType := string(defaultUserType(u.UserType))
 	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_users
-		(id, email, email_lookup, name, avatar_url, email_verified, role, user_type, is_active, note, custom_attributes, created_at, updated_at, last_login_at, recent_logins, invite_code, membership, membership_expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		u.ID, nullString(u.Email), emailLookup(u.Email), nullString(u.Name), nullString(u.AvatarURL), u.EmailVerified, role, userType, u.IsActive, nullString(u.Note), serializeCustomAttributes(u.CustomAttributes), u.CreatedAt.UTC(), u.UpdatedAt.UTC(), nullTime(u.LastLoginAt), serializeLogins(u.RecentLogins), nullString(u.InviteCode), membership, nullTime(u.MembershipExpiresAt))
+		(id, email, email_lookup, phone, name, avatar_url, email_verified, role, user_type, is_active, note, custom_attributes, created_at, updated_at, last_login_at, recent_logins, invite_code, membership, membership_expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, nullString(u.Email), emailLookup(u.Email), nullString(u.Phone), nullString(u.Name), nullString(u.AvatarURL), u.EmailVerified, role, userType, u.IsActive, nullString(u.Note), serializeCustomAttributes(u.CustomAttributes), u.CreatedAt.UTC(), u.UpdatedAt.UTC(), nullTime(u.LastLoginAt), serializeLogins(u.RecentLogins), nullString(u.InviteCode), membership, nullTime(u.MembershipExpiresAt))
 	if err != nil {
 		if isDuplicate(err) {
 			return apperror.Database("user already exists")
@@ -780,9 +810,9 @@ func (r *userRepo) Update(ctx context.Context, u *domain.User) error {
 	}
 	userType := string(defaultUserType(u.UserType))
 	_, err := r.db.ExecContext(ctx, `UPDATE auth_users SET
-		email = ?, email_lookup = ?, name = ?, avatar_url = ?, email_verified = ?, role = ?, user_type = ?, is_active = ?, note = ?, custom_attributes = ?, updated_at = ?, last_login_at = ?, recent_logins = ?, invite_code = ?, membership = ?, membership_expires_at = ?
+		email = ?, email_lookup = ?, phone = ?, name = ?, avatar_url = ?, email_verified = ?, role = ?, user_type = ?, is_active = ?, note = ?, custom_attributes = ?, updated_at = ?, last_login_at = ?, recent_logins = ?, invite_code = ?, membership = ?, membership_expires_at = ?
 		WHERE id = ?`,
-		nullString(u.Email), emailLookup(u.Email), nullString(u.Name), nullString(u.AvatarURL), u.EmailVerified, role, userType, u.IsActive, nullString(u.Note), serializeCustomAttributes(u.CustomAttributes), u.UpdatedAt.UTC(), nullTime(u.LastLoginAt), serializeLogins(u.RecentLogins), nullString(u.InviteCode), membership, nullTime(u.MembershipExpiresAt), u.ID)
+		nullString(u.Email), emailLookup(u.Email), nullString(u.Phone), nullString(u.Name), nullString(u.AvatarURL), u.EmailVerified, role, userType, u.IsActive, nullString(u.Note), serializeCustomAttributes(u.CustomAttributes), u.UpdatedAt.UTC(), nullTime(u.LastLoginAt), serializeLogins(u.RecentLogins), nullString(u.InviteCode), membership, nullTime(u.MembershipExpiresAt), u.ID)
 	if err != nil {
 		return dbErr(err)
 	}
@@ -824,9 +854,9 @@ func (r *userRepo) ListPaginated(ctx context.Context, search, idSearch string, u
 	args := []any{}
 	clauses := []string{}
 	if strings.TrimSpace(search) != "" {
-		clauses = append(clauses, "(LOWER(COALESCE(email, '')) LIKE ? OR LOWER(COALESCE(name, '')) LIKE ?)")
+		clauses = append(clauses, "(LOWER(COALESCE(email, '')) LIKE ? OR LOWER(COALESCE(name, '')) LIKE ? OR COALESCE(phone, '') LIKE ?)")
 		pattern := "%" + strings.ToLower(strings.TrimSpace(search)) + "%"
-		args = append(args, pattern, pattern)
+		args = append(args, pattern, pattern, pattern)
 	}
 	if strings.TrimSpace(idSearch) != "" {
 		clauses = append(clauses, "LOWER(id) LIKE ?")

@@ -137,6 +137,35 @@ func WeChatAlreadyBound() *Error {
 	return New(http.StatusConflict, "wechat_already_bound", "This WeChat account is already bound to another user")
 }
 
+func SmsCodeInvalid() *Error {
+	return New(http.StatusBadRequest, "sms_code_invalid", "Invalid verification code")
+}
+func SmsCodeExpired() *Error {
+	return New(http.StatusBadRequest, "sms_code_expired", "Verification code has expired or is no longer valid")
+}
+func SmsAttemptsExceeded() *Error {
+	return New(http.StatusBadRequest, "sms_attempts_exceeded", "Too many incorrect attempts; request a new code")
+}
+func SmsSendCooldown() *Error {
+	return New(http.StatusTooManyRequests, "sms_send_cooldown", "Please wait before requesting a new code")
+}
+func SmsDailyLimit() *Error {
+	return New(http.StatusTooManyRequests, "sms_daily_limit", "Daily SMS limit reached for this phone number")
+}
+func SmsNotConfigured() *Error {
+	return New(http.StatusBadRequest, "sms_not_configured", "SMS login is not configured")
+}
+func SmsProviderError(detail string) *Error {
+	return New(http.StatusBadGateway, "sms_provider_error", "SMS provider error: "+detail)
+}
+
+// ServiceUnavailable is the fail-closed response when a required backing store
+// (e.g. Redis) is unreachable. SMS send/verify return this rather than falling
+// back to a second store.
+func ServiceUnavailable() *Error {
+	return New(http.StatusServiceUnavailable, "service_unavailable", "Service temporarily unavailable")
+}
+
 // Internal returns a generic 500 with a non-leaky message.
 func Internal() *Error {
 	return New(http.StatusInternalServerError, "internal_error", "Internal server error")

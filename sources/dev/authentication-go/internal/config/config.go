@@ -28,6 +28,29 @@ type Config struct {
 	SwaggerEnabled bool
 	// WeChatCode2SessionURL overrides the WeChat code2Session endpoint (tests).
 	WeChatCode2SessionURL string
+	// RedisAddr / RedisPassword / RedisDB configure the Redis connection used
+	// for short-lived SMS verification codes. An unreachable Redis makes the
+	// SMS endpoints fail closed (503) rather than falling back to another
+	// store.
+	RedisAddr     string
+	RedisPassword string
+	RedisDB       int
+	// SMSTestMode fixes the verification code at 123456 and skips the Tencent
+	// Cloud SMS HTTP call, keeping demos and automated tests deterministic
+	// without real SMS.
+	SMSTestMode bool
+	// Tencent Cloud SMS global configuration. Missing values do not prevent
+	// startup; /api/auth/sms/send returns sms_not_configured in that case.
+	TencentSMSSecretID   string
+	TencentSMSSecretKey  string
+	TencentSMSSDKAppID   string
+	TencentSMSSignName   string
+	TencentSMSTemplateID string
+	TencentSMSRegion     string
+	// SMSSendRateLimit / SMSVerifyRateLimit are the per-IP hourly request caps
+	// for the SMS send / verify endpoints.
+	SMSSendRateLimit   int
+	SMSVerifyRateLimit int
 }
 
 const (
@@ -66,6 +89,18 @@ func FromEnv() (*Config, error) {
 		EnableTestProviders:       envBool("AUTH_ENABLE_TEST_PROVIDERS", false),
 		SwaggerEnabled:            envBool("SWAGGER_ENABLED", false),
 		WeChatCode2SessionURL:     os.Getenv("WECHAT_CODE2SESSION_URL"),
+		RedisAddr:                 EnvOr("REDIS_ADDR", "127.0.0.1:6379"),
+		RedisPassword:             os.Getenv("REDIS_PASSWORD"),
+		RedisDB:                   int(envInt64("REDIS_DB", 0)),
+		SMSTestMode:               envBool("AUTH_SMS_TEST_MODE", false),
+		TencentSMSSecretID:        os.Getenv("TENCENT_SMS_SECRET_ID"),
+		TencentSMSSecretKey:       os.Getenv("TENCENT_SMS_SECRET_KEY"),
+		TencentSMSSDKAppID:        os.Getenv("TENCENT_SMS_SDK_APP_ID"),
+		TencentSMSSignName:        os.Getenv("TENCENT_SMS_SIGN_NAME"),
+		TencentSMSTemplateID:      os.Getenv("TENCENT_SMS_TEMPLATE_ID"),
+		TencentSMSRegion:          EnvOr("TENCENT_SMS_REGION", "ap-guangzhou"),
+		SMSSendRateLimit:          int(envInt64("SMS_SEND_RATE_LIMIT", 10)),
+		SMSVerifyRateLimit:        int(envInt64("SMS_VERIFY_RATE_LIMIT", 60)),
 	}, nil
 }
 

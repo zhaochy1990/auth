@@ -7,6 +7,9 @@ membership tiers, invite codes, teams, and the admin API used by the dashboard.
 The storage boundary is `internal/repository`: handlers depend only on the
 repository interfaces. The default target backend is MySQL, with the legacy
 Azure Table adapter retained for migration and rollback during the cutover.
+Short-lived SMS verification codes live in Redis (`internal/repository/redis`),
+which the SMS login endpoints fail closed on (503) rather than falling back to
+another store.
 
 ## Architecture
 
@@ -44,10 +47,10 @@ Run `auth-service <command> --help` for flags.
 
 ## Build, Test, Run
 
-Start local MySQL:
+Start local MySQL and Redis (SMS verification codes):
 
 ```bash
-docker compose up -d mysql
+docker compose up -d mysql redis
 ```
 
 Run checks (a `Makefile` wraps these):
@@ -180,6 +183,19 @@ to run maintenance tasks, e.g. `docker run auth-service-go seed admin@example.co
 | `AUTH_ENABLE_TEST_PROVIDERS` | No | `false` |
 | `SWAGGER_ENABLED` | No | `false` (UI also requires the `swagger` build tag) |
 | `STRIDE_REQUIRE_INVITE_CODE` | No | `false` |
+| `AUTH_REQUIRE_INVITE_CODE` | No | `false` (alias for the above) |
+| `REDIS_ADDR` | No | `127.0.0.1:6379` |
+| `REDIS_PASSWORD` | No | - |
+| `REDIS_DB` | No | `0` |
+| `AUTH_SMS_TEST_MODE` | No | `false` (fixes the code at `123456`, skips Tencent) |
+| `TENCENT_SMS_SECRET_ID` | No | - |
+| `TENCENT_SMS_SECRET_KEY` | No | - |
+| `TENCENT_SMS_SDK_APP_ID` | No | - |
+| `TENCENT_SMS_SIGN_NAME` | No | - |
+| `TENCENT_SMS_TEMPLATE_ID` | No | - |
+| `TENCENT_SMS_REGION` | No | `ap-guangzhou` |
+| `SMS_SEND_RATE_LIMIT` | No | `10` (per-IP sends per hour) |
+| `SMS_VERIFY_RATE_LIMIT` | No | `60` (per-IP verifies per hour) |
 | `WECHAT_CODE2SESSION_URL` | No | WeChat's public `jscode2session` endpoint (tests) |
 | `APP_VERSION` | No | `dev` |
 | `LOG_LEVEL` / `LOG_FORMAT` | No | `debug` / `json` |
@@ -189,7 +205,7 @@ to run maintenance tasks, e.g. `docker run auth-service-go seed admin@example.co
 | Prefix | Auth | Endpoints |
 |--------|------|-----------|
 | `/oauth/*` | Basic | `token` (authz-code, client-creds, refresh, password, `token_exchange`), `revoke`, `introspect` |
-| `/api/auth/*` | `X-Client-Id` | `register`, `login`, `provider/:id/login`, `refresh`, `logout` |
+| `/api/auth/*` | `X-Client-Id` | `register`, `login`, `provider/:id/login`, `refresh`, `logout`, `sms/send`, `sms/verify` |
 | `/api/users/*` | Bearer | `me`, accounts, teams |
 | `/api/teams/*` | Bearer | team CRUD, join/leave/transfer-owner, members |
 | `/admin/*` | Bearer admin | app/provider/user/team/invite-code management |
@@ -252,3 +268,39 @@ grant_type=token_exchange
 WeChat identities are stored per mini-program in the `auth_user_wechat_links`
 table (see `docs/adr/0002-user-wechat-links-table.md`); `users` carries only a
 `wechat_bound` flag derived from it.
+
+### SMS verification-code login (mainland-China phone numbers)
+
+SMS login is **login-or-register**: users enter an 11-digit mainland-China
+mobile number (starting `1[3-9]`), receive a one-time 6-digit code via Tencent
+Cloud SMS, and the first successful verification auto-creates the account;
+later verifications log the existing account in.
+
+```
+POST /api/auth/sms/send    body: {"phone":"13812345678"}      → 200 {"status":"ok"}
+POST /api/auth/sms/verify  body: {"phone":"...","code":"...","invite_code":"..."?}
+                            → 200 access_token / refresh_token / token_type / expires_in
+```
+
+Both endpoints require the `X-Client-Id` header like the other `/api/auth/*`
+routes, and each has a dedicated per-IP rate limiter (send 10/hour, verify
+60/hour; override with `SMS_SEND_RATE_LIMIT` / `SMS_VERIFY_RATE_LIMIT`).
+
+- Codes are single-use, expire after 5 minutes, allow 5 verification attempts,
+  and sends are throttled to one per 60 seconds and 10 per phone per day.
+- Codes live in Redis (SHA-256 hashed, never in plaintext). A Redis outage makes
+  send/verify return `503 service_unavailable` — the service fails closed and
+  never falls back to another store.
+- Missing `TENCENT_SMS_*` env vars do not prevent startup; `send` returns
+  `400 sms_not_configured`. Set `AUTH_SMS_TEST_MODE=true` to run the whole flow
+  with the fixed code `123456` and no Tencent call (demos / CI).
+- When `STRIDE_REQUIRE_INVITE_CODE` (alias `AUTH_REQUIRE_INVITE_CODE`) is on,
+  a **new** phone must present a valid `invite_code` in the verify request
+  (reusing the existing single-use consumption and membership/user-type
+  grants); the invite is never required for existing accounts.
+- Error codes: `sms_code_invalid`, `sms_code_expired`, `sms_attempts_exceeded`,
+  `sms_send_cooldown`, `sms_daily_limit`, `sms_not_configured`.
+- Phone-only accounts have `email = NULL` and `name = NULL`; the admin list/get
+  and `/api/users/me` responses carry `phone`, and admin search matches phone
+  numbers. v1 keeps phone and email accounts separate (no merging or phone
+  binding yet).

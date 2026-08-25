@@ -13,10 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zhaochy1990/auth-service/internal/apperror"
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/config"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/repository"
+	"github.com/zhaochy1990/auth-service/internal/sms"
 )
 
 // Handler bundles the dependencies shared by all HTTP handlers.
@@ -24,6 +26,11 @@ type Handler struct {
 	Repo repository.Repository
 	JWT  *auth.JWTManager
 	Cfg  *config.Config
+	// SMSStore is the Redis-backed verification-code store; SMSClient wraps
+	// Tencent Cloud SMS. Both are always present (constructed with the router)
+	// — an unconfigured client makes send fail with sms_not_configured.
+	SMSStore  repository.SmsCodeStore
+	SMSClient *sms.Client
 }
 
 // ErrorResponse is the JSON body returned for every error. It mirrors
@@ -64,8 +71,60 @@ func (h *Handler) resolveMembership(ctx context.Context, user *domain.User) doma
 
 // requireInviteCode reports whether registration is invite-gated. The env flag
 // is read per request so runtime config changes take effect without restart.
+// STRIDE_REQUIRE_INVITE_CODE is the deployed name; AUTH_REQUIRE_INVITE_CODE is
+// accepted as an alias for the SMS spec.
 func requireInviteCode() bool {
-	return strings.EqualFold(os.Getenv("STRIDE_REQUIRE_INVITE_CODE"), "true")
+	return strings.EqualFold(os.Getenv("STRIDE_REQUIRE_INVITE_CODE"), "true") ||
+		strings.EqualFold(os.Getenv("AUTH_REQUIRE_INVITE_CODE"), "true")
+}
+
+// resolveInviteGate validates a submitted invite code against the registration
+// gate and returns the record (nil when the gate is off). Errors are typed
+// (missing / invalid / already used). Shared by email registration and SMS
+// auto-registration so the two gates cannot drift.
+func (h *Handler) resolveInviteGate(ctx context.Context, raw *string) (*domain.InviteCode, error) {
+	if !requireInviteCode() {
+		return nil, nil
+	}
+	if raw == nil || *raw == "" {
+		return nil, apperror.BadRequest("invite_code is required")
+	}
+	record, err := h.Repo.InviteCodes().GetByCode(ctx, *raw)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil || record.IsRevoked {
+		return nil, apperror.InviteCodeNotFound()
+	}
+	if record.Kind == domain.InviteSingleUse && record.UsedAt != nil {
+		return nil, apperror.InviteCodeAlreadyUsed()
+	}
+	return record, nil
+}
+
+// registrationGrants derives the registration-time fields from an invite code:
+// the granted membership (with expiry), the invite code to stamp on the user,
+// and the granted user type. A nil record yields defaults (regular, no
+// invite, regular type).
+func registrationGrants(record *domain.InviteCode, now time.Time) (domain.MembershipTier, *time.Time, *string, domain.UserType) {
+	membership := domain.MembershipRegular
+	var membershipExpires *time.Time
+	if record != nil && record.GrantsMembership != nil && record.GrantsMembership.IsPaid() {
+		membership = *record.GrantsMembership
+		if record.GrantsMembershipDays != nil {
+			e := now.Add(time.Duration(*record.GrantsMembershipDays) * 24 * time.Hour)
+			membershipExpires = &e
+		}
+	}
+	var invitedWith *string
+	userType := domain.UserTypeRegular
+	if record != nil {
+		invitedWith = strPtr(record.Code)
+		if record.GrantsUserType != nil {
+			userType = domain.UserTypeFromString(string(*record.GrantsUserType))
+		}
+	}
+	return membership, membershipExpires, invitedWith, userType
 }
 
 func appVersion() string {

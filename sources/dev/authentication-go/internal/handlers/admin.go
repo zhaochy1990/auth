@@ -86,6 +86,7 @@ type loginRecordResponse struct {
 type userResponse struct {
 	ID                  string                `json:"id"`
 	Email               *string               `json:"email"`
+	Phone               *string               `json:"phone"`
 	Name                *string               `json:"name"`
 	AvatarURL           *string               `json:"avatar_url"`
 	EmailVerified       bool                  `json:"email_verified"`
@@ -111,6 +112,7 @@ func toUserResponse(u *domain.User) userResponse {
 	return userResponse{
 		ID:                  u.ID,
 		Email:               u.Email,
+		Phone:               u.Phone,
 		Name:                u.Name,
 		AvatarURL:           u.AvatarURL,
 		EmailVerified:       u.EmailVerified,

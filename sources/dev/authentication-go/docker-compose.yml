@@ -18,6 +18,17 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   auth:
     build: .
     command: ["serve"]
@@ -28,6 +39,7 @@ services:
     environment:
       STORAGE_BACKEND: "mysql"
       MYSQL_DSN: "mysql://auth:auth_password@mysql:3306/auth"
+      REDIS_ADDR: "redis:6379"
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "3000"
       JWT_PRIVATE_KEY_PATH: "./keys/private.pem"
@@ -40,8 +52,20 @@ services:
       # WeChat mini-program appid/secret are configured per application via
       # the admin API, not via env vars.
       WECHAT_CODE2SESSION_URL: "${WECHAT_CODE2SESSION_URL:-}"
+      # SMS login (Tencent Cloud). Omit the TENCENT_SMS_* vars to run without
+      # SMS; send then returns sms_not_configured. AUTH_SMS_TEST_MODE fixes the
+      # code at 123456 and skips the Tencent call (demos / local dev).
+      AUTH_SMS_TEST_MODE: "${AUTH_SMS_TEST_MODE:-false}"
+      TENCENT_SMS_SECRET_ID: "${TENCENT_SMS_SECRET_ID:-}"
+      TENCENT_SMS_SECRET_KEY: "${TENCENT_SMS_SECRET_KEY:-}"
+      TENCENT_SMS_SDK_APP_ID: "${TENCENT_SMS_SDK_APP_ID:-}"
+      TENCENT_SMS_SIGN_NAME: "${TENCENT_SMS_SIGN_NAME:-}"
+      TENCENT_SMS_TEMPLATE_ID: "${TENCENT_SMS_TEMPLATE_ID:-}"
+      TENCENT_SMS_REGION: "${TENCENT_SMS_REGION:-ap-guangzhou}"
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:

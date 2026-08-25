@@ -13,7 +13,7 @@
 //
 //	@title						Auth Service API
 //	@version					1.0
-//	@description				Authentication microservice: password/provider login, OAuth2 token issuance, user & team management, and admin operations.
+//	@description				Authentication microservice: password/provider login, SMS verification-code login, OAuth2 token issuance, user & team management, and admin operations.
 //	@securityDefinitions.apikey	ClientID
 //	@in							header
 //	@name						X-Client-Id
