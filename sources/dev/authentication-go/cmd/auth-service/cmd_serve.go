@@ -42,12 +42,12 @@ func runServe() error {
 		return err
 	}
 
-	logger.S().Infow("opening storage backend", "backend", cfg.StorageBackend)
+	logger.S().Info("opening MySQL storage backend")
 	repo, err := storage.Open(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	logger.S().Infow("storage ready", "backend", cfg.StorageBackend)
+	logger.S().Info("storage ready")
 
 	jwt, err := auth.NewJWTManager(cfg)
 	if err != nil {

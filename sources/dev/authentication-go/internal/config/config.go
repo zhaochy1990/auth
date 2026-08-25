@@ -9,7 +9,6 @@ import (
 
 // Config holds all runtime configuration.
 type Config struct {
-	StorageBackend            string
 	MySQLDSN                  string
 	MySQLTLSCAPEM             string
 	MySQLTLSCAPath            string
@@ -53,28 +52,16 @@ type Config struct {
 	SMSVerifyRateLimit int
 }
 
-const (
-	StorageBackendMySQL = "mysql"
-)
-
-// FromEnv builds a Config from environment variables. Storage defaults to
-// MySQL when MYSQL_DSN is present, otherwise Azure Tables for rollback
-// compatibility during the migration window.
+// FromEnv builds a Config from environment variables. MySQL is the only
+// storage backend; MYSQL_DSN is required.
 func FromEnv() (*Config, error) {
-	backend := StorageBackendMySQL
 	mysqlDSN := os.Getenv("MYSQL_DSN")
+	if mysqlDSN == "" {
+		return nil, fmt.Errorf("MYSQL_DSN is required")
+	}
 	mysqlTLSCAPEM := os.Getenv("MYSQL_TLS_CA_PEM")
 	mysqlTLSCAPath := os.Getenv("MYSQL_TLS_CA_PATH")
-	switch backend {
-	case StorageBackendMySQL:
-		if mysqlDSN == "" {
-			return nil, fmt.Errorf("MYSQL_DSN is required when STORAGE_BACKEND=mysql")
-		}
-	default:
-		return nil, fmt.Errorf("unsupported STORAGE_BACKEND %q", backend)
-	}
 	return &Config{
-		StorageBackend:            backend,
 		MySQLDSN:                  mysqlDSN,
 		MySQLTLSCAPEM:             mysqlTLSCAPEM,
 		MySQLTLSCAPath:            mysqlTLSCAPath,

@@ -5,11 +5,10 @@ implements OAuth2, JWT access/refresh tokens, pluggable auth providers,
 membership tiers, invite codes, teams, and the admin API used by the dashboard.
 
 The storage boundary is `internal/repository`: handlers depend only on the
-repository interfaces. The default target backend is MySQL, with the legacy
-Azure Table adapter retained for migration and rollback during the cutover.
-Short-lived SMS verification codes live in Redis (`internal/repository/redis`),
-which the SMS login endpoints fail closed on (503) rather than falling back to
-another store.
+repository interfaces. The runtime target is MySQL. Short-lived SMS
+verification codes live in Redis (`internal/repository/redis`), which the SMS
+login endpoints fail closed on (503) rather than falling back to another
+store.
 
 ## Architecture
 
@@ -26,8 +25,6 @@ internal/
   auth/          JWT, password/client-secret hashing, PKCE, OAuth2 helpers
   repository/    storage interfaces
     mysql/       MySQL implementation and schema creation
-    aztables/    legacy Azure Table implementation and export helper
-    snapshot/    storage-neutral migration payload
   storage/       config-to-repository factory
   handlers/      HTTP handlers
   server/        Gin router wiring
@@ -72,7 +69,6 @@ TEST_MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth_test" go test ./i
 Run the service locally:
 
 ```bash
-STORAGE_BACKEND=mysql \
 MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
 go run ./cmd/auth-service serve
 ```
@@ -80,7 +76,6 @@ go run ./cmd/auth-service serve
 Bootstrap the first admin:
 
 ```bash
-STORAGE_BACKEND=mysql \
 MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
 go run ./cmd/auth-service seed admin@example.com MyPassword1!
 ```
@@ -95,7 +90,7 @@ and served at `/swagger/index.html` when `SWAGGER_ENABLED=true`:
 ```bash
 make build-service-swagger      # go build -tags swagger ...
 SWAGGER_ENABLED=true \
-STORAGE_BACKEND=mysql MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
+MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
 ./bin/auth-service serve
 # open http://127.0.0.1:3000/swagger/index.html
 ```
@@ -106,7 +101,7 @@ no-op stub replaces the UI), so the default build stays lean.
 
 ## Tencent Cloud MySQL
 
-Production should use `STORAGE_BACKEND=mysql` and a Tencent Cloud MySQL DSN.
+Production uses a Tencent Cloud MySQL instance.
 Use TLS when required by the instance configuration. The service accepts both
 URL style and Go driver style DSNs, for example:
 
@@ -125,28 +120,12 @@ DSN, so certificate verification stays enabled.
 
 Deployment expects the production GitHub Environment secret `MYSQL_DSN` to be set
 before the release tag is deployed. If the Tencent instance requires a custom CA,
-also set `MYSQL_TLS_CA_PEM`. The deploy workflow stores these as Azure Container
-Apps secrets and sets:
+also set `MYSQL_TLS_CA_PEM`. The container environment sets:
 
 ```text
-STORAGE_BACKEND=mysql
 MYSQL_DSN=secretref:mysql-dsn
 MYSQL_TLS_CA_PEM=secretref:mysql-tls-ca-pem  # only when configured
 ```
-
-Cutover checklist:
-
-1. Create the Tencent Cloud MySQL database and application user.
-2. Confirm network access from the migration runner and Azure Container Apps.
-3. Run a dry-run export from Azure Tables and record the exported counts.
-4. Rehearse the import against local MySQL with `--clear-target`.
-5. Set the production GitHub Environment secret `MYSQL_DSN` to the Tencent DSN,
-   and `MYSQL_TLS_CA_PEM` if the Tencent instance requires a custom CA.
-6. During the cutover window, run the import against Tencent MySQL.
-7. Confirm exported and imported counts match in the migration output.
-8. Deploy the release and verify `/health`, admin login, and admin list APIs.
-9. Keep the Azure Table connection available only for rollback until the cutover
-   is accepted.
 
 ## Docker
 
@@ -167,11 +146,9 @@ to run maintenance tasks, e.g. `docker run auth-service-go seed admin@example.co
 
 | Variable | Required | Default |
 |----------|----------|---------|
-| `STORAGE_BACKEND` | No | `mysql` when `MYSQL_DSN` exists, otherwise `azure_table` |
-| `MYSQL_DSN` | When MySQL | - |
+| `MYSQL_DSN` | Yes | - |
 | `MYSQL_TLS_CA_PEM` | No | - |
 | `MYSQL_TLS_CA_PATH` | No | - |
-| `AZURE_STORAGE_CONNECTION_STRING` | When `azure_table` or migration source | - |
 | `JWT_PRIVATE_KEY_PATH` | No | `keys/private.pem` |
 | `JWT_PUBLIC_KEY_PATH` | No | `keys/public.pem` |
 | `JWT_ISSUER` | No | `auth-service` |

@@ -37,7 +37,6 @@ services:
     volumes:
       - ./keys:/app/keys:ro
     environment:
-      STORAGE_BACKEND: "mysql"
       MYSQL_DSN: "mysql://auth:auth_password@mysql:3306/auth"
       REDIS_ADDR: "redis:6379"
       SERVER_HOST: "0.0.0.0"

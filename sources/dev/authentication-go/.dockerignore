@@ -3,6 +3,5 @@
 /auth-service
 /bin/
 .env
-.azurite-tmp/
 README.md
 CLAUDE.md

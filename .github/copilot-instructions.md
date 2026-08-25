@@ -61,7 +61,7 @@ Route groups have distinct authentication:
 | `/admin` | Bearer access token with `role == "admin"` | Admin dashboard APIs |
 | `/health` | None | Health check with app version |
 
-Storage is abstracted behind interfaces in `internal\repository\repository.go`. The runtime target is `internal\repository\mysql`; `internal\repository\aztables` is retained as a legacy migration/rollback source. Domain entities cover applications, users, linked accounts, per-application providers, authorization codes, refresh tokens, invite codes, teams, and team memberships.
+Storage is abstracted behind interfaces in `internal\repository\repository.go`. The runtime target is `internal\repository\mysql`. Domain entities cover applications, users, linked accounts, per-application providers, authorization codes, refresh tokens, invite codes, teams, and team memberships.
 
 Auth provider login is pluggable through `internal\auth\providers`. The `test` provider is gated by `AUTH_ENABLE_TEST_PROVIDERS`; normal password registration/login uses password helpers rather than the provider factory.
 
@@ -77,7 +77,7 @@ Feature pages keep API calls in `src\api\admin.ts`, shared TypeScript contracts 
 
 ## Key conventions
 
-- Keep all storage access behind `repository.Repository` and its sub-interfaces; handlers should not depend directly on MySQL or Azure clients.
+- Keep all storage access behind `repository.Repository` and its sub-interfaces; handlers should not depend directly on MySQL clients.
 - Return API errors through `apperror.Error`, which maps errors to status codes and consistent JSON bodies.
 - Backend integration tests use Gin's in-process HTTP engine, `newTestApp` from `internal\server\integration_test.go`, MySQL, and `go test ./... -count=1`. `newTestApp` clears all MySQL tables and bootstraps an admin app/user through `seed.Bootstrap`.
 - Admin access is normal JWT auth with an admin role claim; there is no static admin API key.
