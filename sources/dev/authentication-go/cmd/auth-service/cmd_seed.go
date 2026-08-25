@@ -33,7 +33,7 @@ func newSeedCmd() *cobra.Command {
 }
 
 func runSeed(ctx context.Context, email string, password *string) error {
-	cfg, err := config.FromEnv()
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}

@@ -8,9 +8,7 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/zhaochy1990/auth-service/internal/apperror"
@@ -69,13 +67,12 @@ func (h *Handler) resolveMembership(ctx context.Context, user *domain.User) doma
 	return user.Membership
 }
 
-// requireInviteCode reports whether registration is invite-gated. The env flag
-// is read per request so runtime config changes take effect without restart.
-// STRIDE_REQUIRE_INVITE_CODE is the deployed name; AUTH_REQUIRE_INVITE_CODE is
-// accepted as an alias for the SMS spec.
-func requireInviteCode() bool {
-	return strings.EqualFold(os.Getenv("STRIDE_REQUIRE_INVITE_CODE"), "true") ||
-		strings.EqualFold(os.Getenv("AUTH_REQUIRE_INVITE_CODE"), "true")
+// requireInviteCode reports whether registration is invite-gated. Read from
+// the YAML config / REQUIRE_INVITE_CODE env override at startup; the legacy
+// STRIDE_REQUIRE_INVITE_CODE / AUTH_REQUIRE_INVITE_CODE env aliases are folded
+// in by config.Load.
+func (h *Handler) requireInviteCode() bool {
+	return h.Cfg.RequireInviteCode
 }
 
 // resolveInviteGate validates a submitted invite code against the registration
@@ -83,7 +80,7 @@ func requireInviteCode() bool {
 // (missing / invalid / already used). Shared by email registration and SMS
 // auto-registration so the two gates cannot drift.
 func (h *Handler) resolveInviteGate(ctx context.Context, raw *string) (*domain.InviteCode, error) {
-	if !requireInviteCode() {
+	if !h.requireInviteCode() {
 		return nil, nil
 	}
 	if raw == nil || *raw == "" {
@@ -125,13 +122,6 @@ func registrationGrants(record *domain.InviteCode, now time.Time) (domain.Member
 		}
 	}
 	return membership, membershipExpires, invitedWith, userType
-}
-
-func appVersion() string {
-	if v := os.Getenv("APP_VERSION"); v != "" {
-		return v
-	}
-	return "dev"
 }
 
 // displayDT formats a time as "YYYY-MM-DD HH:MM:SS" with an optional

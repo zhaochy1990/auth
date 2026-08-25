@@ -84,8 +84,20 @@ Layered with a swappable storage adapter (see README for the full tree):
   `InviteKindFromString`.
 - The `/api/users` and `/api/teams` groups intentionally **share** one rate
   limiter instance.
-- The `test` provider is gated by `AUTH_ENABLE_TEST_PROVIDERS`; tests enable it
-  via config.
+- The `test` provider is gated by `auth_enable_test_providers` (env override
+  `AUTH_ENABLE_TEST_PROVIDERS`); tests enable it via config.
+
+## Configuration
+
+Config is loaded from a YAML file via `github.com/zhaochy1990/x/viper`
+(`internal/config.Load`, invoked from `cmd_serve.go` / `cmd_seed.go`). The repo
+ships `config.yml` (baked into the image at `/etc/viper.yml`); resolve order:
+`--config` flag → `$CONFIG_PATH` → `/etc/viper.yml`. Every YAML key is
+overridable by its uppercased env var (e.g. `mysql_dsn` <- `MYSQL_DSN`), but
+**only keys present in the file** — viper checks env per key and never discovers
+env-only vars, so the file must spell out every key a deployment overrides. Do
+not reintroduce code-side env reads (`os.Getenv`) for config: add a struct field
+with a `mapstructure` tag instead.
 
 ## Dependencies
 

@@ -36,6 +36,11 @@ services:
       - "3001:3000"
     volumes:
       - ./keys:/app/keys:ro
+      # Config comes from the repo's config.yml (also baked into the image at
+      # /etc/viper.yml); the bind mount makes local edits apply without a
+      # rebuild. The environment block below overrides specific keys — env vars
+      # win over YAML values (e.g. MYSQL_DSN overrides `mysql_dsn`).
+      - ./config.yml:/etc/viper.yml:ro
     environment:
       MYSQL_DSN: "mysql://auth:auth_password@mysql:3306/auth"
       REDIS_ADDR: "redis:6379"

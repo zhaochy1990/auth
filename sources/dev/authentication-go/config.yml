@@ -1,0 +1,68 @@
+# auth-service configuration.
+#
+# This file is the source of truth: every key below maps 1:1 to the
+# environment variable that overrides it (the tag value uppercased, e.g.
+# `mysql_dsn` <- MYSQL_DSN, `tencent_sms_secret_key` <- TENCENT_SMS_SECRET_KEY).
+# Env overrides only apply to keys present in this file — viper checks the env
+# per config key and does not discover env-only vars.
+#
+# The file is baked into the Docker image at /etc/viper.yml (the loader's
+# default path). Deployments mount their own copy or point at it with
+# CONFIG_PATH / --config, and override secrets via environment variables.
+
+# --- MySQL (only storage backend; DSN is required) ---
+# Accepts URL style (mysql://user:pass@host:3306/db) and Go driver style DSNs.
+mysql_dsn: "mysql://auth:auth_password@127.0.0.1:3306/auth"
+mysql_tls_ca_pem: ""
+mysql_tls_ca_path: ""
+
+# --- JWT signing keys and token lifetimes ---
+jwt_private_key_path: "keys/private.pem"
+jwt_public_key_path: "keys/public.pem"
+jwt_issuer: "auth-service"
+jwt_access_token_expiry_secs: 3600
+jwt_refresh_token_expiry_days: 30
+
+# --- HTTP server ---
+server_host: "127.0.0.1"
+server_port: 3000
+cors_allowed_origins: "http://localhost:5173,http://localhost:3000"
+
+# --- Features ---
+# auth_* keys keep the historical AUTH_* env var names.
+auth_enable_test_providers: false
+swagger_enabled: false
+auth_sms_test_mode: false
+# Registration invite gate. New env override: REQUIRE_INVITE_CODE.
+require_invite_code: false
+
+# --- WeChat mini-program ---
+# Overrides the public jscode2session endpoint (tests only). Appid/secret are
+# configured per application via the admin API, not here.
+wechat_code2session_url: ""
+
+# --- Redis (SMS verification codes) ---
+redis_addr: "127.0.0.1:6379"
+redis_password: ""
+redis_db: 0
+
+# --- Tencent Cloud SMS ---
+# Empty values don't block startup; /api/auth/sms/send returns
+# sms_not_configured until configured.
+tencent_sms_secret_id: ""
+tencent_sms_secret_key: ""
+tencent_sms_sdk_app_id: ""
+tencent_sms_sign_name: ""
+tencent_sms_template_id: ""
+tencent_sms_region: "ap-guangzhou"
+
+# Per-IP hourly request caps for the SMS send / verify endpoints.
+sms_send_rate_limit: 10
+sms_verify_rate_limit: 60
+
+# --- Logging (debug|info|warning|error / json|console) ---
+log_level: "debug"
+log_format: "json"
+
+# --- Version reported by /health and admin stats ---
+app_version: "dev"
