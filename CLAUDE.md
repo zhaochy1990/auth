@@ -63,3 +63,17 @@ Primary target: **Tencent Cloud** (Azure is fully retired).
 - **Frontend**: Owned and released from `stride-devops/admin-dashboard`.
 - **Release**: GitOps via `stride-devops` (root `versions.env`); the backend
   image tag is bumped by Renovate. No cloud deploy runs from this repo.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs for this repo live in the shared tracker repo `zhaochy1990/stride-devops` (project label `project:auth`, all gh calls with `-R`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage` · `needs-info` · `ready-for-agent` · `ready-for-human` · `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
