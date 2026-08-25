@@ -63,6 +63,9 @@ type UserRepository interface {
 	// unionid, or nil when none. Used to prevent one WeChat person (across
 	// mini-programs) being bound to two accounts.
 	FindByWeChatUnionID(ctx context.Context, unionid string) (*domain.User, error)
+	// FindByPhone returns the user holding the given mainland-China phone
+	// number (bare 11 digits), or nil when no account has it.
+	FindByPhone(ctx context.Context, phone string) (*domain.User, error)
 	// FindWeChatLink returns the user's WeChat link for one mini-program, or nil.
 	FindWeChatLink(ctx context.Context, userID, wechatAppID string) (*domain.WeChatLink, error)
 	// LinkWeChat binds a WeChat identity to a user. A duplicate (the same
@@ -164,6 +167,52 @@ type TeamMembershipRepository interface {
 	Delete(ctx context.Context, teamID, userID string) error
 	DeleteAllByTeam(ctx context.Context, teamID string) error
 	DeleteAllByUser(ctx context.Context, userID string) error
+}
+
+// SmsVerifyResult is the outcome of a SmsCodeStore.VerifyCode call.
+type SmsVerifyResult int
+
+const (
+	// SmsVerifyOK means the submitted code matched and was consumed.
+	SmsVerifyOK SmsVerifyResult = iota
+	// SmsVerifyInvalid means the submitted code was wrong and attempts remain.
+	SmsVerifyInvalid
+	// SmsVerifyExpired means no active code exists for the phone (never sent,
+	// expired, or already consumed).
+	SmsVerifyExpired
+	// SmsVerifyAttemptsExceeded means the attempt cap was hit; the code was
+	// invalidated.
+	SmsVerifyAttemptsExceeded
+)
+
+// SmsCodeStore is the backing store for the short-lived, single-use SMS
+// verification codes (Redis). Every method fails — rather than falling back —
+// when Redis is unreachable, so the SMS endpoints fail closed on a Redis
+// outage.
+type SmsCodeStore interface {
+	// ReserveCooldown atomically claims the 60-second send cooldown for phone.
+	// It returns false (no error) when the phone is still cooling down from a
+	// previous send; the existing cooldown window is left untouched.
+	ReserveCooldown(ctx context.Context, phone string) (bool, error)
+	// ReserveDailyCount atomically increments the per-phone daily send counter
+	// (24h window, max 10), returning an error when the cap is reached. On an
+	// over-limit call the counter is left unchanged.
+	ReserveDailyCount(ctx context.Context, phone string) error
+	// StoreCode records a fresh verification code for phone (stored as a
+	// SHA-256 hash, single-use, with the given TTL) and resets the failed
+	// attempt counter.
+	StoreCode(ctx context.Context, phone, code string, ttl time.Duration) error
+	// VerifyCode checks a submitted code against the stored one. On success the
+	// code is consumed atomically (SmsVerifyOK). A mismatch increments the
+	// failed-attempt counter; maxAttempts failed attempts invalidate the code
+	// (SmsVerifyAttemptsExceeded). A missing record is SmsVerifyExpired.
+	VerifyCode(ctx context.Context, phone, code string, maxAttempts int) (SmsVerifyResult, error)
+	// ReleaseSend undoes a reserved cooldown and daily increment when a send
+	// failed before the code was stored (best-effort).
+	ReleaseSend(ctx context.Context, phone string) error
+	// Ping verifies Redis connectivity (used by the test harness to skip when
+	// Redis is unavailable, mirroring the MySQL convention).
+	Ping(ctx context.Context) error
 }
 
 // Repository is the composite store handed to handlers.

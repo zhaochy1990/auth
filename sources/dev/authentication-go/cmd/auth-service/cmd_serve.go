@@ -11,7 +11,9 @@ import (
 
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/config"
+	"github.com/zhaochy1990/auth-service/internal/repository/redis"
 	"github.com/zhaochy1990/auth-service/internal/server"
+	"github.com/zhaochy1990/auth-service/internal/sms"
 	"github.com/zhaochy1990/auth-service/internal/storage"
 )
 
@@ -52,7 +54,19 @@ func runServe() error {
 		return err
 	}
 
-	r := server.NewRouter(repo, jwt, cfg)
+	// The Redis code store connects lazily: the service boots even when Redis
+	// is unreachable, and the SMS endpoints fail closed (503) per request.
+	smsStore := redis.New(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	smsClient := sms.NewClient(sms.Config{
+		SecretID:   cfg.TencentSMSSecretID,
+		SecretKey:  cfg.TencentSMSSecretKey,
+		SDKAppID:   cfg.TencentSMSSDKAppID,
+		SignName:   cfg.TencentSMSSignName,
+		TemplateID: cfg.TencentSMSTemplateID,
+		Region:     cfg.TencentSMSRegion,
+	}, "")
+
+	r := server.NewRouter(repo, jwt, cfg, smsStore, smsClient)
 	logger.S().Infow("starting server", "addr", cfg.Addr(), "swagger_enabled", cfg.SwaggerEnabled)
 	if cfg.SwaggerEnabled {
 		logger.S().Infow("swagger UI available", "path", "/swagger/index.html")

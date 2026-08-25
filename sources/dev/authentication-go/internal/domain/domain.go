@@ -5,7 +5,12 @@
 // without touching business logic.
 package domain
 
-import "time"
+import (
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+)
 
 // MembershipTier is the entitlement level of a user, orthogonal to Role (which
 // governs authorization: admin vs user). Regular is the free default; paid
@@ -85,10 +90,48 @@ type LoginRecord struct {
 	IP string
 }
 
+// PhoneNumber is a mainland-China mobile number, stored as bare 11 digits
+// (no +86 prefix). It is a value type: valid values always match
+// `^1[3-9]\d{9}$`.
+type PhoneNumber string
+
+var phoneNumberRe = regexp.MustCompile(`^1[3-9]\d{9}$`)
+
+// ParsePhoneNumber validates and normalizes a mainland-China mobile number.
+// Surrounding whitespace is trimmed; anything that does not match
+// `^1[3-9]\d{9}$` (11 digits starting 1[3-9]) is rejected.
+func ParsePhoneNumber(s string) (PhoneNumber, error) {
+	s = strings.TrimSpace(s)
+	if !phoneNumberRe.MatchString(s) {
+		return "", fmt.Errorf("invalid phone number %q", s)
+	}
+	return PhoneNumber(s), nil
+}
+
+// Valid reports whether the value is a well-formed mainland-China mobile
+// number. Zero-value and hand-built values may be invalid.
+func (p PhoneNumber) Valid() bool { return phoneNumberRe.MatchString(string(p)) }
+
+// String returns the bare 11-digit form.
+func (p PhoneNumber) String() string { return string(p) }
+
+// Masked returns a masked display form (e.g. 138****5678) for UI fallback.
+func (p PhoneNumber) Masked() string {
+	s := string(p)
+	if !p.Valid() {
+		return s
+	}
+	return s[:3] + "****" + s[7:]
+}
+
 // User is an end user of the system.
 type User struct {
-	ID            string
-	Email         *string
+	ID    string
+	Email *string
+	// Phone is the user's mainland-China mobile number (bare 11 digits, no
+	// +86 prefix). Nil for users without a phone (email/WeChat accounts). At
+	// most one account holds a given phone number.
+	Phone         *string
 	Name          *string
 	AvatarURL     *string
 	EmailVerified bool

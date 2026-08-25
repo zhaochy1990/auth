@@ -86,26 +86,10 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	var inviteRecord *domain.InviteCode
-	if requireInviteCode() {
-		if req.InviteCode == nil || *req.InviteCode == "" {
-			middleware.RespondError(c, apperror.BadRequest("invite_code is required"))
-			return
-		}
-		record, err := h.Repo.InviteCodes().GetByCode(ctx, *req.InviteCode)
-		if err != nil {
-			middleware.RespondError(c, err)
-			return
-		}
-		if record == nil || record.IsRevoked {
-			middleware.RespondError(c, apperror.InviteCodeNotFound())
-			return
-		}
-		if record.Kind == domain.InviteSingleUse && record.UsedAt != nil {
-			middleware.RespondError(c, apperror.InviteCodeAlreadyUsed())
-			return
-		}
-		inviteRecord = record
+	inviteRecord, err := h.resolveInviteGate(ctx, req.InviteCode)
+	if err != nil {
+		middleware.RespondError(c, err)
+		return
 	}
 
 	existing, err := h.Repo.Users().FindByEmail(ctx, req.Email)
@@ -130,24 +114,7 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 
 	// Derive any granted membership.
-	membership := domain.MembershipRegular
-	var membershipExpires *time.Time
-	if inviteRecord != nil && inviteRecord.GrantsMembership != nil && inviteRecord.GrantsMembership.IsPaid() {
-		membership = *inviteRecord.GrantsMembership
-		if inviteRecord.GrantsMembershipDays != nil {
-			e := now.Add(time.Duration(*inviteRecord.GrantsMembershipDays) * 24 * time.Hour)
-			membershipExpires = &e
-		}
-	}
-
-	var invitedWith *string
-	userType := domain.UserTypeRegular
-	if inviteRecord != nil {
-		invitedWith = strPtr(inviteRecord.Code)
-		if inviteRecord.GrantsUserType != nil {
-			userType = domain.UserTypeFromString(string(*inviteRecord.GrantsUserType))
-		}
-	}
+	membership, membershipExpires, invitedWith, userType := registrationGrants(inviteRecord, now)
 
 	user := &domain.User{
 		ID:                  userID,

@@ -15,10 +15,14 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/handlers"
 	"github.com/zhaochy1990/auth-service/internal/middleware"
 	"github.com/zhaochy1990/auth-service/internal/repository"
+	"github.com/zhaochy1990/auth-service/internal/sms"
 )
 
-// NewRouter builds the fully wired Gin engine.
-func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Config) *gin.Engine {
+// NewRouter builds the fully wired Gin engine. smsStore / smsClient are the
+// Redis verification-code store and the Tencent Cloud SMS client; both are
+// required (construct them from config even when SMS is not configured — the
+// endpoints fail with clear errors).
+func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Config, smsStore repository.SmsCodeStore, smsClient *sms.Client) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
@@ -28,6 +32,8 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	mountSwagger(r, cfg.SwaggerEnabled)
 
 	h := handlers.New(repo, jwt, cfg)
+	h.SMSStore = smsStore
+	h.SMSClient = smsClient
 	am := &middleware.Auth{Repo: repo, JWT: jwt}
 
 	// Per-IP sliding-window rate limiters.
@@ -35,6 +41,8 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	oauthLimiter := middleware.NewRateLimiter(30, 60*time.Second) // OAuth2
 	userLimiter := middleware.NewRateLimiter(60, 60*time.Second)  // shared by /api/users + /api/teams
 	adminLimiter := middleware.NewRateLimiter(60, 60*time.Second) // admin
+	smsSendLimiter := middleware.NewRateLimiter(cfg.SMSSendRateLimit, time.Hour)
+	smsVerifyLimiter := middleware.NewRateLimiter(cfg.SMSVerifyRateLimit, time.Hour)
 
 	r.GET("/health", func(c *gin.Context) {
 		version := os.Getenv("APP_VERSION")
@@ -66,6 +74,10 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		authGroup.POST("/provider/:provider_id/login", am.ClientApp(), h.ProviderLogin)
 		authGroup.POST("/refresh", am.ClientApp(), h.Refresh)
 		authGroup.POST("/logout", am.ClientApp(), h.Logout)
+		// SMS login endpoints use their own per-IP limiters (dedicated
+		// instances so the stricter SMS caps never affect other auth routes).
+		authGroup.POST("/sms/send", am.ClientApp(), smsSendLimiter.Middleware(), h.SendSmsCode)
+		authGroup.POST("/sms/verify", am.ClientApp(), smsVerifyLimiter.Middleware(), h.VerifySmsCode)
 	}
 
 	// User endpoints (Bearer).

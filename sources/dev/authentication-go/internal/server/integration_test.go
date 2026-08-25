@@ -26,8 +26,10 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/config"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	mysqlrepo "github.com/zhaochy1990/auth-service/internal/repository/mysql"
+	redisstore "github.com/zhaochy1990/auth-service/internal/repository/redis"
 	"github.com/zhaochy1990/auth-service/internal/seed"
 	"github.com/zhaochy1990/auth-service/internal/server"
+	"github.com/zhaochy1990/auth-service/internal/sms"
 	"github.com/zhaochy1990/x/logger"
 )
 
@@ -41,6 +43,15 @@ func testMySQLDSN() string {
 }
 
 func explicitTestMySQLDSN() bool { return os.Getenv("TEST_MYSQL_DSN") != "" }
+
+func testRedisAddr() string {
+	if v := os.Getenv("TEST_REDIS_ADDR"); v != "" {
+		return v
+	}
+	return "127.0.0.1:6379"
+}
+
+func explicitTestRedisAddr() bool { return os.Getenv("TEST_REDIS_ADDR") != "" }
 
 func init() {
 	gin.SetMode(gin.TestMode)
@@ -62,6 +73,7 @@ type testApp struct {
 	adminUserID  string
 	adminToken   string
 	wechatSrv    *fakeWeChatServer
+	smsStore     *redisstore.Store
 }
 
 // fakeWeChatServer is the simulated code2Session endpoint, recording the
@@ -121,6 +133,12 @@ func newFakeWeChatServer(t *testing.T) *fakeWeChatServer {
 }
 
 func newTestApp(t *testing.T) *testApp {
+	return newTestAppWithRateLimits(t, 10, 60)
+}
+
+// newTestAppWithRateLimits builds the harness with explicit per-IP SMS rate
+// limits (requests per hour) so tests can trigger the limiters deterministically.
+func newTestAppWithRateLimits(t *testing.T, smsSendLimit, smsVerifyLimit int) *testApp {
 	t.Helper()
 	ctx := context.Background()
 
@@ -137,6 +155,20 @@ func newTestApp(t *testing.T) *testApp {
 		}
 		t.Skipf("MySQL unavailable (ClearAllTables): %v", err)
 	}
+
+	smsStore := redisstore.New(testRedisAddr(), "", 0)
+	if err := smsStore.Ping(ctx); err != nil {
+		if explicitTestRedisAddr() {
+			t.Fatalf("Redis unavailable (Ping): %v", err)
+		}
+		t.Skipf("Redis unavailable (Ping): %v", err)
+	}
+	// Redis keys are per-phone and not cleared by ClearAllTables; flush the DB
+	// so SMS state never leaks between tests (mirrors the MySQL convention).
+	if err := smsStore.FlushDB(ctx); err != nil {
+		t.Fatalf("Redis flush: %v", err)
+	}
+
 	privateKeyPath, publicKeyPath := writeTestKeyPair(t)
 	wechatSrv := newFakeWeChatServer(t)
 
@@ -151,11 +183,19 @@ func newTestApp(t *testing.T) *testApp {
 		CORSAllowedOrigins:        "*",
 		EnableTestProviders:       true,
 		WeChatCode2SessionURL:     wechatSrv.URL(),
+		RedisAddr:                 testRedisAddr(),
+		SMSTestMode:               true, // fixed code 123456, no Tencent call
+		SMSSendRateLimit:          smsSendLimit,
+		SMSVerifyRateLimit:        smsVerifyLimit,
 	}
 	jwtMgr, err := auth.NewJWTManager(cfg)
 	if err != nil {
 		t.Fatalf("jwt manager: %v", err)
 	}
+
+	// Unconfigured SMS client: test mode never calls it, and the
+	// not-configured path is exercised by flipping SMSTestMode off.
+	smsClient := sms.NewClient(sms.Config{}, "")
 
 	pw := "AdminPass1!"
 	res, err := seed.Bootstrap(ctx, repo, "test-admin@internal", &pw)
@@ -192,12 +232,13 @@ func newTestApp(t *testing.T) *testApp {
 	return &testApp{
 		t:            t,
 		repo:         repo,
-		engine:       server.NewRouter(repo, jwtMgr, cfg),
+		engine:       server.NewRouter(repo, jwtMgr, cfg, smsStore, smsClient),
 		cfg:          cfg,
 		jwt:          jwtMgr,
 		clientID:     res.AppClientID,
 		clientSecret: secret,
 		wechatSrv:    wechatSrv,
+		smsStore:     smsStore,
 		adminUserID:  adminUser.ID,
 		adminToken:   adminToken,
 	}
