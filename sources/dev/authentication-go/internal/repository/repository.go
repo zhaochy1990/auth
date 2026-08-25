@@ -56,6 +56,21 @@ func ParseUserListSort(sortBy, sortOrder string) UserListSort {
 type UserRepository interface {
 	FindByID(ctx context.Context, id string) (*domain.User, error)
 	FindByEmail(ctx context.Context, email string) (*domain.User, error)
+	// FindByWeChatOpenID returns the user holding the WeChat identity
+	// (wechatAppID, openid), or nil when unbound.
+	FindByWeChatOpenID(ctx context.Context, wechatAppID, openid string) (*domain.User, error)
+	// FindByWeChatUnionID returns the user holding a WeChat link with the given
+	// unionid, or nil when none. Used to prevent one WeChat person (across
+	// mini-programs) being bound to two accounts.
+	FindByWeChatUnionID(ctx context.Context, unionid string) (*domain.User, error)
+	// FindWeChatLink returns the user's WeChat link for one mini-program, or nil.
+	FindWeChatLink(ctx context.Context, userID, wechatAppID string) (*domain.WeChatLink, error)
+	// LinkWeChat binds a WeChat identity to a user. A duplicate (the same
+	// identity already bound, or the user already linked for this mini-program)
+	// surfaces as a conflict error.
+	LinkWeChat(ctx context.Context, userID, wechatAppID, openid string, unionid *string) error
+	// DeleteWeChatLinksByUser removes all of a user's WeChat links.
+	DeleteWeChatLinksByUser(ctx context.Context, userID string) error
 	Insert(ctx context.Context, u *domain.User) error
 	Update(ctx context.Context, u *domain.User) error
 	DeleteByID(ctx context.Context, id string) error

@@ -2626,9 +2626,10 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Issues tokens for the authorization_code, client_credentials, refresh_token, and password grant types. The client authenticates with HTTP Basic (client_id:client_secret).",
+                "description": "Issues tokens for the authorization_code, client_credentials, refresh_token, password, and token_exchange (RFC 8693) grant types. The client authenticates with HTTP Basic (client_id:client_secret); token_exchange additionally accepts a public client identified by client_id in the request body. Accepts both application/x-www-form-urlencoded (standard) and application/json bodies.",
                 "consumes": [
-                    "application/json"
+                    "application/json",
+                    "application/x-www-form-urlencoded"
                 ],
                 "produces": [
                     "application/json"
@@ -2861,6 +2862,12 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "wechat_app_id": {
+                    "type": "string"
+                },
+                "wechat_enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -2881,6 +2888,12 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "wechat_app_id": {
+                    "type": "string"
+                },
+                "wechat_app_secret": {
+                    "type": "string"
                 }
             }
         },
@@ -2910,6 +2923,12 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "wechat_app_id": {
+                    "type": "string"
+                },
+                "wechat_enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -3258,11 +3277,19 @@ const docTemplate = `{
         "internal_handlers.tokenRequest": {
             "type": "object",
             "properties": {
+                "client_id": {
+                    "description": "token_exchange flow (RFC 8693): client_id identifies a public client;\nsubject_token carries the third-party credential to exchange.",
+                    "type": "string"
+                },
                 "code": {
                     "description": "authorization_code flow",
                     "type": "string"
                 },
                 "code_verifier": {
+                    "type": "string"
+                },
+                "email": {
+                    "description": "wechat bind: email of the account to bind the exchanged identity to\n(with password, above).",
                     "type": "string"
                 },
                 "grant_type": {
@@ -3280,6 +3307,12 @@ const docTemplate = `{
                 },
                 "scope": {
                     "description": "common",
+                    "type": "string"
+                },
+                "subject_token": {
+                    "type": "string"
+                },
+                "subject_token_type": {
                     "type": "string"
                 },
                 "username": {
@@ -3333,6 +3366,12 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "wechat_app_id": {
+                    "type": "string"
+                },
+                "wechat_app_secret": {
+                    "type": "string"
                 }
             }
         },
@@ -3451,6 +3490,9 @@ const docTemplate = `{
                 },
                 "user_type": {
                     "$ref": "#/definitions/github_com_zhaochy1990_auth-service_internal_domain.UserType"
+                },
+                "wechat_bound": {
+                    "type": "boolean"
                 }
             }
         },
@@ -3508,6 +3550,9 @@ const docTemplate = `{
                 },
                 "user_type": {
                     "$ref": "#/definitions/github_com_zhaochy1990_auth-service_internal_domain.UserType"
+                },
+                "wechat_bound": {
+                    "type": "boolean"
                 }
             }
         },

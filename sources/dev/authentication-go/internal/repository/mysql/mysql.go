@@ -61,6 +61,7 @@ type dbConn interface {
 var dataTables = []string{
 	"auth_team_memberships", "auth_refresh_tokens", "auth_auth_codes", "auth_accounts",
 	"auth_app_providers", "auth_invite_codes", "auth_teams", "auth_users", "auth_applications",
+	"auth_user_wechat_links",
 }
 
 // New opens a MySQL repository, verifies connectivity, and ensures the schema.
@@ -223,6 +224,12 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 	if err := r.ensureColumn(ctx, "auth_invite_codes", "grants_user_type", "VARCHAR(32) NULL AFTER grants_membership_days"); err != nil {
 		return err
 	}
+	if err := r.ensureColumn(ctx, "auth_applications", "wechat_app_id", "VARCHAR(128) NULL AFTER allowed_scopes"); err != nil {
+		return err
+	}
+	if err := r.ensureColumn(ctx, "auth_applications", "wechat_app_secret", "TEXT NULL AFTER wechat_app_id"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -283,6 +290,8 @@ var schemaStatements = []string{
 		redirect_uris TEXT NOT NULL,
 		allowed_scopes TEXT NOT NULL,
 		is_active BOOLEAN NOT NULL,
+		wechat_app_id VARCHAR(128) NULL,
+		wechat_app_secret TEXT NULL,
 		created_at DATETIME(6) NOT NULL,
 		updated_at DATETIME(6) NOT NULL,
 		UNIQUE KEY uq_auth_applications_client_id (client_id),
@@ -310,6 +319,16 @@ var schemaStatements = []string{
 		membership_expires_at DATETIME(6) NULL,
 		UNIQUE KEY uq_auth_users_email_lookup (email_lookup),
 		KEY idx_auth_users_created_at (created_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+	`CREATE TABLE IF NOT EXISTS auth_user_wechat_links (
+		user_id VARCHAR(64) NOT NULL,
+		wechat_app_id VARCHAR(128) NOT NULL,
+		openid VARCHAR(128) NOT NULL,
+		unionid VARCHAR(128) NULL,
+		created_at DATETIME(6) NOT NULL,
+		PRIMARY KEY (user_id, wechat_app_id),
+		UNIQUE KEY uq_user_wechat_links_openid (wechat_app_id, openid),
+		KEY idx_user_wechat_links_unionid (unionid)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 	`CREATE TABLE IF NOT EXISTS auth_accounts (
 		id VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -413,6 +432,15 @@ func nullString(p *string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: *p, Valid: true}
+}
+
+// nullStringFromPlain maps an empty plain string to NULL so optional columns
+// stay NULL instead of an empty string.
+func nullStringFromPlain(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
 }
 
 func ptrString(ns sql.NullString) *string {
@@ -610,7 +638,7 @@ func isDuplicate(err error) bool {
 	return errors.As(err, &me) && me.Number == 1062
 }
 
-const userColumns = `id, email, name, avatar_url, email_verified, role, user_type, is_active, note, custom_attributes, created_at, updated_at, last_login_at, recent_logins, invite_code, membership, membership_expires_at`
+const userColumns = `auth_users.id, auth_users.email, auth_users.name, auth_users.avatar_url, auth_users.email_verified, auth_users.role, auth_users.user_type, auth_users.is_active, auth_users.note, auth_users.custom_attributes, auth_users.created_at, auth_users.updated_at, auth_users.last_login_at, auth_users.recent_logins, auth_users.invite_code, auth_users.membership, auth_users.membership_expires_at, EXISTS(SELECT 1 FROM auth_user_wechat_links wl WHERE wl.user_id = auth_users.id) AS wechat_bound`
 
 type userRepo struct{ db dbConn }
 
@@ -618,7 +646,7 @@ func scanUser(s rowScanner) (*domain.User, error) {
 	var u domain.User
 	var email, name, avatar, note, customAttrs, recent, invite, membership, userType sql.NullString
 	var lastLogin, membershipExpires sql.NullTime
-	if err := s.Scan(&u.ID, &email, &name, &avatar, &u.EmailVerified, &u.Role, &userType, &u.IsActive, &note, &customAttrs, &u.CreatedAt, &u.UpdatedAt, &lastLogin, &recent, &invite, &membership, &membershipExpires); err != nil {
+	if err := s.Scan(&u.ID, &email, &name, &avatar, &u.EmailVerified, &u.Role, &userType, &u.IsActive, &note, &customAttrs, &u.CreatedAt, &u.UpdatedAt, &lastLogin, &recent, &invite, &membership, &membershipExpires, &u.WeChatBound); err != nil {
 		return nil, err
 	}
 	if u.Role == "" {
@@ -666,6 +694,58 @@ func (r *userRepo) FindByEmail(ctx context.Context, email string) (*domain.User,
 	return u, nil
 }
 
+func (r *userRepo) FindByWeChatOpenID(ctx context.Context, wechatAppID, openid string) (*domain.User, error) {
+	u, err := scanUser(r.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM auth_users JOIN auth_user_wechat_links wl ON wl.user_id = auth_users.id WHERE wl.wechat_app_id = ? AND wl.openid = ?", wechatAppID, openid))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, dbErr(err)
+	}
+	return u, nil
+}
+
+func (r *userRepo) FindByWeChatUnionID(ctx context.Context, unionid string) (*domain.User, error) {
+	u, err := scanUser(r.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM auth_users JOIN auth_user_wechat_links wl ON wl.user_id = auth_users.id WHERE wl.unionid = ?", unionid))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, dbErr(err)
+	}
+	return u, nil
+}
+
+func (r *userRepo) FindWeChatLink(ctx context.Context, userID, wechatAppID string) (*domain.WeChatLink, error) {
+	var l domain.WeChatLink
+	var unionid sql.NullString
+	if err := r.db.QueryRowContext(ctx, "SELECT user_id, wechat_app_id, openid, unionid, created_at FROM auth_user_wechat_links WHERE user_id = ? AND wechat_app_id = ?", userID, wechatAppID).Scan(&l.UserID, &l.WeChatAppID, &l.OpenID, &unionid, &l.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, dbErr(err)
+	}
+	l.UnionID = ptrString(unionid)
+	l.CreatedAt = l.CreatedAt.UTC()
+	return &l, nil
+}
+
+func (r *userRepo) LinkWeChat(ctx context.Context, userID, wechatAppID, openid string, unionid *string) error {
+	_, err := r.db.ExecContext(ctx, "INSERT INTO auth_user_wechat_links (user_id, wechat_app_id, openid, unionid, created_at) VALUES (?, ?, ?, ?, ?)", userID, wechatAppID, openid, nullString(unionid), time.Now().UTC())
+	if err != nil {
+		if isDuplicate(err) {
+			return apperror.WeChatAlreadyBound()
+		}
+		return dbErr(err)
+	}
+	return nil
+}
+
+func (r *userRepo) DeleteWeChatLinksByUser(ctx context.Context, userID string) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM auth_user_wechat_links WHERE user_id = ?", userID)
+	return dbErr(err)
+}
+
 func (r *userRepo) Insert(ctx context.Context, u *domain.User) error {
 	role := u.Role
 	if role == "" {
@@ -710,6 +790,9 @@ func (r *userRepo) Update(ctx context.Context, u *domain.User) error {
 }
 
 func (r *userRepo) DeleteByID(ctx context.Context, id string) error {
+	if _, err := r.db.ExecContext(ctx, "DELETE FROM auth_user_wechat_links WHERE user_id = ?", id); err != nil {
+		return dbErr(err)
+	}
 	_, err := r.db.ExecContext(ctx, "DELETE FROM auth_users WHERE id = ?", id)
 	return dbErr(err)
 }
@@ -801,15 +884,18 @@ func (r *userRepo) RecordLogin(ctx context.Context, userID, ip string) error {
 	return r.Update(ctx, u)
 }
 
-const appColumns = `id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, created_at, updated_at`
+const appColumns = `id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, wechat_app_id, wechat_app_secret, created_at, updated_at`
 
 type appRepo struct{ db dbConn }
 
 func scanApp(s rowScanner) (*domain.Application, error) {
 	var a domain.Application
-	if err := s.Scan(&a.ID, &a.Name, &a.ClientID, &a.ClientSecretHash, &a.RedirectURIs, &a.AllowedScopes, &a.IsActive, &a.CreatedAt, &a.UpdatedAt); err != nil {
+	var waID, waSecret sql.NullString
+	if err := s.Scan(&a.ID, &a.Name, &a.ClientID, &a.ClientSecretHash, &a.RedirectURIs, &a.AllowedScopes, &a.IsActive, &waID, &waSecret, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, err
 	}
+	a.WeChatAppID = waID.String
+	a.WeChatAppSecret = waSecret.String
 	a.CreatedAt = a.CreatedAt.UTC()
 	a.UpdatedAt = a.UpdatedAt.UTC()
 	a.RedirectURIs = defaultJSONArr(a.RedirectURIs)
@@ -868,7 +954,7 @@ func (r *appRepo) FindAll(ctx context.Context) ([]domain.Application, error) {
 }
 
 func (r *appRepo) Insert(ctx context.Context, a *domain.Application) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_applications (id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, a.ID, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, a.CreatedAt.UTC(), a.UpdatedAt.UTC())
+	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_applications (id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, wechat_app_id, wechat_app_secret, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, a.ID, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, nullStringFromPlain(a.WeChatAppID), nullStringFromPlain(a.WeChatAppSecret), a.CreatedAt.UTC(), a.UpdatedAt.UTC())
 	if err != nil {
 		return dbErr(err)
 	}
@@ -876,7 +962,7 @@ func (r *appRepo) Insert(ctx context.Context, a *domain.Application) error {
 }
 
 func (r *appRepo) Update(ctx context.Context, a *domain.Application) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE auth_applications SET name = ?, client_id = ?, client_secret_hash = ?, redirect_uris = ?, allowed_scopes = ?, is_active = ?, updated_at = ? WHERE id = ?`, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, a.UpdatedAt.UTC(), a.ID)
+	_, err := r.db.ExecContext(ctx, `UPDATE auth_applications SET name = ?, client_id = ?, client_secret_hash = ?, redirect_uris = ?, allowed_scopes = ?, is_active = ?, wechat_app_id = ?, wechat_app_secret = ?, updated_at = ? WHERE id = ?`, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, nullStringFromPlain(a.WeChatAppID), nullStringFromPlain(a.WeChatAppSecret), a.UpdatedAt.UTC(), a.ID)
 	return dbErr(err)
 }
 

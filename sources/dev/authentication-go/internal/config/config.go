@@ -9,52 +9,40 @@ import (
 
 // Config holds all runtime configuration.
 type Config struct {
-	StorageBackend               string
-	AzureStorageConnectionString string
-	MySQLDSN                     string
-	MySQLTLSCAPEM                string
-	MySQLTLSCAPath               string
-	JWTPrivateKeyPath            string
-	JWTPublicKeyPath             string
-	JWTIssuer                    string
-	JWTAccessTokenExpirySecs     int64
-	JWTRefreshTokenExpiryDays    int64
-	ServerHost                   string
-	ServerPort                   int
-	CORSAllowedOrigins           string
+	StorageBackend            string
+	MySQLDSN                  string
+	MySQLTLSCAPEM             string
+	MySQLTLSCAPath            string
+	JWTPrivateKeyPath         string
+	JWTPublicKeyPath          string
+	JWTIssuer                 string
+	JWTAccessTokenExpirySecs  int64
+	JWTRefreshTokenExpiryDays int64
+	ServerHost                string
+	ServerPort                int
+	CORSAllowedOrigins        string
 	// EnableTestProviders gates the "test" auth provider. Off in production.
 	EnableTestProviders bool
 	// SwaggerEnabled gates the /swagger UI + spec. Off in production. The UI is
 	// only served when the binary is also built with `-tags swagger`.
 	SwaggerEnabled bool
+	// WeChatCode2SessionURL overrides the WeChat code2Session endpoint (tests).
+	WeChatCode2SessionURL string
 }
 
 const (
-	StorageBackendAzureTable = "azure_table"
-	StorageBackendMySQL      = "mysql"
+	StorageBackendMySQL = "mysql"
 )
 
 // FromEnv builds a Config from environment variables. Storage defaults to
 // MySQL when MYSQL_DSN is present, otherwise Azure Tables for rollback
 // compatibility during the migration window.
 func FromEnv() (*Config, error) {
-	backend := EnvOr("STORAGE_BACKEND", "")
-	if backend == "" {
-		if os.Getenv("MYSQL_DSN") != "" {
-			backend = StorageBackendMySQL
-		} else {
-			backend = StorageBackendAzureTable
-		}
-	}
-	conn := os.Getenv("AZURE_STORAGE_CONNECTION_STRING")
+	backend := StorageBackendMySQL
 	mysqlDSN := os.Getenv("MYSQL_DSN")
 	mysqlTLSCAPEM := os.Getenv("MYSQL_TLS_CA_PEM")
 	mysqlTLSCAPath := os.Getenv("MYSQL_TLS_CA_PATH")
 	switch backend {
-	case StorageBackendAzureTable:
-		if conn == "" {
-			return nil, fmt.Errorf("AZURE_STORAGE_CONNECTION_STRING is required when STORAGE_BACKEND=azure_table")
-		}
 	case StorageBackendMySQL:
 		if mysqlDSN == "" {
 			return nil, fmt.Errorf("MYSQL_DSN is required when STORAGE_BACKEND=mysql")
@@ -63,21 +51,21 @@ func FromEnv() (*Config, error) {
 		return nil, fmt.Errorf("unsupported STORAGE_BACKEND %q", backend)
 	}
 	return &Config{
-		StorageBackend:               backend,
-		AzureStorageConnectionString: conn,
-		MySQLDSN:                     mysqlDSN,
-		MySQLTLSCAPEM:                mysqlTLSCAPEM,
-		MySQLTLSCAPath:               mysqlTLSCAPath,
-		JWTPrivateKeyPath:            EnvOr("JWT_PRIVATE_KEY_PATH", "keys/private.pem"),
-		JWTPublicKeyPath:             EnvOr("JWT_PUBLIC_KEY_PATH", "keys/public.pem"),
-		JWTIssuer:                    EnvOr("JWT_ISSUER", "auth-service"),
-		JWTAccessTokenExpirySecs:     envInt64("JWT_ACCESS_TOKEN_EXPIRY_SECS", 3600),
-		JWTRefreshTokenExpiryDays:    envInt64("JWT_REFRESH_TOKEN_EXPIRY_DAYS", 30),
-		ServerHost:                   EnvOr("SERVER_HOST", "127.0.0.1"),
-		ServerPort:                   int(envInt64("SERVER_PORT", 3000)),
-		CORSAllowedOrigins:           EnvOr("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"),
-		EnableTestProviders:          envBool("AUTH_ENABLE_TEST_PROVIDERS", false),
-		SwaggerEnabled:               envBool("SWAGGER_ENABLED", false),
+		StorageBackend:            backend,
+		MySQLDSN:                  mysqlDSN,
+		MySQLTLSCAPEM:             mysqlTLSCAPEM,
+		MySQLTLSCAPath:            mysqlTLSCAPath,
+		JWTPrivateKeyPath:         EnvOr("JWT_PRIVATE_KEY_PATH", "keys/private.pem"),
+		JWTPublicKeyPath:          EnvOr("JWT_PUBLIC_KEY_PATH", "keys/public.pem"),
+		JWTIssuer:                 EnvOr("JWT_ISSUER", "auth-service"),
+		JWTAccessTokenExpirySecs:  envInt64("JWT_ACCESS_TOKEN_EXPIRY_SECS", 3600),
+		JWTRefreshTokenExpiryDays: envInt64("JWT_REFRESH_TOKEN_EXPIRY_DAYS", 30),
+		ServerHost:                EnvOr("SERVER_HOST", "127.0.0.1"),
+		ServerPort:                int(envInt64("SERVER_PORT", 3000)),
+		CORSAllowedOrigins:        EnvOr("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"),
+		EnableTestProviders:       envBool("AUTH_ENABLE_TEST_PROVIDERS", false),
+		SwaggerEnabled:            envBool("SWAGGER_ENABLED", false),
+		WeChatCode2SessionURL:     os.Getenv("WECHAT_CODE2SESSION_URL"),
 	}, nil
 }
 

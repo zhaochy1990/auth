@@ -127,6 +127,16 @@ func BadRequest(msg string) *Error {
 	return New(http.StatusBadRequest, "bad_request", msg)
 }
 
+func WeChatNotConfigured() *Error {
+	return New(http.StatusBadRequest, "wechat_not_configured", "WeChat login is not configured for this application")
+}
+func WeChatNeedsBinding() *Error {
+	return New(http.StatusBadRequest, "wechat_needs_binding", "This WeChat account is not bound to any user")
+}
+func WeChatAlreadyBound() *Error {
+	return New(http.StatusConflict, "wechat_already_bound", "This WeChat account is already bound to another user")
+}
+
 // Internal returns a generic 500 with a non-leaky message.
 func Internal() *Error {
 	return New(http.StatusInternalServerError, "internal_error", "Internal server error")

@@ -42,7 +42,11 @@ type StatusResponse struct {
 
 // New builds a Handler.
 func New(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Config) *Handler {
-	return &Handler{Repo: repo, JWT: jwt, Cfg: cfg}
+	return &Handler{
+		Repo: repo,
+		JWT:  jwt,
+		Cfg:  cfg,
+	}
 }
 
 // resolveMembership returns the user's effective tier, lazily downgrading an

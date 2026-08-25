@@ -14,18 +14,26 @@ import (
 // --- Request / Response types ---
 
 type tokenRequest struct {
-	GrantType string `json:"grant_type"`
+	GrantType string `json:"grant_type" form:"grant_type"`
 	// authorization_code flow
-	Code         *string `json:"code"`
-	RedirectURI  *string `json:"redirect_uri"`
-	CodeVerifier *string `json:"code_verifier"`
+	Code         *string `json:"code" form:"code"`
+	RedirectURI  *string `json:"redirect_uri" form:"redirect_uri"`
+	CodeVerifier *string `json:"code_verifier" form:"code_verifier"`
 	// password flow
-	Username *string `json:"username"`
-	Password *string `json:"password"`
+	Username *string `json:"username" form:"username"`
+	Password *string `json:"password" form:"password"`
 	// refresh_token flow
-	RefreshToken *string `json:"refresh_token"`
+	RefreshToken *string `json:"refresh_token" form:"refresh_token"`
+	// token_exchange flow (RFC 8693): client_id identifies a public client;
+	// subject_token carries the third-party credential to exchange.
+	ClientID         *string `json:"client_id" form:"client_id"`
+	SubjectToken     *string `json:"subject_token" form:"subject_token"`
+	SubjectTokenType *string `json:"subject_token_type" form:"subject_token_type"`
+	// wechat bind: email of the account to bind the exchanged identity to
+	// (with password, above).
+	Email *string `json:"email" form:"email"`
 	// common
-	Scope *string `json:"scope"`
+	Scope *string `json:"scope" form:"scope"`
 }
 
 type oauthTokenResponse struct {
@@ -57,9 +65,10 @@ type introspectResponse struct {
 // Token implements the OAuth2 token endpoint (multiple grant types).
 //
 // @Summary		OAuth2 token endpoint
-// @Description	Issues tokens for the authorization_code, client_credentials, refresh_token, and password grant types. The client authenticates with HTTP Basic (client_id:client_secret).
+// @Description	Issues tokens for the authorization_code, client_credentials, refresh_token, password, and token_exchange (RFC 8693) grant types. The client authenticates with HTTP Basic (client_id:client_secret); token_exchange additionally accepts a public client identified by client_id in the request body. Accepts both application/x-www-form-urlencoded (standard) and application/json bodies.
 // @Tags			oauth
 // @Accept			json
+// @Accept			x-www-form-urlencoded
 // @Produce		json
 // @Param			body	body		tokenRequest	true	"Grant request"
 // @Success		200		{object}	oauthTokenResponse
@@ -72,8 +81,14 @@ type introspectResponse struct {
 // @Router			/oauth/token [post]
 func (h *Handler) Token(c *gin.Context) {
 	var req tokenRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBind(&req); err != nil {
 		middleware.RespondError(c, apperror.BadRequest("Invalid request body"))
+		return
+	}
+	// Only token_exchange may run as a public client (client_id in the body);
+	// every other grant requires the client to have authenticated via Basic.
+	if req.GrantType != "token_exchange" && middleware.AppID(c) == "" {
+		middleware.RespondError(c, apperror.InvalidCredentials())
 		return
 	}
 	switch req.GrantType {
@@ -85,6 +100,8 @@ func (h *Handler) Token(c *gin.Context) {
 		h.handleRefreshTokenGrant(c, &req)
 	case "password":
 		h.handlePasswordGrant(c, &req)
+	case "token_exchange":
+		h.handleTokenExchange(c, &req)
 	default:
 		middleware.RespondError(c, apperror.BadRequest("Unsupported grant_type: "+req.GrantType))
 	}

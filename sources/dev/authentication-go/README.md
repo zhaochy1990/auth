@@ -180,6 +180,7 @@ to run maintenance tasks, e.g. `docker run auth-service-go seed admin@example.co
 | `AUTH_ENABLE_TEST_PROVIDERS` | No | `false` |
 | `SWAGGER_ENABLED` | No | `false` (UI also requires the `swagger` build tag) |
 | `STRIDE_REQUIRE_INVITE_CODE` | No | `false` |
+| `WECHAT_CODE2SESSION_URL` | No | WeChat's public `jscode2session` endpoint (tests) |
 | `APP_VERSION` | No | `dev` |
 | `LOG_LEVEL` / `LOG_FORMAT` | No | `debug` / `json` |
 
@@ -187,10 +188,67 @@ to run maintenance tasks, e.g. `docker run auth-service-go seed admin@example.co
 
 | Prefix | Auth | Endpoints |
 |--------|------|-----------|
-| `/oauth/*` | Basic | `token`, `revoke`, `introspect` |
+| `/oauth/*` | Basic | `token` (authz-code, client-creds, refresh, password, `token_exchange`), `revoke`, `introspect` |
 | `/api/auth/*` | `X-Client-Id` | `register`, `login`, `provider/:id/login`, `refresh`, `logout` |
 | `/api/users/*` | Bearer | `me`, accounts, teams |
 | `/api/teams/*` | Bearer | team CRUD, join/leave/transfer-owner, members |
 | `/admin/*` | Bearer admin | app/provider/user/team/invite-code management |
 | `/health` | none | health + version |
 | `/swagger/*` | none | Swagger UI (when `SWAGGER_ENABLED=true` + `swagger` build tag) |
+
+### WeChat mini-program login (OAuth2 token exchange)
+
+WeChat credentials are configured per application via the admin API
+(`wechat_app_id` / `wechat_app_secret` on `POST|PATCH /admin/applications`),
+stored on the `Application` row — they are **not** read from environment
+variables.
+
+Login and binding go through the standard `POST /oauth/token` endpoint as an
+RFC 8693 `token_exchange` grant; the endpoint accepts both
+`application/x-www-form-urlencoded` (standard) and `application/json` bodies.
+A public client identifies itself with `client_id` in the body; confidential
+callers may instead use HTTP Basic (client_id:client_secret).
+
+**Login** (identity already bound):
+
+```
+POST /oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=token_exchange
+&client_id=my_client_id
+&subject_token=<wx.login() code>
+&subject_token_type=wechat_mini_program
+```
+
+- Bound identity → `200` with the standard token response (`access_token`,
+  `refresh_token`, `token_type`, `expires_in`, `scope`); fetch the user via
+  `GET /api/users/me`.
+- Unbound identity → `400 {"error":"wechat_needs_binding"}` — present the bind flow.
+- Invalid/expired code or WeChat API failure → `400` with a mapped error code
+  (`wechat_invalid_code`, `wechat_api_error`, …).
+- App without WeChat config → `400 wechat_not_configured`.
+
+**Bind** (identity not yet bound) — same grant plus the account credentials; a
+successful bind also logs the user in:
+
+```
+POST /oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=token_exchange
+&client_id=my_client_id
+&subject_token=<wx.login() code>
+&subject_token_type=wechat_mini_program
+&email=user@example.com
+&password=...
+```
+
+- Wrong email/password → `401 invalid_credentials`, nothing is bound.
+- Identity already bound to another account → `409 wechat_already_bound`.
+- Account already bound to a different WeChat identity in this mini-program →
+  `409 wechat_already_bound` (changing a binding is not supported yet).
+
+WeChat identities are stored per mini-program in the `auth_user_wechat_links`
+table (see `docs/adr/0002-user-wechat-links-table.md`); `users` carries only a
+`wechat_bound` flag derived from it.

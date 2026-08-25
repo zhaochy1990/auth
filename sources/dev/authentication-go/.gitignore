@@ -15,3 +15,6 @@ vendor/
 
 # JWT keys — provide at runtime (mounted volume / Azure File Share); never commit
 keys/*.pem
+
+# Go debug binaries (dlv)
+__debug_bin*

@@ -27,7 +27,7 @@ func newServeCmd() *cobra.Command {
 }
 
 func runServe() error {
-	log := logger.MustGetLogger(&logger.LoggerConfig{
+	logger.MustGetLogger(&logger.LoggerConfig{
 		Format:      config.EnvOr("LOG_FORMAT", "json"),
 		ServiceName: "auth-service",
 		Level:       config.EnvOr("LOG_LEVEL", "debug"),
@@ -40,12 +40,12 @@ func runServe() error {
 		return err
 	}
 
-	log.Infow("opening storage backend", "backend", cfg.StorageBackend)
+	logger.S().Infow("opening storage backend", "backend", cfg.StorageBackend)
 	repo, err := storage.Open(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	log.Infow("storage ready", "backend", cfg.StorageBackend)
+	logger.S().Infow("storage ready", "backend", cfg.StorageBackend)
 
 	jwt, err := auth.NewJWTManager(cfg)
 	if err != nil {
@@ -53,9 +53,9 @@ func runServe() error {
 	}
 
 	r := server.NewRouter(repo, jwt, cfg)
-	log.Infow("starting server", "addr", cfg.Addr(), "swagger_enabled", cfg.SwaggerEnabled)
+	logger.S().Infow("starting server", "addr", cfg.Addr(), "swagger_enabled", cfg.SwaggerEnabled)
 	if cfg.SwaggerEnabled {
-		log.Infow("swagger UI available", "path", "/swagger/index.html")
+		logger.S().Infow("swagger UI available", "path", "/swagger/index.html")
 	}
 	return r.Run(cfg.Addr())
 }

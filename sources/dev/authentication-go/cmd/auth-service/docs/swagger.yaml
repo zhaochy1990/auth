@@ -114,6 +114,10 @@ definitions:
         items:
           type: string
         type: array
+      wechat_app_id:
+        type: string
+      wechat_enabled:
+        type: boolean
     type: object
   internal_handlers.createApplicationRequest:
     properties:
@@ -127,6 +131,10 @@ definitions:
         items:
           type: string
         type: array
+      wechat_app_id:
+        type: string
+      wechat_app_secret:
+        type: string
     type: object
   internal_handlers.createApplicationResponse:
     properties:
@@ -146,6 +154,10 @@ definitions:
         items:
           type: string
         type: array
+      wechat_app_id:
+        type: string
+      wechat_enabled:
+        type: boolean
     type: object
   internal_handlers.createTeamRequest:
     properties:
@@ -370,10 +382,20 @@ definitions:
     type: object
   internal_handlers.tokenRequest:
     properties:
+      client_id:
+        description: |-
+          token_exchange flow (RFC 8693): client_id identifies a public client;
+          subject_token carries the third-party credential to exchange.
+        type: string
       code:
         description: authorization_code flow
         type: string
       code_verifier:
+        type: string
+      email:
+        description: |-
+          wechat bind: email of the account to bind the exchanged identity to
+          (with password, above).
         type: string
       grant_type:
         type: string
@@ -386,6 +408,10 @@ definitions:
         type: string
       scope:
         description: common
+        type: string
+      subject_token:
+        type: string
+      subject_token_type:
         type: string
       username:
         description: password flow
@@ -421,6 +447,10 @@ definitions:
         items:
           type: string
         type: array
+      wechat_app_id:
+        type: string
+      wechat_app_secret:
+        type: string
     type: object
   internal_handlers.updateProfileRequest:
     properties:
@@ -499,6 +529,8 @@ definitions:
         type: string
       user_type:
         $ref: '#/definitions/github_com_zhaochy1990_auth-service_internal_domain.UserType'
+      wechat_bound:
+        type: boolean
     type: object
   internal_handlers.userResponse:
     properties:
@@ -537,6 +569,8 @@ definitions:
         type: string
       user_type:
         $ref: '#/definitions/github_com_zhaochy1990_auth-service_internal_domain.UserType'
+      wechat_bound:
+        type: boolean
     type: object
   internal_handlers.userStats:
     properties:
@@ -2210,8 +2244,12 @@ paths:
     post:
       consumes:
       - application/json
+      - application/x-www-form-urlencoded
       description: Issues tokens for the authorization_code, client_credentials, refresh_token,
-        and password grant types. The client authenticates with HTTP Basic (client_id:client_secret).
+        password, and token_exchange (RFC 8693) grant types. The client authenticates
+        with HTTP Basic (client_id:client_secret); token_exchange additionally accepts
+        a public client identified by client_id in the request body. Accepts both
+        application/x-www-form-urlencoded (standard) and application/json bodies.
       parameters:
       - description: Grant request
         in: body

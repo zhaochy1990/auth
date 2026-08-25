@@ -36,6 +36,10 @@ services:
       SWAGGER_ENABLED: "true"
       LOG_LEVEL: "debug"
       LOG_FORMAT: "json"
+      # WECHAT_CODE2SESSION_URL overrides the WeChat endpoint (tests only).
+      # WeChat mini-program appid/secret are configured per application via
+      # the admin API, not via env vars.
+      WECHAT_CODE2SESSION_URL: "${WECHAT_CODE2SESSION_URL:-}"
     depends_on:
       mysql:
         condition: service_healthy

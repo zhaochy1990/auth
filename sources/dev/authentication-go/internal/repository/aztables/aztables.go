@@ -620,6 +620,102 @@ func (r *userRepo) FindByEmail(ctx context.Context, email string) (*domain.User,
 	return r.FindByID(ctx, idx.TargetID)
 }
 
+// wechatLinkEntity persists one WeChat identity binding (see domain.WeChatLink).
+// Rollback-only adapter: lookups scan the wechat_link partition in-app; MySQL
+// is the runtime store for WeChat binding.
+type wechatLinkEntity struct {
+	PartitionKey string  `json:"PartitionKey"`
+	RowKey       string  `json:"RowKey"` // userID + "|" + wechatAppID
+	UserID       string  `json:"user_id"`
+	WeChatAppID  string  `json:"wechat_app_id"`
+	OpenID       string  `json:"openid"`
+	UnionID      *string `json:"unionid,omitempty"`
+	CreatedAt    string  `json:"created_at"`
+}
+
+func (r *userRepo) FindByWeChatOpenID(ctx context.Context, wechatAppID, openid string) (*domain.User, error) {
+	es, err := queryEntities[wechatLinkEntity](ctx, r.c, "PartitionKey eq 'wechat_link'")
+	if err != nil {
+		return nil, err
+	}
+	for i := range es {
+		if es[i].WeChatAppID == wechatAppID && es[i].OpenID == openid {
+			u, err := r.FindByID(ctx, es[i].UserID)
+			if u != nil {
+				u.WeChatBound = true
+			}
+			return u, err
+		}
+	}
+	return nil, nil
+}
+
+func (r *userRepo) FindByWeChatUnionID(ctx context.Context, unionid string) (*domain.User, error) {
+	es, err := queryEntities[wechatLinkEntity](ctx, r.c, "PartitionKey eq 'wechat_link'")
+	if err != nil {
+		return nil, err
+	}
+	for i := range es {
+		if es[i].UnionID != nil && *es[i].UnionID == unionid {
+			u, err := r.FindByID(ctx, es[i].UserID)
+			if u != nil {
+				u.WeChatBound = true
+			}
+			return u, err
+		}
+	}
+	return nil, nil
+}
+
+func (r *userRepo) FindWeChatLink(ctx context.Context, userID, wechatAppID string) (*domain.WeChatLink, error) {
+	var e wechatLinkEntity
+	ok, err := getEntity(ctx, r.c, "wechat_link", userID+"|"+wechatAppID, &e)
+	if err != nil || !ok {
+		return nil, err
+	}
+	return &domain.WeChatLink{
+		UserID:      e.UserID,
+		WeChatAppID: e.WeChatAppID,
+		OpenID:      e.OpenID,
+		UnionID:     e.UnionID,
+		CreatedAt:   parseDT(e.CreatedAt),
+	}, nil
+}
+
+func (r *userRepo) LinkWeChat(ctx context.Context, userID, wechatAppID, openid string, unionid *string) error {
+	e := wechatLinkEntity{
+		PartitionKey: "wechat_link",
+		RowKey:       userID + "|" + wechatAppID,
+		UserID:       userID,
+		WeChatAppID:  wechatAppID,
+		OpenID:       openid,
+		UnionID:      unionid,
+		CreatedAt:    fmtDT(time.Now().UTC()),
+	}
+	if err := addEntity(ctx, r.c, &e); err != nil {
+		if isConflict(err) {
+			return apperror.WeChatAlreadyBound()
+		}
+		return dbErr(err)
+	}
+	return nil
+}
+
+func (r *userRepo) DeleteWeChatLinksByUser(ctx context.Context, userID string) error {
+	es, err := queryEntities[wechatLinkEntity](ctx, r.c, "PartitionKey eq 'wechat_link'")
+	if err != nil {
+		return err
+	}
+	for i := range es {
+		if es[i].UserID == userID {
+			if err := deleteEntity(ctx, r.c, "wechat_link", es[i].RowKey); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (r *userRepo) Insert(ctx context.Context, u *domain.User) error {
 	if u.Email != nil {
 		idx := indexEntity{PartitionKey: "idx_email", RowKey: strings.ToLower(*u.Email), TargetID: u.ID}
@@ -974,6 +1070,8 @@ type appEntity struct {
 	ClientSecretHash string `json:"client_secret_hash"`
 	RedirectURIs     string `json:"redirect_uris"`
 	AllowedScopes    string `json:"allowed_scopes"`
+	WeChatAppID      string `json:"wechat_app_id"`
+	WeChatAppSecret  string `json:"wechat_app_secret"`
 	IsActive         *bool  `json:"is_active,omitempty"`
 	CreatedAt        string `json:"created_at"`
 	UpdatedAt        string `json:"updated_at"`
@@ -983,7 +1081,8 @@ func appToEntity(a *domain.Application) appEntity {
 	return appEntity{
 		PartitionKey: "app", RowKey: a.ID, Name: a.Name, ClientID: a.ClientID,
 		ClientSecretHash: a.ClientSecretHash, RedirectURIs: a.RedirectURIs,
-		AllowedScopes: a.AllowedScopes, IsActive: boolPtr(a.IsActive),
+		AllowedScopes: a.AllowedScopes, WeChatAppID: a.WeChatAppID,
+		WeChatAppSecret: a.WeChatAppSecret, IsActive: boolPtr(a.IsActive),
 		CreatedAt: fmtDT(a.CreatedAt), UpdatedAt: fmtDT(a.UpdatedAt),
 	}
 }
@@ -993,6 +1092,7 @@ func (e *appEntity) toModel() *domain.Application {
 		ID: e.RowKey, Name: e.Name, ClientID: e.ClientID,
 		ClientSecretHash: e.ClientSecretHash, RedirectURIs: e.RedirectURIs,
 		AllowedScopes: e.AllowedScopes, IsActive: boolOr(e.IsActive, false),
+		WeChatAppID: e.WeChatAppID, WeChatAppSecret: e.WeChatAppSecret,
 		CreatedAt: parseDT(e.CreatedAt), UpdatedAt: parseDT(e.UpdatedAt),
 	}
 }
