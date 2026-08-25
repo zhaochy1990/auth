@@ -1,4 +1,5 @@
-// Subcommand `auth-service serve`: loads config from the environment, opens the
+// Subcommand `auth-service serve`: loads the YAML config file (--config,
+// $CONFIG_PATH, or /etc/viper.yml) with environment overrides, opens the
 // configured storage backend, and starts the Gin HTTP server. This is the
 // default runtime entrypoint for the container.
 package main
@@ -29,18 +30,18 @@ func newServeCmd() *cobra.Command {
 }
 
 func runServe() error {
-	logger.MustGetLogger(&logger.LoggerConfig{
-		Format:      config.EnvOr("LOG_FORMAT", "json"),
-		ServiceName: "auth-service",
-		Level:       config.EnvOr("LOG_LEVEL", "debug"),
-	}).Sugar()
-
-	ctx := context.Background()
-
-	cfg, err := config.FromEnv()
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}
+
+	logger.MustGetLogger(&logger.LoggerConfig{
+		Format:      cfg.LogFormat,
+		ServiceName: "auth-service",
+		Level:       cfg.LogLevel,
+	}).Sugar()
+
+	ctx := context.Background()
 
 	logger.S().Info("opening MySQL storage backend")
 	repo, err := storage.Open(ctx, cfg)

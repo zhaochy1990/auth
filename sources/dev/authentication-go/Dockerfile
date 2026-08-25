@@ -21,6 +21,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -tags swagger -trimpath -o /ou
 FROM gcr.io/distroless/static-debian12
 WORKDIR /app
 COPY --from=build /out/auth-service /app/auth-service
+# Bake the repo's config.yml as the default config. The loader reads
+# /etc/viper.yml when neither --config nor $CONFIG_PATH is given; deployments
+# mount their own copy (or set CONFIG_PATH) and override values via env vars.
+COPY config.yml /etc/viper.yml
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 # JWT keys are NOT baked into the image — mount them at /app/keys at runtime

@@ -5,7 +5,6 @@ package server
 
 import (
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -45,11 +44,7 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	smsVerifyLimiter := middleware.NewRateLimiter(cfg.SMSVerifyRateLimit, time.Hour)
 
 	r.GET("/health", func(c *gin.Context) {
-		version := os.Getenv("APP_VERSION")
-		if version == "" {
-			version = "dev"
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": version})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": cfg.AppVersion})
 	})
 
 	// OAuth2 endpoints. /oauth/token uses OptionalAppAuth because token_exchange

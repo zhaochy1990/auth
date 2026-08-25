@@ -795,7 +795,9 @@ func TestInviteCodeGatingAndMembershipGrant(t *testing.T) {
 		t.Fatalf("unexpected invite code: %+v", code)
 	}
 
-	t.Setenv("STRIDE_REQUIRE_INVITE_CODE", "true")
+	// Gate registration on a valid invite code (config-driven; the env aliases
+	// are folded in by config.Load and covered by the config package tests).
+	ta.cfg.RequireInviteCode = true
 
 	noCode := ta.do(http.MethodPost, "/api/auth/register", map[string]any{
 		"email": "gated@example.com", "password": "Password1!",
@@ -843,7 +845,7 @@ func TestInviteCodeGrantsTestingUserType(t *testing.T) {
 		t.Fatalf("unexpected invite code: %+v", code)
 	}
 
-	t.Setenv("STRIDE_REQUIRE_INVITE_CODE", "true")
+	ta.cfg.RequireInviteCode = true
 
 	ok := ta.do(http.MethodPost, "/api/auth/register", map[string]any{
 		"email": "testing-invite@example.com", "password": "Password1!", "invite_code": code.Code,

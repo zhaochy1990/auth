@@ -19,7 +19,7 @@ cmd/auth-service/               unified cobra CLI (one binary, subcommands)
   cmd_seed.go                   `seed`   — bootstrap the admin user + app client
   docs/                         generated OpenAPI/Swagger docs (`make swagger`)
 internal/
-  config/        env-based configuration
+  config/        YAML configuration (x/viper: file + env overrides)
   domain/        storage-agnostic entity models + value types
   apperror/      typed error model -> HTTP/JSON mapping
   auth/          JWT, password/client-secret hashing, PKCE, OAuth2 helpers
@@ -66,18 +66,16 @@ The integration suite uses MySQL. Override the local test database with:
 TEST_MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth_test" go test ./internal/server -v -count=1
 ```
 
-Run the service locally:
+Run the service locally (config comes from `config.yml`; env vars override it):
 
 ```bash
-MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
-go run ./cmd/auth-service serve
+go run ./cmd/auth-service serve --config config.yml
 ```
 
 Bootstrap the first admin:
 
 ```bash
-MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
-go run ./cmd/auth-service seed admin@example.com MyPassword1!
+go run ./cmd/auth-service seed --config config.yml admin@example.com MyPassword1!
 ```
 
 ## Swagger / OpenAPI
@@ -85,13 +83,12 @@ go run ./cmd/auth-service seed admin@example.com MyPassword1!
 Endpoints are annotated with [swaggo/swag](https://github.com/swaggo/swag). The
 generated spec lives in `cmd/auth-service/docs` (committed; regenerate with
 `make swagger`). The Swagger UI is compiled in only with the `swagger` build tag
-and served at `/swagger/index.html` when `SWAGGER_ENABLED=true`:
+and served at `/swagger/index.html` when `swagger_enabled` is on (env override
+`SWAGGER_ENABLED=true`):
 
 ```bash
 make build-service-swagger      # go build -tags swagger ...
-SWAGGER_ENABLED=true \
-MYSQL_DSN="mysql://auth:auth_password@127.0.0.1:3306/auth" \
-./bin/auth-service serve
+SWAGGER_ENABLED=true ./bin/auth-service serve --config config.yml
 # open http://127.0.0.1:3000/swagger/index.html
 ```
 
@@ -119,15 +116,16 @@ service registers a named MySQL TLS configuration and uses it in the normalized
 DSN, so certificate verification stays enabled.
 
 Deployment expects the production GitHub Environment secret `MYSQL_DSN` to be set
-before the release tag is deployed. If the Tencent instance requires a custom CA,
-also set `MYSQL_TLS_CA_PEM`. The Tencent Cloud container is configured with the
+before the release tag is deployed — it overrides the `mysql_dsn` key in the
+mounted config file. If the Tencent instance requires a custom CA, also set
+`MYSQL_TLS_CA_PEM`. The Tencent Cloud container is configured with the
 `MYSQL_DSN` and optional `MYSQL_TLS_CA_PEM` environment variables.
 
 ## Docker
 
 The module uses a local `replace` for the sibling `x` library. Build images from
 vendored dependencies (the image is built with `-tags swagger`, so the UI is
-available at runtime when `SWAGGER_ENABLED=true`):
+available at runtime when `swagger_enabled` is on):
 
 ```bash
 go mod vendor
@@ -138,40 +136,71 @@ docker compose up --build
 The image bundles every subcommand; the default command is `serve`. Override it
 to run maintenance tasks, e.g. `docker run auth-service-go seed admin@example.com`.
 
-## Environment Variables
+The repo's `config.yml` is baked into the image at `/etc/viper.yml`, so a plain
+`docker run auth-service-go serve` starts with the shipped defaults. Deployments
+mount their own config (over `/etc/viper.yml`, or point `CONFIG_PATH` at it) and
+override secrets via environment variables.
 
-| Variable | Required | Default |
-|----------|----------|---------|
-| `MYSQL_DSN` | Yes | - |
-| `MYSQL_TLS_CA_PEM` | No | - |
-| `MYSQL_TLS_CA_PATH` | No | - |
-| `JWT_PRIVATE_KEY_PATH` | No | `keys/private.pem` |
-| `JWT_PUBLIC_KEY_PATH` | No | `keys/public.pem` |
-| `JWT_ISSUER` | No | `auth-service` |
-| `JWT_ACCESS_TOKEN_EXPIRY_SECS` | No | `3600` |
-| `JWT_REFRESH_TOKEN_EXPIRY_DAYS` | No | `30` |
-| `SERVER_HOST` | No | `127.0.0.1` |
-| `SERVER_PORT` | No | `3000` |
-| `CORS_ALLOWED_ORIGINS` | No | `http://localhost:5173,http://localhost:3000` |
-| `AUTH_ENABLE_TEST_PROVIDERS` | No | `false` |
-| `SWAGGER_ENABLED` | No | `false` (UI also requires the `swagger` build tag) |
-| `STRIDE_REQUIRE_INVITE_CODE` | No | `false` |
-| `AUTH_REQUIRE_INVITE_CODE` | No | `false` (alias for the above) |
-| `REDIS_ADDR` | No | `127.0.0.1:6379` |
-| `REDIS_PASSWORD` | No | - |
-| `REDIS_DB` | No | `0` |
-| `AUTH_SMS_TEST_MODE` | No | `false` (fixes the code at `123456`, skips Tencent) |
-| `TENCENT_SMS_SECRET_ID` | No | - |
-| `TENCENT_SMS_SECRET_KEY` | No | - |
-| `TENCENT_SMS_SDK_APP_ID` | No | - |
-| `TENCENT_SMS_SIGN_NAME` | No | - |
-| `TENCENT_SMS_TEMPLATE_ID` | No | - |
-| `TENCENT_SMS_REGION` | No | `ap-guangzhou` |
-| `SMS_SEND_RATE_LIMIT` | No | `10` (per-IP sends per hour) |
-| `SMS_VERIFY_RATE_LIMIT` | No | `60` (per-IP verifies per hour) |
-| `WECHAT_CODE2SESSION_URL` | No | WeChat's public `jscode2session` endpoint (tests) |
-| `APP_VERSION` | No | `dev` |
-| `LOG_LEVEL` / `LOG_FORMAT` | No | `debug` / `json` |
+## Configuration
+
+Configuration is a YAML file loaded by `github.com/zhaochy1990/x/viper`
+(viper-based): the file is the source of truth, and every key can be overridden
+by an environment variable. The repo ships `config.yml` with all defaults; it is
+baked into the Docker image at `/etc/viper.yml`. The file is resolved, in order:
+
+1. `--config <path>` CLI flag
+2. `$CONFIG_PATH` environment variable
+3. `/etc/viper.yml` (the image default)
+
+### Overriding keys with environment variables
+
+Each YAML key maps 1:1 to the env var that overrides it — the key uppercased
+(e.g. `mysql_dsn` <- `MYSQL_DSN`, `tencent_sms_secret_key` <-
+`TENCENT_SMS_SECRET_KEY`). Use the env vars for secrets and per-environment
+values so the same config file works everywhere.
+
+> Env overrides apply **only to keys present in the YAML file** (viper checks
+> the env per config key and does not discover env-only vars). Keep the shipped
+> `config.yml` (or spell out in a deployment's custom file) every key you want
+> to override — an empty value in the file is fine.
+>
+> The legacy `STRIDE_REQUIRE_INVITE_CODE` / `AUTH_REQUIRE_INVITE_CODE` flags are
+> still honored as aliases for `require_invite_code` (new env override
+> `REQUIRE_INVITE_CODE`).
+
+### Keys
+
+| YAML key | Env override | Default |
+|----------|--------------|---------|
+| `mysql_dsn` (required) | `MYSQL_DSN` | - |
+| `mysql_tls_ca_pem` | `MYSQL_TLS_CA_PEM` | - |
+| `mysql_tls_ca_path` | `MYSQL_TLS_CA_PATH` | - |
+| `jwt_private_key_path` | `JWT_PRIVATE_KEY_PATH` | `keys/private.pem` |
+| `jwt_public_key_path` | `JWT_PUBLIC_KEY_PATH` | `keys/public.pem` |
+| `jwt_issuer` | `JWT_ISSUER` | `auth-service` |
+| `jwt_access_token_expiry_secs` | `JWT_ACCESS_TOKEN_EXPIRY_SECS` | `3600` |
+| `jwt_refresh_token_expiry_days` | `JWT_REFRESH_TOKEN_EXPIRY_DAYS` | `30` |
+| `server_host` | `SERVER_HOST` | `127.0.0.1` |
+| `server_port` | `SERVER_PORT` | `3000` |
+| `cors_allowed_origins` | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` |
+| `auth_enable_test_providers` | `AUTH_ENABLE_TEST_PROVIDERS` | `false` |
+| `swagger_enabled` | `SWAGGER_ENABLED` | `false` (UI also requires the `swagger` build tag) |
+| `require_invite_code` | `REQUIRE_INVITE_CODE` | `false` (legacy aliases `STRIDE_REQUIRE_INVITE_CODE` / `AUTH_REQUIRE_INVITE_CODE`) |
+| `redis_addr` | `REDIS_ADDR` | `127.0.0.1:6379` |
+| `redis_password` | `REDIS_PASSWORD` | - |
+| `redis_db` | `REDIS_DB` | `0` |
+| `auth_sms_test_mode` | `AUTH_SMS_TEST_MODE` | `false` (fixes the code at `123456`, skips Tencent) |
+| `tencent_sms_secret_id` | `TENCENT_SMS_SECRET_ID` | - |
+| `tencent_sms_secret_key` | `TENCENT_SMS_SECRET_KEY` | - |
+| `tencent_sms_sdk_app_id` | `TENCENT_SMS_SDK_APP_ID` | - |
+| `tencent_sms_sign_name` | `TENCENT_SMS_SIGN_NAME` | - |
+| `tencent_sms_template_id` | `TENCENT_SMS_TEMPLATE_ID` | - |
+| `tencent_sms_region` | `TENCENT_SMS_REGION` | `ap-guangzhou` |
+| `sms_send_rate_limit` | `SMS_SEND_RATE_LIMIT` | `10` (per-IP sends per hour) |
+| `sms_verify_rate_limit` | `SMS_VERIFY_RATE_LIMIT` | `60` (per-IP verifies per hour) |
+| `wechat_code2session_url` | `WECHAT_CODE2SESSION_URL` | WeChat's public `jscode2session` endpoint (tests) |
+| `app_version` | `APP_VERSION` | `dev` |
+| `log_level` / `log_format` | `LOG_LEVEL` / `LOG_FORMAT` | `debug` / `json` |
 
 ## API Surface
 
@@ -264,10 +293,12 @@ routes, and each has a dedicated per-IP rate limiter (send 10/hour, verify
 - Codes live in Redis (SHA-256 hashed, never in plaintext). A Redis outage makes
   send/verify return `503 service_unavailable` — the service fails closed and
   never falls back to another store.
-- Missing `TENCENT_SMS_*` env vars do not prevent startup; `send` returns
-  `400 sms_not_configured`. Set `AUTH_SMS_TEST_MODE=true` to run the whole flow
-  with the fixed code `123456` and no Tencent call (demos / CI).
-- When `STRIDE_REQUIRE_INVITE_CODE` (alias `AUTH_REQUIRE_INVITE_CODE`) is on,
+- Missing `TENCENT_SMS_*` config keys do not prevent startup; `send` returns
+  `400 sms_not_configured`. Set `auth_sms_test_mode: true` (env override
+  `AUTH_SMS_TEST_MODE=true`) to run the whole flow with the fixed code `123456`
+  and no Tencent call (demos / CI).
+- When `require_invite_code` is on (env override `REQUIRE_INVITE_CODE`; legacy
+  `STRIDE_REQUIRE_INVITE_CODE` / `AUTH_REQUIRE_INVITE_CODE` aliases still work),
   a **new** phone must present a valid `invite_code` in the verify request
   (reusing the existing single-use consumption and membership/user-type
   grants); the invite is never required for existing accounts.

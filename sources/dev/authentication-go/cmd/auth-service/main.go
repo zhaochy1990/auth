@@ -33,6 +33,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// configPath is the --config flag value: the YAML configuration file. Empty
+// falls back to the CONFIG_PATH environment variable, then /etc/viper.yml.
+var configPath string
+
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -53,6 +57,7 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
+	root.PersistentFlags().StringVar(&configPath, "config", "", "path to the YAML config file (default: $CONFIG_PATH, then /etc/viper.yml)")
 	root.AddCommand(
 		newServeCmd(),
 		newSeedCmd(),

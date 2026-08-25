@@ -316,7 +316,7 @@ func TestSMSNotConfigured(t *testing.T) {
 func TestSMSVerifyInviteGateOn(t *testing.T) {
 	ta := newTestApp(t)
 	phone := smsPhone(9)
-	t.Setenv("STRIDE_REQUIRE_INVITE_CODE", "true")
+	ta.cfg.RequireInviteCode = true
 
 	mk := ta.do(http.MethodPost, "/admin/invite-codes", nil, ta.bearer(ta.adminToken))
 	mustStatus(t, mk, http.StatusOK)
@@ -354,11 +354,13 @@ func TestSMSVerifyInviteGateOn(t *testing.T) {
 	}
 }
 
-// The AUTH_REQUIRE_INVITE_CODE env alias gates SMS registration identically.
-func TestSMSVerifyInviteGateEnvAlias(t *testing.T) {
+// The invite gate is config-driven (require_invite_code / REQUIRE_INVITE_CODE);
+// the legacy env aliases are folded in by config.Load and covered by the
+// config package tests.
+func TestSMSVerifyInviteGateConfigFlag(t *testing.T) {
 	ta := newTestApp(t)
 	phone := smsPhone(11)
-	t.Setenv("AUTH_REQUIRE_INVITE_CODE", "true")
+	ta.cfg.RequireInviteCode = true
 
 	smsSend(t, ta, phone)
 	w := ta.do(http.MethodPost, "/api/auth/sms/verify", map[string]any{"phone": phone, "code": "123456"}, ta.clientHeaders())
