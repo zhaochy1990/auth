@@ -5,8 +5,7 @@ Guidance for Claude Code when working in the Go auth service
 
 ## Project Overview
 
-Go + Gin auth microservice. The runtime storage target is MySQL; the legacy
-Azure Table adapter is retained only for migration and rollback during cutover.
+Go + Gin auth microservice. The runtime storage target is MySQL.
 
 ## Build, Test, Lint
 
@@ -58,11 +57,9 @@ Layered with a swappable storage adapter (see README for the full tree):
   `InviteCodeKind`), storage- and transport-agnostic.
 - `internal/repository` — **the adapter boundary**: interfaces only. Handlers
   depend on these, never on a concrete store.
-- `internal/repository/mysql` — MySQL implementation. Unique indexes replace
-  Azure Table secondary-index rows; invite codes are consumed atomically with a
+- `internal/repository/mysql` — MySQL implementation. Unique indexes enforce
+  uniqueness constraints; invite codes are consumed atomically with a
   conditional `UPDATE ... WHERE used_at IS NULL`.
-- `internal/repository/aztables` — legacy Azure Table implementation plus
-  `ExportSnapshot` (storage-neutral snapshot export helper).
 - `internal/auth` — JWT issue/verify (custom claims so `aud` stays a single
   string and `membership` is a snake_case string), argon2id passwords,
   SHA-256 client secrets (with legacy argon2 fallback), PKCE, OAuth2 helpers.

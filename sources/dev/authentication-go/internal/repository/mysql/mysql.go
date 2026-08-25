@@ -24,7 +24,6 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/apperror"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/repository"
-	"github.com/zhaochy1990/auth-service/internal/repository/snapshot"
 )
 
 const inviteAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -268,30 +267,6 @@ func clearTables(ctx context.Context, db dbConn) error {
 		}
 	}
 	return nil
-}
-
-// SnapshotCounts returns row counts by logical collection name.
-func (r *Repository) SnapshotCounts(ctx context.Context) (map[string]int, error) {
-	queries := map[string]string{
-		"applications":     "SELECT COUNT(*) FROM auth_applications",
-		"users":            "SELECT COUNT(*) FROM auth_users",
-		"accounts":         "SELECT COUNT(*) FROM auth_accounts",
-		"app_providers":    "SELECT COUNT(*) FROM auth_app_providers",
-		"auth_codes":       "SELECT COUNT(*) FROM auth_auth_codes",
-		"refresh_tokens":   "SELECT COUNT(*) FROM auth_refresh_tokens",
-		"invite_codes":     "SELECT COUNT(*) FROM auth_invite_codes",
-		"teams":            "SELECT COUNT(*) FROM auth_teams",
-		"team_memberships": "SELECT COUNT(*) FROM auth_team_memberships",
-	}
-	out := make(map[string]int, len(queries))
-	for name, query := range queries {
-		var n int
-		if err := r.db.QueryRowContext(ctx, query).Scan(&n); err != nil {
-			return nil, err
-		}
-		out[name] = n
-	}
-	return out, nil
 }
 
 var schemaStatements = []string{
@@ -1506,116 +1481,6 @@ func (r *teamMembershipRepo) DeleteAllByTeam(ctx context.Context, teamID string)
 }
 func (r *teamMembershipRepo) DeleteAllByUser(ctx context.Context, userID string) error {
 	_, err := r.db.ExecContext(ctx, "DELETE FROM auth_team_memberships WHERE user_id = ?", userID)
-	return dbErr(err)
-}
-
-// ReplaceWithSnapshot clears existing rows and imports the snapshot in one
-// transaction. If any row fails to import, the target data is left unchanged.
-func (r *Repository) ReplaceWithSnapshot(ctx context.Context, data snapshot.Data) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if err := clearTables(ctx, tx); err != nil {
-		return fmt.Errorf("clear target: %w", err)
-	}
-	if err := importSnapshot(ctx, tx, data); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	return nil
-}
-
-// ImportSnapshot inserts exported rows into an empty MySQL schema atomically.
-func (r *Repository) ImportSnapshot(ctx context.Context, data snapshot.Data) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if err := importSnapshot(ctx, tx, data); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func importSnapshot(ctx context.Context, db dbConn, data snapshot.Data) error {
-	apps := &appRepo{db: db}
-	users := &userRepo{db: db}
-	appProviders := &appProviderRepo{db: db}
-	accounts := &accountRepo{db: db}
-	authCodes := &authCodeRepo{db: db}
-	refreshTokens := &refreshTokenRepo{db: db}
-	teams := &teamRepo{db: db}
-	teamMemberships := &teamMembershipRepo{db: db}
-
-	for i := range data.Applications {
-		if err := apps.Insert(ctx, &data.Applications[i]); err != nil {
-			return fmt.Errorf("applications: %w", err)
-		}
-	}
-	for i := range data.Users {
-		if err := users.Insert(ctx, &data.Users[i]); err != nil {
-			return fmt.Errorf("users: %w", err)
-		}
-	}
-	for i := range data.AppProviders {
-		if err := appProviders.Insert(ctx, &data.AppProviders[i]); err != nil {
-			return fmt.Errorf("app_providers: %w", err)
-		}
-	}
-	for i := range data.Accounts {
-		if err := accounts.Insert(ctx, &data.Accounts[i]); err != nil {
-			return fmt.Errorf("accounts: %w", err)
-		}
-	}
-	for i := range data.AuthCodes {
-		if err := authCodes.Insert(ctx, &data.AuthCodes[i]); err != nil {
-			return fmt.Errorf("auth_codes: %w", err)
-		}
-	}
-	for i := range data.RefreshTokens {
-		if err := refreshTokens.Insert(ctx, &data.RefreshTokens[i]); err != nil {
-			return fmt.Errorf("refresh_tokens: %w", err)
-		}
-	}
-	for i := range data.InviteCodes {
-		if err := insertInviteCode(ctx, db, &data.InviteCodes[i]); err != nil {
-			return fmt.Errorf("invite_codes: %w", err)
-		}
-	}
-	for i := range data.Teams {
-		if err := teams.Insert(ctx, &data.Teams[i]); err != nil {
-			return fmt.Errorf("teams: %w", err)
-		}
-	}
-	for i := range data.TeamMemberships {
-		if err := teamMemberships.Insert(ctx, &data.TeamMemberships[i]); err != nil {
-			return fmt.Errorf("team_memberships: %w", err)
-		}
-	}
-	return nil
-}
-
-func insertInviteCode(ctx context.Context, db dbConn, c *domain.InviteCode) error {
-	var grants *string
-	if c.GrantsMembership != nil {
-		v := string(*c.GrantsMembership)
-		grants = &v
-	}
-	kind := c.Kind
-	if kind == "" {
-		kind = domain.InviteSingleUse
-	}
-	_, err := db.ExecContext(ctx, `INSERT INTO auth_invite_codes (id, code, created_by, created_at, used_at, used_by, is_revoked, kind, grants_membership, grants_membership_days, grants_user_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, c.ID, c.Code, c.CreatedBy, c.CreatedAt.UTC(), nullTime(c.UsedAt), nullString(c.UsedBy), c.IsRevoked, string(kind), nullString(grants), nullInt64(c.GrantsMembershipDays), nullString(userTypeString(c.GrantsUserType)))
 	return dbErr(err)
 }
 

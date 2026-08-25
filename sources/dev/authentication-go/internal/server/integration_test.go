@@ -173,7 +173,6 @@ func newTestAppWithRateLimits(t *testing.T, smsSendLimit, smsVerifyLimit int) *t
 	wechatSrv := newFakeWeChatServer(t)
 
 	cfg := &config.Config{
-		StorageBackend:            config.StorageBackendMySQL,
 		MySQLDSN:                  testMySQLDSN(),
 		JWTPrivateKeyPath:         privateKeyPath,
 		JWTPublicKeyPath:          publicKeyPath,

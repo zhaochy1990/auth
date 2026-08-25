@@ -2,8 +2,7 @@
 //
 // This is the swappable adapter boundary: handlers depend only on these
 // interfaces, never on a concrete store. The MySQL runtime adapter lives in the
-// mysql subpackage; the Azure Table adapter is retained as a legacy migration
-// source.
+// mysql subpackage.
 package repository
 
 import (

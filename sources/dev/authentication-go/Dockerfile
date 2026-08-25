@@ -24,7 +24,7 @@ COPY --from=build /out/auth-service /app/auth-service
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 # JWT keys are NOT baked into the image — mount them at /app/keys at runtime
-# (docker-compose volume locally; Azure File Share in production).
+# (docker-compose volume locally; Tencent Cloud volume mount in production).
 EXPOSE 3000
 ENTRYPOINT ["/app/auth-service"]
 CMD ["serve"]
