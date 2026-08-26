@@ -9,8 +9,8 @@ package sms
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/zhaochy1990/auth-service/internal/apperror"
@@ -18,6 +18,7 @@ import (
 
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/errors"
+	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/profile"
 	sms "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/sms/v20210111"
 )
 
@@ -96,7 +97,17 @@ func (c *Client) SendCode(ctx context.Context, phone, code string) error {
 		return apperror.SmsNotConfigured()
 	}
 
-	client, _ := sms.NewClient(c.credential, c.cfg.Region, nil)
+	// Route the SDK at the configured endpoint (the production default, or the
+	// injected test server). The SDK builds the request from the profile's
+	// scheme + host, so split the endpoint URL accordingly.
+	cp := profile.NewClientProfile()
+	if u, err := url.Parse(c.endpoint); err == nil && u.Host != "" {
+		cp.HttpProfile.Scheme = u.Scheme
+		cp.HttpProfile.Endpoint = u.Host
+	} else {
+		cp.HttpProfile.Endpoint = c.endpoint
+	}
+	client, _ := sms.NewClient(c.credential, c.cfg.Region, cp)
 
 	// 实例化一个请求对象,每个接口都会对应一个request对象
 	request := sms.NewSendSmsRequest()
@@ -108,9 +119,27 @@ func (c *Client) SendCode(ctx context.Context, phone, code string) error {
 	request.TemplateParamSet = common.StringPtrs([]string{code, "5"})
 	// 返回的resp是一个SendSmsResponse的实例，与请求对象对应
 	response, err := client.SendSms(request)
-	if _, ok := err.(*errors.TencentCloudSDKError); ok {
-		fmt.Printf("An API error has returned: %s", err)
-		return smsProviderError("Tencent Cloud SMS API error")
+	if err != nil {
+		// Network/transport failures and top-level API errors (Response.Error).
+		if sdkErr, ok := err.(*errors.TencentCloudSDKError); ok {
+			return smsProviderError(sdkErr.Message)
+		}
+		return smsProviderError("Tencent Cloud SMS request failed")
+	}
+
+	// A 200 response can still carry a per-phone business failure (Code != "Ok")
+	// or an empty status set; treat both as a provider error.
+	if response == nil || response.Response == nil || len(response.Response.SendStatusSet) == 0 {
+		return smsProviderError("Tencent Cloud SMS returned no status")
+	}
+	for _, st := range response.Response.SendStatusSet {
+		if st == nil || st.Code == nil || *st.Code != "Ok" {
+			msg := "Tencent Cloud SMS send failure"
+			if st != nil && st.Message != nil && *st.Message != "" {
+				msg = *st.Message
+			}
+			return smsProviderError(msg)
+		}
 	}
 
 	logger.S().Infof("Get response from tecent sms service %s", response.ToJsonString())
