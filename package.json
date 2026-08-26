@@ -1,6 +1,6 @@
 {
   "private": true,
-  "version": "2026.8.3",
+  "version": "2026.8.4",
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1"
