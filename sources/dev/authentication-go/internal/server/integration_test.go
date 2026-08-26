@@ -1019,6 +1019,76 @@ func TestProviderLoginTestProvider(t *testing.T) {
 	mustStatus(t, login2, http.StatusOK)
 }
 
+// ensureWeChatProvider configures a wechat app-provider row on the bootstrap
+// application. It is idempotent: the token_exchange fixtures already insert one,
+// so we only insert when none exists. Used by the generic-provider rejection
+// tests, which need past the provider_not_configured guard to reach the factory.
+func (ta *testApp) ensureWeChatProvider(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	app, err := ta.repo.Applications().FindByClientID(ctx, ta.clientID)
+	if err != nil {
+		t.Fatalf("find bootstrap app: %v", err)
+	}
+	p, err := ta.repo.AppProviders().FindByAppAndProvider(ctx, app.ID, "wechat")
+	if err != nil {
+		t.Fatalf("find wechat provider: %v", err)
+	}
+	if p == nil {
+		p = &domain.AppProvider{
+			ID:         uuid.NewString(),
+			AppID:      app.ID,
+			ProviderID: "wechat",
+			Config:     `{"appid":"test-appid","secret":"test-secret"}`,
+			IsActive:   true,
+			CreatedAt:  time.Now().UTC(),
+		}
+		if err := ta.repo.AppProviders().Insert(ctx, p); err != nil {
+			t.Fatalf("insert wechat provider: %v", err)
+		}
+	}
+}
+
+// TestProviderLoginWeChatRejected verifies WeChat is no longer reachable through
+// the generic provider login path: the factory rejects it with
+// provider_not_supported (WeChat is served by token_exchange only).
+func TestProviderLoginWeChatRejected(t *testing.T) {
+	ta := newTestApp(t)
+	ta.ensureWeChatProvider(t)
+
+	login := ta.do(http.MethodPost, "/api/auth/provider/wechat/login", map[string]any{
+		"credential": map[string]any{"code": "should-never-be-used"},
+	}, ta.clientHeaders())
+	mustStatus(t, login, http.StatusBadRequest)
+	var body struct {
+		Error string `json:"error"`
+	}
+	decode(t, login, &body)
+	if body.Error != "provider_not_supported" {
+		t.Fatalf("error = %q, want provider_not_supported", body.Error)
+	}
+}
+
+// TestLinkAccountWeChatRejected verifies WeChat account-linking is likewise
+// unavailable through the generic provider path.
+func TestLinkAccountWeChatRejected(t *testing.T) {
+	ta := newTestApp(t)
+	ta.ensureWeChatProvider(t)
+	token := ta.registerUser(t, "wechat-link@example.com")
+
+	link := ta.do(http.MethodPost, "/api/users/me/accounts/wechat/link", map[string]any{
+		"credential": map[string]any{"code": "should-never-be-used"},
+	}, ta.bearer(token))
+	mustStatus(t, link, http.StatusBadRequest)
+	var body struct {
+		Error string `json:"error"`
+	}
+	decode(t, link, &body)
+	if body.Error != "provider_not_supported" {
+		t.Fatalf("error = %q, want provider_not_supported", body.Error)
+	}
+}
+
 func (ta *testApp) registerUser(t *testing.T, email string) string {
 	t.Helper()
 	w := ta.do(http.MethodPost, "/api/auth/register", map[string]any{
