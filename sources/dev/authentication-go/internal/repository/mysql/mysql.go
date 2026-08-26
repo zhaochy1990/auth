@@ -208,6 +208,9 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := r.migrateWeChatProviderConfig(ctx); err != nil {
+		return err
+	}
 	if err := r.ensureColumn(ctx, "auth_users", "user_type", "VARCHAR(32) NOT NULL DEFAULT 'regular' AFTER role"); err != nil {
 		return err
 	}
@@ -221,12 +224,6 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 		return err
 	}
 	if err := r.ensureColumn(ctx, "auth_invite_codes", "grants_user_type", "VARCHAR(32) NULL AFTER grants_membership_days"); err != nil {
-		return err
-	}
-	if err := r.ensureColumn(ctx, "auth_applications", "wechat_app_id", "VARCHAR(128) NULL AFTER allowed_scopes"); err != nil {
-		return err
-	}
-	if err := r.ensureColumn(ctx, "auth_applications", "wechat_app_secret", "TEXT NULL AFTER wechat_app_id"); err != nil {
 		return err
 	}
 	if err := r.ensureColumn(ctx, "auth_users", "phone", "VARCHAR(20) NULL AFTER email_lookup"); err != nil {
@@ -255,6 +252,125 @@ func (r *Repository) ensureIndex(ctx context.Context, table, index, kind string,
 	return err
 }
 
+func (r *Repository) columnExists(ctx context.Context, table, column string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, table, column).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (r *Repository) dropColumnIfExists(ctx context.Context, table, column string) error {
+	exists, err := r.columnExists(ctx, table, column)
+	if err != nil || !exists {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", table, column))
+	return err
+}
+
+// migrateWeChatProviderConfig backfills each application's WeChat provider config
+// (auth_app_providers, provider_id='wechat') from its legacy wechat_app_id /
+// wechat_app_secret columns so no stored WeChat credential is lost, then drops
+// those columns. On a fresh schema the columns were never created, so the
+// migrate is a no-op (both directions guarded by columnExists).
+func (r *Repository) migrateWeChatProviderConfig(ctx context.Context) error {
+	exists, err := r.columnExists(ctx, "auth_applications", "wechat_app_id")
+	if err != nil || !exists {
+		return err
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, wechat_app_id, wechat_app_secret FROM auth_applications WHERE (wechat_app_id IS NOT NULL AND wechat_app_id <> '') OR (wechat_app_secret IS NOT NULL AND wechat_app_secret <> '')`)
+	if err != nil {
+		return err
+	}
+	type legacyWeChat struct {
+		appID    string
+		appIDVal string
+		secret   string
+	}
+	var apps []legacyWeChat
+	for rows.Next() {
+		var l legacyWeChat
+		var waSecret sql.NullString
+		if err := rows.Scan(&l.appID, &l.appIDVal, &waSecret); err != nil {
+			rows.Close()
+			return err
+		}
+		l.secret = waSecret.String
+		apps = append(apps, l)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, l := range apps {
+		if err := r.backfillWeChatProviderConfig(ctx, l.appID, l.appIDVal, l.secret); err != nil {
+			return err
+		}
+	}
+
+	for _, col := range []string{"wechat_app_id", "wechat_app_secret"} {
+		if err := r.dropColumnIfExists(ctx, "auth_applications", col); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// backfillWeChatProviderConfig writes the legacy app-level WeChat credentials
+// into the application's wechat provider config. An existing wechat provider
+// row is treated as the source of truth: its appid/secret are only filled in
+// when missing, so a previously configured provider config is preserved.
+func (r *Repository) backfillWeChatProviderConfig(ctx context.Context, appID, legacyAppID, legacySecret string) error {
+	existing, err := r.appProvRepo.FindByAppAndProvider(ctx, appID, "wechat")
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		var cfg map[string]any
+		if err := json.Unmarshal([]byte(existing.Config), &cfg); err != nil {
+			cfg = map[string]any{}
+		}
+		changed := false
+		if legacyAppID != "" {
+			if _, ok := cfg["appid"]; !ok {
+				cfg["appid"] = legacyAppID
+				changed = true
+			}
+		}
+		if legacySecret != "" {
+			if _, ok := cfg["secret"]; !ok {
+				cfg["secret"] = legacySecret
+				changed = true
+			}
+		}
+		if !changed {
+			return nil
+		}
+		b, err := json.Marshal(cfg)
+		if err != nil {
+			return err
+		}
+		_, err = r.db.ExecContext(ctx, `UPDATE auth_app_providers SET config = ? WHERE id = ?`, defaultJSONObj(string(b)), existing.ID)
+		return err
+	}
+	b, err := json.Marshal(map[string]any{"appid": legacyAppID, "secret": legacySecret})
+	if err != nil {
+		return err
+	}
+	err = r.appProvRepo.Insert(ctx, &domain.AppProvider{
+		ID:         uuid.NewString(),
+		AppID:      appID,
+		ProviderID: "wechat",
+		Config:     string(b),
+		IsActive:   true,
+		CreatedAt:  time.Now().UTC(),
+	})
+	return err
+}
+
 // ClearAllTables removes all data. It is intended for integration tests only.
 func (r *Repository) ClearAllTables(ctx context.Context) error {
 	return clearTables(ctx, r.db)
@@ -278,8 +394,6 @@ var schemaStatements = []string{
 		redirect_uris TEXT NOT NULL,
 		allowed_scopes TEXT NOT NULL,
 		is_active BOOLEAN NOT NULL,
-		wechat_app_id VARCHAR(128) NULL,
-		wechat_app_secret TEXT NULL,
 		created_at DATETIME(6) NOT NULL,
 		updated_at DATETIME(6) NOT NULL,
 		UNIQUE KEY uq_auth_applications_client_id (client_id),
@@ -422,15 +536,6 @@ func nullString(p *string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: *p, Valid: true}
-}
-
-// nullStringFromPlain maps an empty plain string to NULL so optional columns
-// stay NULL instead of an empty string.
-func nullStringFromPlain(s string) sql.NullString {
-	if s == "" {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: s, Valid: true}
 }
 
 func ptrString(ns sql.NullString) *string {
@@ -889,18 +994,15 @@ func (r *userRepo) RecordLogin(ctx context.Context, userID, ip string) error {
 	return r.Update(ctx, u)
 }
 
-const appColumns = `id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, wechat_app_id, wechat_app_secret, created_at, updated_at`
+const appColumns = `id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, created_at, updated_at`
 
 type appRepo struct{ db dbConn }
 
 func scanApp(s rowScanner) (*domain.Application, error) {
 	var a domain.Application
-	var waID, waSecret sql.NullString
-	if err := s.Scan(&a.ID, &a.Name, &a.ClientID, &a.ClientSecretHash, &a.RedirectURIs, &a.AllowedScopes, &a.IsActive, &waID, &waSecret, &a.CreatedAt, &a.UpdatedAt); err != nil {
+	if err := s.Scan(&a.ID, &a.Name, &a.ClientID, &a.ClientSecretHash, &a.RedirectURIs, &a.AllowedScopes, &a.IsActive, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, err
 	}
-	a.WeChatAppID = waID.String
-	a.WeChatAppSecret = waSecret.String
 	a.CreatedAt = a.CreatedAt.UTC()
 	a.UpdatedAt = a.UpdatedAt.UTC()
 	a.RedirectURIs = defaultJSONArr(a.RedirectURIs)
@@ -959,7 +1061,7 @@ func (r *appRepo) FindAll(ctx context.Context) ([]domain.Application, error) {
 }
 
 func (r *appRepo) Insert(ctx context.Context, a *domain.Application) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_applications (id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, wechat_app_id, wechat_app_secret, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, a.ID, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, nullStringFromPlain(a.WeChatAppID), nullStringFromPlain(a.WeChatAppSecret), a.CreatedAt.UTC(), a.UpdatedAt.UTC())
+	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_applications (id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, a.ID, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, a.CreatedAt.UTC(), a.UpdatedAt.UTC())
 	if err != nil {
 		return dbErr(err)
 	}
@@ -967,7 +1069,7 @@ func (r *appRepo) Insert(ctx context.Context, a *domain.Application) error {
 }
 
 func (r *appRepo) Update(ctx context.Context, a *domain.Application) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE auth_applications SET name = ?, client_id = ?, client_secret_hash = ?, redirect_uris = ?, allowed_scopes = ?, is_active = ?, wechat_app_id = ?, wechat_app_secret = ?, updated_at = ? WHERE id = ?`, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, nullStringFromPlain(a.WeChatAppID), nullStringFromPlain(a.WeChatAppSecret), a.UpdatedAt.UTC(), a.ID)
+	_, err := r.db.ExecContext(ctx, `UPDATE auth_applications SET name = ?, client_id = ?, client_secret_hash = ?, redirect_uris = ?, allowed_scopes = ?, is_active = ?, updated_at = ? WHERE id = ?`, a.Name, a.ClientID, a.ClientSecretHash, defaultJSONArr(a.RedirectURIs), defaultJSONArr(a.AllowedScopes), a.IsActive, a.UpdatedAt.UTC(), a.ID)
 	return dbErr(err)
 }
 

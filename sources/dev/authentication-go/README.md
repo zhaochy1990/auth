@@ -220,9 +220,10 @@ WeChat credentials are configured per application as a provider config via the
 admin API — `POST /admin/applications/{id}/providers` with
 `{"provider_id":"wechat","config":{"appid":"...","secret":"..."}}` —
 stored on the application's `auth_app_providers` row. The `token_exchange`
-flow reads `appid`/`secret` from that provider config; the application-level
-`wechat_app_id` / `wechat_app_secret` columns are no longer read by this flow
-(the admin API still accepts them for backwards compatibility). Credentials are
+flow reads `appid`/`secret` from that provider config; the legacy
+application-level `wechat_app_id` / `wechat_app_secret` columns were removed
+from the auth backend (schema, domain, admin API, and repository) and any
+pre-existing values were migrated into the provider config. Credentials are
 **not** read from environment variables.
 
 Login and binding go through the standard `POST /oauth/token` endpoint as an

@@ -21,11 +21,9 @@ import (
 // --- Request / Response types ---
 
 type createApplicationRequest struct {
-	Name            string   `json:"name"`
-	RedirectURIs    []string `json:"redirect_uris"`
-	AllowedScopes   []string `json:"allowed_scopes"`
-	WeChatAppID     string   `json:"wechat_app_id"`
-	WeChatAppSecret string   `json:"wechat_app_secret"`
+	Name          string   `json:"name"`
+	RedirectURIs  []string `json:"redirect_uris"`
+	AllowedScopes []string `json:"allowed_scopes"`
 }
 
 type createApplicationResponse struct {
@@ -35,17 +33,13 @@ type createApplicationResponse struct {
 	ClientSecret  string   `json:"client_secret"`
 	RedirectURIs  []string `json:"redirect_uris"`
 	AllowedScopes []string `json:"allowed_scopes"`
-	WeChatAppID   string   `json:"wechat_app_id,omitempty"`
-	WeChatEnabled bool     `json:"wechat_enabled"`
 }
 
 type updateApplicationRequest struct {
-	Name            *string   `json:"name"`
-	RedirectURIs    *[]string `json:"redirect_uris"`
-	AllowedScopes   *[]string `json:"allowed_scopes"`
-	IsActive        *bool     `json:"is_active"`
-	WeChatAppID     *string   `json:"wechat_app_id"`
-	WeChatAppSecret *string   `json:"wechat_app_secret"`
+	Name          *string   `json:"name"`
+	RedirectURIs  *[]string `json:"redirect_uris"`
+	AllowedScopes *[]string `json:"allowed_scopes"`
+	IsActive      *bool     `json:"is_active"`
 }
 
 type applicationResponse struct {
@@ -55,8 +49,6 @@ type applicationResponse struct {
 	RedirectURIs  []string `json:"redirect_uris"`
 	AllowedScopes []string `json:"allowed_scopes"`
 	IsActive      bool     `json:"is_active"`
-	WeChatAppID   string   `json:"wechat_app_id,omitempty"`
-	WeChatEnabled bool     `json:"wechat_enabled"`
 	CreatedAt     string   `json:"created_at"`
 }
 
@@ -287,8 +279,6 @@ func (h *Handler) CreateApplication(c *gin.Context) {
 		ClientSecretHash: auth.HashClientSecret(secret),
 		RedirectURIs:     string(redirectJSON),
 		AllowedScopes:    string(scopesJSON),
-		WeChatAppID:      req.WeChatAppID,
-		WeChatAppSecret:  req.WeChatAppSecret,
 		IsActive:         true,
 		CreatedAt:        now,
 		UpdatedAt:        now,
@@ -300,7 +290,6 @@ func (h *Handler) CreateApplication(c *gin.Context) {
 	c.JSON(http.StatusOK, createApplicationResponse{
 		ID: id, Name: req.Name, ClientID: clientID, ClientSecret: secret,
 		RedirectURIs: req.RedirectURIs, AllowedScopes: req.AllowedScopes,
-		WeChatAppID: req.WeChatAppID, WeChatEnabled: req.WeChatAppID != "" && req.WeChatAppSecret != "",
 	})
 }
 
@@ -337,8 +326,6 @@ func toApplicationResponse(a *domain.Application) applicationResponse {
 		RedirectURIs:  auth.DecodeStringArray(a.RedirectURIs),
 		AllowedScopes: auth.DecodeStringArray(a.AllowedScopes),
 		IsActive:      a.IsActive,
-		WeChatAppID:   a.WeChatAppID,
-		WeChatEnabled: a.WeChatAppID != "" && a.WeChatAppSecret != "",
 		CreatedAt:     displayDT(a.CreatedAt),
 	}
 }
@@ -388,12 +375,6 @@ func (h *Handler) UpdateApplication(c *gin.Context) {
 	}
 	if req.IsActive != nil {
 		app.IsActive = *req.IsActive
-	}
-	if req.WeChatAppID != nil {
-		app.WeChatAppID = *req.WeChatAppID
-	}
-	if req.WeChatAppSecret != nil {
-		app.WeChatAppSecret = *req.WeChatAppSecret
 	}
 	app.UpdatedAt = time.Now().UTC()
 	if err := h.Repo.Applications().Update(ctx, app); err != nil {

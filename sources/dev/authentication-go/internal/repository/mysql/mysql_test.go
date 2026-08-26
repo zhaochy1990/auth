@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"database/sql"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -17,7 +18,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	mysqldriver "github.com/go-sql-driver/mysql"
+	"github.com/zhaochy1990/auth-service/internal/domain"
 )
 
 const defaultTestMySQLAdminDSN = "mysql://root:root_password@127.0.0.1:3306/"
@@ -138,4 +142,98 @@ func testCA(t *testing.T) string {
 		t.Fatalf("create CA certificate: %v", err)
 	}
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert}))
+}
+
+// TestMigrateWeChatProviderConfig verifies the schema migration that moves
+// legacy app-level WeChat credentials (wechat_app_id / wechat_app_secret) into
+// the application's WeChat provider config, preserving any existing provider
+// config, then drops the legacy columns.
+func TestMigrateWeChatProviderConfig(t *testing.T) {
+	repo, ctx := newTestRepository(t)
+
+	// Recreate the pre-#187 schema: the two legacy app-level WeChat columns.
+	for _, stmt := range []string{
+		"ALTER TABLE auth_applications ADD COLUMN wechat_app_id VARCHAR(128) NULL AFTER allowed_scopes",
+		"ALTER TABLE auth_applications ADD COLUMN wechat_app_secret TEXT NULL AFTER wechat_app_id",
+	} {
+		if _, err := repo.db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("add legacy wechat column: %v", err)
+		}
+	}
+
+	now := time.Now().UTC()
+	insertLegacyApp := func(id, name, clientID, appID, secret string) {
+		t.Helper()
+		if _, err := repo.db.ExecContext(ctx, `INSERT INTO auth_applications
+			(id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, wechat_app_id, wechat_app_secret, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, name, clientID, "hash", "[]", "[]", true, appID, secret, now, now); err != nil {
+			t.Fatalf("insert legacy app %s: %v", name, err)
+		}
+	}
+
+	// App with no existing provider config → backfilled from the columns.
+	appID1 := uuid.NewString()
+	insertLegacyApp(appID1, "Legacy WeChat App", "legacy-client-1", "legacy-appid", "legacy-secret")
+
+	// App with an existing wechat provider config → preserved as source of
+	// truth (appid kept), and the missing secret backfilled from the column.
+	appID2 := uuid.NewString()
+	insertLegacyApp(appID2, "Provider WeChat App", "legacy-client-2", "legacy-appid-2", "legacy-secret-2")
+	if err := repo.AppProviders().Insert(ctx, &domain.AppProvider{
+		ID: uuid.NewString(), AppID: appID2, ProviderID: "wechat",
+		Config: `{"appid":"already-set-appid"}`, IsActive: true, CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("insert existing wechat provider: %v", err)
+	}
+
+	if err := repo.migrateWeChatProviderConfig(ctx); err != nil {
+		t.Fatalf("migrate wechat provider config: %v", err)
+	}
+
+	// App 1: provider row created with appid/secret from the legacy columns.
+	p1, err := repo.AppProviders().FindByAppAndProvider(ctx, appID1, "wechat")
+	if err != nil {
+		t.Fatalf("find migrated provider 1: %v", err)
+	}
+	if p1 == nil {
+		t.Fatal("expected a wechat provider row for app 1")
+	}
+	var cfg1 map[string]any
+	if err := json.Unmarshal([]byte(p1.Config), &cfg1); err != nil {
+		t.Fatalf("unmarshal config 1: %v", err)
+	}
+	if cfg1["appid"] != "legacy-appid" || cfg1["secret"] != "legacy-secret" {
+		t.Fatalf("app 1 config = %v, want appid=legacy-appid secret=legacy-secret", cfg1)
+	}
+
+	// App 2: existing appid preserved, secret backfilled from the column.
+	p2, err := repo.AppProviders().FindByAppAndProvider(ctx, appID2, "wechat")
+	if err != nil {
+		t.Fatalf("find migrated provider 2: %v", err)
+	}
+	if p2 == nil {
+		t.Fatal("expected a wechat provider row for app 2")
+	}
+	var cfg2 map[string]any
+	if err := json.Unmarshal([]byte(p2.Config), &cfg2); err != nil {
+		t.Fatalf("unmarshal config 2: %v", err)
+	}
+	if cfg2["appid"] != "already-set-appid" {
+		t.Fatalf("app 2 appid overwritten (want preserved): %v", cfg2)
+	}
+	if cfg2["secret"] != "legacy-secret-2" {
+		t.Fatalf("app 2 secret not backfilled (want legacy-secret-2): %v", cfg2)
+	}
+
+	// The legacy columns must be dropped after the migration.
+	for _, col := range []string{"wechat_app_id", "wechat_app_secret"} {
+		exists, err := repo.columnExists(ctx, "auth_applications", col)
+		if err != nil {
+			t.Fatalf("check column %s: %v", col, err)
+		}
+		if exists {
+			t.Fatalf("column %s should have been dropped by the migration", col)
+		}
+	}
 }
