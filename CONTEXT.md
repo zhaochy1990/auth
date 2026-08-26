@@ -5,8 +5,12 @@ The auth backend (`sources/dev/authentication-go`) — an OAuth2 / IDaaS service
 ## Language
 
 **WeChat identity**:
-The pair (mini-program appid, openid) that identifies a WeChat user within one mini-program. The same person has different identities in different mini-programs; `unionid` is the cross-mini-program key, present only when the mini-programs share a WeChat Open Platform binding.
+The pair (mini-program appid, openid) that identifies a WeChat user within one mini-program; the `appid` is the mini-program's appid from the application's **WeChat provider config** (below). The same person has different identities in different mini-programs; `unionid` is the cross-mini-program key, present only when the mini-programs share a WeChat Open Platform binding.
 _Avoid_: "WeChat account", "微信用户" (the person, not the credential pair)
+
+**WeChat provider config**:
+The WeChat mini-program credential (`appid` / `secret`) stored on an application's `auth_app_providers` row (`provider_id='wechat'`), configured via the admin API (`POST /admin/applications/{id}/providers`). It is the source of truth read by the `token_exchange` grant — the only WeChat login path — and it replaced the app-level `wechat_app_id` / `wechat_app_secret` columns, which were removed.
+_Avoid_: "WeChat env vars", "app-level WeChat config", "wechat_app_id / wechat_app_secret"
 
 **Binding**:
 Linking a WeChat identity to a user account via the token-exchange bind flow (WeChat code + email + password). One account may hold identities from several mini-programs; one identity belongs to exactly one account.

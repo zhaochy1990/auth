@@ -226,6 +226,11 @@ from the auth backend (schema, domain, admin API, and repository) and any
 pre-existing values were migrated into the provider config. Credentials are
 **not** read from environment variables.
 
+`token_exchange` is the **only** WeChat login path. The generic provider login
+(`/api/auth/provider/{provider_id}/login`) and WeChat account-linking no longer
+serve WeChat: a `provider_id=wechat` request is rejected with
+`provider_not_supported`.
+
 Login and binding go through the standard `POST /oauth/token` endpoint as an
 RFC 8693 `token_exchange` grant; the endpoint accepts both
 `application/x-www-form-urlencoded` (standard) and `application/json` bodies.
