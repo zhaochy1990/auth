@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -19,9 +21,10 @@ const wechatSubjectTokenType = "wechat_mini_program"
 
 // handleTokenExchange implements the RFC 8693 token_exchange grant for WeChat
 // mini-program login. subject_token is the wx.login() code; the WeChat
-// mini-program credentials are read from the calling application's row (per-app
-// config, never env). With email+password present the exchanged identity is
-// bound to that account instead (bind flow, which logs the user in directly).
+// mini-program credentials (appid/secret) are read from the calling
+// application's WeChat provider config (per-app config, never env). With
+// email+password present the exchanged identity is bound to that account
+// instead (bind flow, which logs the user in directly).
 func (h *Handler) handleTokenExchange(c *gin.Context, req *tokenRequest) {
 	ctx := c.Request.Context()
 	if req.SubjectToken == nil || *req.SubjectToken == "" {
@@ -42,12 +45,14 @@ func (h *Handler) handleTokenExchange(c *gin.Context, req *tokenRequest) {
 		middleware.RespondError(c, err)
 		return
 	}
-	if app.WeChatAppID == "" || app.WeChatAppSecret == "" {
-		middleware.RespondError(c, apperror.WeChatNotConfigured())
+
+	wechatCfg, err := h.resolveWeChatProviderConfig(ctx, app)
+	if err != nil {
+		middleware.RespondError(c, err)
 		return
 	}
 
-	client := wechat.NewClient(app.WeChatAppID, app.WeChatAppSecret, h.Cfg.WeChatCode2SessionURL)
+	client := wechat.NewClient(wechatCfg.AppID, wechatCfg.Secret, h.Cfg.WeChatCode2SessionURL)
 	session, err := client.Code2Session(ctx, *req.SubjectToken)
 	if err != nil {
 		middleware.RespondError(c, err)
@@ -55,10 +60,10 @@ func (h *Handler) handleTokenExchange(c *gin.Context, req *tokenRequest) {
 	}
 
 	if req.Email != nil || req.Password != nil {
-		h.handleWeChatBind(c, req, app, session)
+		h.handleWeChatBind(c, req, app, wechatCfg.AppID, session)
 		return
 	}
-	h.handleWeChatLogin(c, req, app, session)
+	h.handleWeChatLogin(c, req, app, wechatCfg.AppID, session)
 }
 
 // resolveExchangeApp determines the calling application: the Basic-authenticated
@@ -86,10 +91,38 @@ func (h *Handler) resolveExchangeApp(c *gin.Context, req *tokenRequest) (*domain
 	return app, nil
 }
 
+// wechatProviderConfig is the WeChat credential stored on the calling
+// application's auth_app_providers row (JSON config with keys appid/secret).
+type wechatProviderConfig struct {
+	AppID  string `json:"appid"`
+	Secret string `json:"secret"`
+}
+
+// resolveWeChatProviderConfig loads the calling application's WeChat provider
+// config. A missing/inactive provider row or a config lacking appid or secret
+// yields wechat_not_configured.
+func (h *Handler) resolveWeChatProviderConfig(ctx context.Context, app *domain.Application) (wechatProviderConfig, error) {
+	provider, err := h.Repo.AppProviders().FindByAppAndProvider(ctx, app.ID, "wechat")
+	if err != nil {
+		return wechatProviderConfig{}, err
+	}
+	if provider == nil || !provider.IsActive {
+		return wechatProviderConfig{}, apperror.WeChatNotConfigured()
+	}
+	var cfg wechatProviderConfig
+	if err := json.Unmarshal([]byte(provider.Config), &cfg); err != nil {
+		return wechatProviderConfig{}, apperror.WeChatNotConfigured()
+	}
+	if cfg.AppID == "" || cfg.Secret == "" {
+		return wechatProviderConfig{}, apperror.WeChatNotConfigured()
+	}
+	return cfg, nil
+}
+
 // handleWeChatLogin logs in a user whose WeChat identity is already bound.
-func (h *Handler) handleWeChatLogin(c *gin.Context, req *tokenRequest, app *domain.Application, session *wechat.SessionResult) {
+func (h *Handler) handleWeChatLogin(c *gin.Context, req *tokenRequest, app *domain.Application, wechatAppID string, session *wechat.SessionResult) {
 	ctx := c.Request.Context()
-	user, err := h.Repo.Users().FindByWeChatOpenID(ctx, app.WeChatAppID, session.OpenID)
+	user, err := h.Repo.Users().FindByWeChatOpenID(ctx, wechatAppID, session.OpenID)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -107,7 +140,7 @@ func (h *Handler) handleWeChatLogin(c *gin.Context, req *tokenRequest, app *doma
 
 // handleWeChatBind verifies email+password, then binds the exchanged WeChat
 // identity to that account and logs it in.
-func (h *Handler) handleWeChatBind(c *gin.Context, req *tokenRequest, app *domain.Application, session *wechat.SessionResult) {
+func (h *Handler) handleWeChatBind(c *gin.Context, req *tokenRequest, app *domain.Application, wechatAppID string, session *wechat.SessionResult) {
 	ctx := c.Request.Context()
 	if req.Email == nil || *req.Email == "" || req.Password == nil || *req.Password == "" {
 		middleware.RespondError(c, apperror.BadRequest("Both 'email' and 'password' are required to bind"))
@@ -149,7 +182,7 @@ func (h *Handler) handleWeChatBind(c *gin.Context, req *tokenRequest, app *domai
 
 	// The identity must not already belong to another account: openid within
 	// this mini-program, and unionid as the cross-mini-program key.
-	existing, err := h.Repo.Users().FindByWeChatOpenID(ctx, app.WeChatAppID, session.OpenID)
+	existing, err := h.Repo.Users().FindByWeChatOpenID(ctx, wechatAppID, session.OpenID)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -172,7 +205,7 @@ func (h *Handler) handleWeChatBind(c *gin.Context, req *tokenRequest, app *domai
 
 	// An account already bound to a DIFFERENT WeChat identity in this
 	// mini-program may not silently rebind; the rebind flow is not designed yet.
-	link, err := h.Repo.Users().FindWeChatLink(ctx, user.ID, app.WeChatAppID)
+	link, err := h.Repo.Users().FindWeChatLink(ctx, user.ID, wechatAppID)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -187,7 +220,7 @@ func (h *Handler) handleWeChatBind(c *gin.Context, req *tokenRequest, app *domai
 		if unionid != nil && *unionid == "" {
 			unionid = nil
 		}
-		if err := h.Repo.Users().LinkWeChat(ctx, user.ID, app.WeChatAppID, session.OpenID, unionid); err != nil {
+		if err := h.Repo.Users().LinkWeChat(ctx, user.ID, wechatAppID, session.OpenID, unionid); err != nil {
 			middleware.RespondError(c, err)
 			return
 		}

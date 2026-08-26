@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/config"
@@ -215,17 +216,22 @@ func newTestAppWithRateLimits(t *testing.T, smsSendLimit, smsVerifyLimit int) *t
 		secret = *res.AppClientSecret
 	}
 
-	// Configure WeChat mini-program credentials on the bootstrap application
-	// (per-app config, mirroring how deployments set it via the admin API).
+	// Configure WeChat mini-program credentials as a provider config on the
+	// bootstrap application (per-app provider config; the token_exchange flow
+	// reads appid/secret from here, not from the application columns).
 	wechatApp, err := repo.Applications().FindByClientID(ctx, res.AppClientID)
 	if err != nil {
 		t.Fatalf("find bootstrap app: %v", err)
 	}
-	wechatApp.WeChatAppID = "test-appid"
-	wechatApp.WeChatAppSecret = "test-secret"
-	wechatApp.UpdatedAt = time.Now().UTC()
-	if err := repo.Applications().Update(ctx, wechatApp); err != nil {
-		t.Fatalf("configure wechat on app: %v", err)
+	if err := repo.AppProviders().Insert(ctx, &domain.AppProvider{
+		ID:         uuid.NewString(),
+		AppID:      wechatApp.ID,
+		ProviderID: "wechat",
+		Config:     `{"appid":"test-appid","secret":"test-secret"}`,
+		IsActive:   true,
+		CreatedAt:  time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("configure wechat provider on app: %v", err)
 	}
 
 	return &testApp{
@@ -1013,6 +1019,76 @@ func TestProviderLoginTestProvider(t *testing.T) {
 	mustStatus(t, login2, http.StatusOK)
 }
 
+// ensureWeChatProvider configures a wechat app-provider row on the bootstrap
+// application. It is idempotent: the token_exchange fixtures already insert one,
+// so we only insert when none exists. Used by the generic-provider rejection
+// tests, which need past the provider_not_configured guard to reach the factory.
+func (ta *testApp) ensureWeChatProvider(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	app, err := ta.repo.Applications().FindByClientID(ctx, ta.clientID)
+	if err != nil {
+		t.Fatalf("find bootstrap app: %v", err)
+	}
+	p, err := ta.repo.AppProviders().FindByAppAndProvider(ctx, app.ID, "wechat")
+	if err != nil {
+		t.Fatalf("find wechat provider: %v", err)
+	}
+	if p == nil {
+		p = &domain.AppProvider{
+			ID:         uuid.NewString(),
+			AppID:      app.ID,
+			ProviderID: "wechat",
+			Config:     `{"appid":"test-appid","secret":"test-secret"}`,
+			IsActive:   true,
+			CreatedAt:  time.Now().UTC(),
+		}
+		if err := ta.repo.AppProviders().Insert(ctx, p); err != nil {
+			t.Fatalf("insert wechat provider: %v", err)
+		}
+	}
+}
+
+// TestProviderLoginWeChatRejected verifies WeChat is no longer reachable through
+// the generic provider login path: the factory rejects it with
+// provider_not_supported (WeChat is served by token_exchange only).
+func TestProviderLoginWeChatRejected(t *testing.T) {
+	ta := newTestApp(t)
+	ta.ensureWeChatProvider(t)
+
+	login := ta.do(http.MethodPost, "/api/auth/provider/wechat/login", map[string]any{
+		"credential": map[string]any{"code": "should-never-be-used"},
+	}, ta.clientHeaders())
+	mustStatus(t, login, http.StatusBadRequest)
+	var body struct {
+		Error string `json:"error"`
+	}
+	decode(t, login, &body)
+	if body.Error != "provider_not_supported" {
+		t.Fatalf("error = %q, want provider_not_supported", body.Error)
+	}
+}
+
+// TestLinkAccountWeChatRejected verifies WeChat account-linking is likewise
+// unavailable through the generic provider path.
+func TestLinkAccountWeChatRejected(t *testing.T) {
+	ta := newTestApp(t)
+	ta.ensureWeChatProvider(t)
+	token := ta.registerUser(t, "wechat-link@example.com")
+
+	link := ta.do(http.MethodPost, "/api/users/me/accounts/wechat/link", map[string]any{
+		"credential": map[string]any{"code": "should-never-be-used"},
+	}, ta.bearer(token))
+	mustStatus(t, link, http.StatusBadRequest)
+	var body struct {
+		Error string `json:"error"`
+	}
+	decode(t, link, &body)
+	if body.Error != "provider_not_supported" {
+		t.Fatalf("error = %q, want provider_not_supported", body.Error)
+	}
+}
+
 func (ta *testApp) registerUser(t *testing.T, email string) string {
 	t.Helper()
 	w := ta.do(http.MethodPost, "/api/auth/register", map[string]any{
@@ -1196,6 +1272,43 @@ func TestTokenExchangeWeChatNotConfigured(t *testing.T) {
 		ClientID string `json:"client_id"`
 	}
 	decode(t, create, &app)
+
+	form := url.Values{
+		"grant_type":         {"token_exchange"},
+		"client_id":          {app.ClientID},
+		"subject_token":      {"code-bindable"},
+		"subject_token_type": {"wechat_mini_program"},
+	}
+	w := ta.doForm(http.MethodPost, "/oauth/token", form, nil)
+	mustStatus(t, w, http.StatusBadRequest)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "wechat_not_configured" {
+		t.Fatalf("error = %v, want wechat_not_configured", body["error"])
+	}
+}
+
+// A wechat provider config that exists but lacks appid or secret → 400
+// wechat_not_configured (the provider row alone is not enough).
+func TestTokenExchangeWeChatProviderConfigIncomplete(t *testing.T) {
+	ta := newTestApp(t)
+
+	create := ta.do(http.MethodPost, "/admin/applications", map[string]any{
+		"name": "Incomplete WeChat App",
+	}, ta.bearer(ta.adminToken))
+	mustStatus(t, create, http.StatusOK)
+	var app struct {
+		ID       string `json:"id"`
+		ClientID string `json:"client_id"`
+	}
+	decode(t, create, &app)
+
+	// Provider config present but missing the secret key.
+	add := ta.do(http.MethodPost, "/admin/applications/"+app.ID+"/providers", map[string]any{
+		"provider_id": "wechat",
+		"config":      map[string]any{"appid": "wx-appid-only"},
+	}, ta.bearer(ta.adminToken))
+	mustStatus(t, add, http.StatusOK)
 
 	form := url.Values{
 		"grant_type":         {"token_exchange"},
