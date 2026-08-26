@@ -203,15 +203,6 @@ type Application struct {
 	IsActive         bool
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
-	// WeChatAppID is the WeChat mini-program app id configured for this
-	// application. Empty (with an empty WeChatAppSecret) disables the WeChat
-	// login endpoints for this application.
-	WeChatAppID string
-	// WeChatAppSecret is the WeChat mini-program app secret configured for this
-	// application. It must be sent in plaintext to WeChat's code2Session API, so
-	// it is stored as configured (encrypt at rest if the deployment requires it)
-	// rather than hashed.
-	WeChatAppSecret string
 }
 
 // AppProvider is an auth-provider configuration attached to an Application.

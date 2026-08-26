@@ -457,26 +457,23 @@ func TestAdminApplications(t *testing.T) {
 
 	create := ta.do(http.MethodPost, "/admin/applications", map[string]any{
 		"name": "My App", "redirect_uris": []string{"https://app.example.com/cb"}, "allowed_scopes": []string{"openid", "profile"},
-		"wechat_app_id": "wx1234567890abcdef", "wechat_app_secret": "wx-secret-value",
 	}, ta.bearer(ta.adminToken))
 	mustStatus(t, create, http.StatusOK)
 	var app struct {
-		ID            string   `json:"id"`
-		ClientID      string   `json:"client_id"`
-		ClientSecret  string   `json:"client_secret"`
-		RedirectURIs  []string `json:"redirect_uris"`
-		WeChatAppID   string   `json:"wechat_app_id"`
-		WeChatEnabled bool     `json:"wechat_enabled"`
+		ID           string   `json:"id"`
+		ClientID     string   `json:"client_id"`
+		ClientSecret string   `json:"client_secret"`
+		RedirectURIs []string `json:"redirect_uris"`
 	}
 	decode(t, create, &app)
 	if app.ClientSecret == "" || app.ClientID == "" || len(app.RedirectURIs) != 1 {
 		t.Fatalf("unexpected app: %+v", app)
 	}
-	if app.WeChatAppID != "wx1234567890abcdef" || !app.WeChatEnabled {
-		t.Fatalf("expected wechat config echoed, got %+v", app)
-	}
-	if strings.Contains(create.Body.String(), "wx-secret-value") {
-		t.Fatal("wechat app secret must never be echoed in admin responses")
+	// WeChat credentials are configured only via the generic provider; the
+	// admin application create/response must not expose any app-level WeChat
+	// field.
+	if strings.Contains(create.Body.String(), "wechat_app_id") || strings.Contains(create.Body.String(), "wechat_app_secret") {
+		t.Fatalf("admin application create must not expose app-level WeChat fields: %s", create.Body.String())
 	}
 
 	list := ta.do(http.MethodGet, "/admin/applications", nil, ta.bearer(ta.adminToken))

@@ -2982,12 +2982,6 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
-                },
-                "wechat_app_id": {
-                    "type": "string"
-                },
-                "wechat_enabled": {
-                    "type": "boolean"
                 }
             }
         },
@@ -3008,12 +3002,6 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
-                },
-                "wechat_app_id": {
-                    "type": "string"
-                },
-                "wechat_app_secret": {
-                    "type": "string"
                 }
             }
         },
@@ -3043,12 +3031,6 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
-                },
-                "wechat_app_id": {
-                    "type": "string"
-                },
-                "wechat_enabled": {
-                    "type": "boolean"
                 }
             }
         },
@@ -3508,12 +3490,6 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
-                },
-                "wechat_app_id": {
-                    "type": "string"
-                },
-                "wechat_app_secret": {
-                    "type": "string"
                 }
             }
         },
