@@ -51,18 +51,21 @@ redis_db: 0
 # sms_not_configured until configured.
 tencent_sms_secret_id: ""
 tencent_sms_secret_key: ""
-tencent_sms_sdk_app_id: ""
-tencent_sms_sign_name: ""
-tencent_sms_template_id: ""
-tencent_sms_region: "ap-guangzhou"
+tencent_sms_sdk_app_id: "1401177585"
+tencent_sms_sign_name: "上海砺跑科技"
+tencent_sms_template_id: "2716979"
+tencent_sms_region: "ap-beijing"
 
 # Per-IP hourly request caps for the SMS send / verify endpoints.
 sms_send_rate_limit: 10
 sms_verify_rate_limit: 60
 
-# --- Logging (debug|info|warning|error / json|console) ---
+# --- Logging ---
+# log_level: debug|info|warning|error (empty falls back to debug)
+# log_format: "json" (structured, for log aggregation) or "console"
+#             (human-readable). Unset/absent falls back to "console".
 log_level: "debug"
-log_format: "json"
+log_format: "console"
 
 # --- Version reported by /health and admin stats ---
 app_version: "dev"

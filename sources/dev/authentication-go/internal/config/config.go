@@ -77,9 +77,11 @@ type Config struct {
 	RequireInviteCode bool `mapstructure:"require_invite_code"`
 
 	// LogLevel / LogFormat configure the zap logger
-	// (debug|info|warning|error / json|console).
+	// (debug|info|warning|error / json|console). LogFormat accepts "json"
+	// (structured output for log aggregation) or "console" (human-readable);
+	// an empty value falls back to "console" (see normalizeLogConfig).
 	LogLevel  string `mapstructure:"log_level"`
-	LogFormat string `mapstructure:"log_format"`
+	LogFormat string `mapstructure:"log_format" validate:"omitempty,oneof=json console"`
 	// AppVersion is reported by /health and the admin stats endpoint.
 	AppVersion string `mapstructure:"app_version"`
 }
@@ -100,7 +102,18 @@ func Load(configPath string) (cfg *Config, err error) {
 	cfg = &Config{}
 	xviper.MustLoadConfig("", configPath, cfg)
 	applyLegacyEnvAliases(cfg)
+	normalizeLogConfig(cfg)
 	return cfg, nil
+}
+
+// normalizeLogConfig maps an empty log_format (key absent from a custom
+// deployment file) to the human-readable "console" encoder so the logger never
+// crashes on an empty encoding name. "json" and "console" are the only valid
+// values; anything else is rejected earlier by the validate tag on LogFormat.
+func normalizeLogConfig(cfg *Config) {
+	if cfg.LogFormat == "" {
+		cfg.LogFormat = "console"
+	}
 }
 
 // applyLegacyEnvAliases folds pre-YAML environment flags into the config so

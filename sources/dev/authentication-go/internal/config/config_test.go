@@ -120,6 +120,50 @@ func TestLoadLegacyInviteAliases(t *testing.T) {
 	}
 }
 
+func TestLoadLogFormatFromFile(t *testing.T) {
+	path := writeConfig(t, "mysql_dsn: mysql://u:p@h:3306/db\nlog_format: json\n")
+	t.Setenv("MYSQL_DSN", "")
+	t.Setenv("LOG_FORMAT", "")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LogFormat != "json" {
+		t.Errorf("LogFormat = %q, want json", cfg.LogFormat)
+	}
+}
+
+func TestLoadLogFormatDefaultsToConsole(t *testing.T) {
+	// A custom deployment file may omit log_format; it must fall back to the
+	// human-readable encoder instead of crashing the logger at startup.
+	path := writeConfig(t, "mysql_dsn: mysql://u:p@h:3306/db\n")
+	t.Setenv("MYSQL_DSN", "")
+	t.Setenv("LOG_FORMAT", "")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LogFormat != "console" {
+		t.Errorf("LogFormat = %q, want console fallback", cfg.LogFormat)
+	}
+}
+
+func TestLoadRejectsInvalidLogFormat(t *testing.T) {
+	path := writeConfig(t, "mysql_dsn: mysql://u:p@h:3306/db\nlog_format: text\n")
+	t.Setenv("MYSQL_DSN", "")
+	t.Setenv("LOG_FORMAT", "")
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load succeeded with invalid log_format, want validation error")
+	}
+	if !strings.Contains(err.Error(), "LogFormat") {
+		t.Errorf("error = %v, want LogFormat validation failure", err)
+	}
+}
+
 func TestLoadRequiresMySQLDSN(t *testing.T) {
 	path := writeConfig(t, "server_port: 3000\n")
 	t.Setenv("MYSQL_DSN", "")

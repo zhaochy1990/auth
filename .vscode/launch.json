@@ -10,9 +10,14 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/sources/dev/authentication-go/cmd/auth-service",
-            "buildFlags": ["-tags", "swagger"],
+            "buildFlags": [
+                "-tags",
+                "swagger"
+            ],
             "args": [
-                "serve"
+                "serve",
+                "--config",
+                "${workspaceFolder}/sources/dev/authentication-go/config.local.yml"
             ],
             "env": {
                 "MYSQL_DSN": "root:root_password@tcp(127.0.0.1:3306)/auth?charset=utf8mb4&parseTime=True&loc=Local",

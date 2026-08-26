@@ -200,7 +200,7 @@ values so the same config file works everywhere.
 | `sms_verify_rate_limit` | `SMS_VERIFY_RATE_LIMIT` | `60` (per-IP verifies per hour) |
 | `wechat_code2session_url` | `WECHAT_CODE2SESSION_URL` | WeChat's public `jscode2session` endpoint (tests) |
 | `app_version` | `APP_VERSION` | `dev` |
-| `log_level` / `log_format` | `LOG_LEVEL` / `LOG_FORMAT` | `debug` / `json` |
+| `log_level` / `log_format` | `LOG_LEVEL` / `LOG_FORMAT` | `debug` / `json` (`log_format` is `json` for structured output or `console` for human-readable; absent/unset falls back to `console`) |
 
 ## API Surface
 
