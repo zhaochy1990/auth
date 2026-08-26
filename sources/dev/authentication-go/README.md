@@ -216,10 +216,14 @@ values so the same config file works everywhere.
 
 ### WeChat mini-program login (OAuth2 token exchange)
 
-WeChat credentials are configured per application via the admin API
-(`wechat_app_id` / `wechat_app_secret` on `POST|PATCH /admin/applications`),
-stored on the `Application` row — they are **not** read from environment
-variables.
+WeChat credentials are configured per application as a provider config via the
+admin API — `POST /admin/applications/{id}/providers` with
+`{"provider_id":"wechat","config":{"appid":"...","secret":"..."}}` —
+stored on the application's `auth_app_providers` row. The `token_exchange`
+flow reads `appid`/`secret` from that provider config; the application-level
+`wechat_app_id` / `wechat_app_secret` columns are no longer read by this flow
+(the admin API still accepts them for backwards compatibility). Credentials are
+**not** read from environment variables.
 
 Login and binding go through the standard `POST /oauth/token` endpoint as an
 RFC 8693 `token_exchange` grant; the endpoint accepts both
