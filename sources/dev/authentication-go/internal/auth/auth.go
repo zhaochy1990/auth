@@ -9,9 +9,11 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"os"
 	"strings"
 	"time"
@@ -189,6 +191,17 @@ func (m *JWTManager) VerifyAppToken(token string) (*AppClaims, error) {
 }
 
 func (m *JWTManager) keyfunc(_ *jwt.Token) (interface{}, error) { return m.pub, nil }
+
+// PublicKeyPEM returns the service's RSA public key in PEM (PKIX) format.
+// Clients can use it to verify JWTs offline (RS256). The returned string is
+// the same representation used by jwt_public_key_path (BEGIN PUBLIC KEY).
+func (m *JWTManager) PublicKeyPEM() string {
+	der, err := x509.MarshalPKIXPublicKey(m.pub)
+	if err != nil {
+		return ""
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+}
 
 // ─── Password & client secrets ───────────────────────────────────────────────
 

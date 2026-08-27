@@ -1837,6 +1837,32 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/system/public-key": {
+            "get": {
+                "description": "Returns the RSA public key (PEM, PKIX format) used to verify JWTs.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Get the service public key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.publicKeyResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/teams": {
             "get": {
                 "security": [
@@ -3229,6 +3255,14 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "provider_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.publicKeyResponse": {
+            "type": "object",
+            "properties": {
+                "publickey": {
                     "type": "string"
                 }
             }

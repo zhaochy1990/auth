@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"strings"
 	"testing"
 	"time"
@@ -78,6 +80,48 @@ func TestPasswordRoundtrip(t *testing.T) {
 	}
 	if ok, _ := VerifyPassword("Nope", h); ok {
 		t.Fatal("expected wrong password to fail")
+	}
+}
+
+func TestPublicKeyPEM(t *testing.T) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &JWTManager{priv: priv, pub: &priv.PublicKey, issuer: "auth-service", accessExpirySecs: 3600}
+
+	pemStr := m.PublicKeyPEM()
+	if pemStr == "" {
+		t.Fatal("PublicKeyPEM returned empty string")
+	}
+
+	block, rest := pem.Decode([]byte(pemStr))
+	if block == nil || block.Type != "PUBLIC KEY" {
+		t.Fatalf("expected PEM PUBLIC KEY block, got type=%v", block)
+	}
+	if len(rest) != 0 {
+		t.Fatal("unexpected trailing bytes after PEM block")
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !pub.(*rsa.PublicKey).Equal(&priv.PublicKey) {
+		t.Fatal("returned public key does not match the signing key")
+	}
+
+	// A token minted by the manager must verify with the exposed key.
+	token, err := m.IssueAccessToken("u", "a", nil, "user", domain.MembershipRegular, domain.UserTypeRegular, nil)
+	if err != nil {
+		t.Fatalf("issue token: %v", err)
+	}
+	parsed, err := jwt.ParseRSAPublicKeyFromPEM([]byte(pemStr))
+	if err != nil {
+		t.Fatalf("parse jwt public key: %v", err)
+	}
+	verified, err := jwt.Parse(token, func(_ *jwt.Token) (interface{}, error) { return parsed, nil })
+	if err != nil || !verified.Valid {
+		t.Fatalf("token did not verify with exposed key: err=%v valid=%v", err, verified.Valid)
 	}
 }
 

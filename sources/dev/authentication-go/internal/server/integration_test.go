@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
 	"github.com/zhaochy1990/auth-service/internal/auth"
@@ -306,6 +307,52 @@ func TestHealth(t *testing.T) {
 	decode(t, w, &body)
 	if body["status"] != "ok" {
 		t.Fatalf("status field = %v", body["status"])
+	}
+}
+
+func TestSystemPublicKey(t *testing.T) {
+	ta := newTestApp(t)
+
+	w := ta.do(http.MethodGet, "/api/system/public-key", nil, nil)
+	mustStatus(t, w, http.StatusOK)
+
+	var body struct {
+		PublicKey string `json:"publickey"`
+	}
+	decode(t, w, &body)
+	if body.PublicKey == "" {
+		t.Fatal("publickey is empty")
+	}
+
+	// The payload must be a well-formed PEM PUBLIC KEY block.
+	block, _ := pem.Decode([]byte(body.PublicKey))
+	if block == nil || block.Type != "PUBLIC KEY" {
+		t.Fatalf("publickey is not a PEM PUBLIC KEY block: %q", body.PublicKey)
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse public key: %v", err)
+	}
+	if _, ok := pub.(*rsa.PublicKey); !ok {
+		t.Fatalf("public key is not RSA: %T", pub)
+	}
+
+	// The exposed key must actually verify a token minted by the manager,
+	// proving the endpoint publishes the same keypair used for signing.
+	token, err := ta.jwt.IssueAccessToken("user-123", "app-123", []string{"read"}, "user", domain.MembershipRegular, domain.UserTypeRegular, nil)
+	if err != nil {
+		t.Fatalf("issue token: %v", err)
+	}
+	parsed, err := jwt.ParseRSAPublicKeyFromPEM([]byte(body.PublicKey))
+	if err != nil {
+		t.Fatalf("parse exposed public key: %v", err)
+	}
+	verified, err := jwt.Parse(token, func(_ *jwt.Token) (interface{}, error) { return parsed, nil })
+	if err != nil {
+		t.Fatalf("verify token with exposed public key: %v", err)
+	}
+	if !verified.Valid {
+		t.Fatal("exposed public key did not validate the token")
 	}
 }
 

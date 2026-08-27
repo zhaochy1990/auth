@@ -47,6 +47,12 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": cfg.AppVersion})
 	})
 
+	// Public system endpoints. No auth — the RSA public key is not secret.
+	system := r.Group("/api/system")
+	{
+		system.GET("/public-key", h.GetPublicKey)
+	}
+
 	// OAuth2 endpoints. /oauth/token uses OptionalAppAuth because token_exchange
 	// accepts a public client (client_id in the body); revoke/introspect stay
 	// strict (Basic auth required).
