@@ -85,20 +85,22 @@ func NewWithOptions(ctx context.Context, dsn string, opts Options) (*Repository,
 		_ = db.Close()
 		return nil, err
 	}
-	r := &Repository{db: db}
+	r := &Repository{
+		db:             db,
+		userRepo:       &userRepo{db: db},
+		appRepo:        &appRepo{db: db},
+		accountRepo:    &accountRepo{db: db},
+		appProvRepo:    &appProviderRepo{db: db},
+		authCodeRepo:   &authCodeRepo{db: db},
+		refreshRepo:    &refreshTokenRepo{db: db},
+		inviteRepo:     &inviteCodeRepo{db: db},
+		teamRepo:       &teamRepo{db: db},
+		membershipRepo: &teamMembershipRepo{db: db},
+	}
 	if err := r.EnsureSchema(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
-	r.userRepo = &userRepo{db: db}
-	r.appRepo = &appRepo{db: db}
-	r.accountRepo = &accountRepo{db: db}
-	r.appProvRepo = &appProviderRepo{db: db}
-	r.authCodeRepo = &authCodeRepo{db: db}
-	r.refreshRepo = &refreshTokenRepo{db: db}
-	r.inviteRepo = &inviteCodeRepo{db: db}
-	r.teamRepo = &teamRepo{db: db}
-	r.membershipRepo = &teamMembershipRepo{db: db}
 	return r, nil
 }
 

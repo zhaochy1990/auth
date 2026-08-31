@@ -237,3 +237,109 @@ func TestMigrateWeChatProviderConfig(t *testing.T) {
 		}
 	}
 }
+
+// TestNewWithLegacyWeChatColumnsDoesNotPanic is a regression test for the
+// nil-pointer crash that occurred when NewWithOptions called EnsureSchema
+// (which runs the WeChat provider-config backfill) before initializing the
+// app-providers sub-repo. It constructs a pre-migration schema with populated
+// legacy wechat_app_id / wechat_app_secret columns, then drives New() — the
+// exact startup path that crashed in production — and verifies the backfill
+// completes successfully.
+func TestNewWithLegacyWeChatColumnsDoesNotPanic(t *testing.T) {
+	ctx := context.Background()
+	adminDSN := testMySQLAdminDSN()
+	normalizedAdminDSN, err := normalizeDSN(adminDSN, Options{})
+	if err != nil {
+		t.Fatalf("invalid TEST_MYSQL_ADMIN_DSN: %v", err)
+	}
+	adminDB, err := sql.Open("mysql", normalizedAdminDSN)
+	if err != nil {
+		t.Fatalf("open admin MySQL connection: %v", err)
+	}
+	t.Cleanup(func() { _ = adminDB.Close() })
+	if err := adminDB.PingContext(ctx); err != nil {
+		t.Skipf("MySQL admin connection unavailable: %v", err)
+	}
+
+	dbName := fmt.Sprintf("auth_repo_test_%d_%d", os.Getpid(), time.Now().UnixNano())
+	if _, err := adminDB.ExecContext(ctx, "CREATE DATABASE "+dbName+" CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
+		t.Fatalf("create isolated test database: %v", err)
+	}
+	t.Cleanup(func() { _, _ = adminDB.ExecContext(context.Background(), "DROP DATABASE "+dbName) })
+
+	userDSN := databaseDSN(adminDSN, dbName)
+	normalizedUserDSN, err := normalizeDSN(userDSN, Options{})
+	if err != nil {
+		t.Fatalf("normalize user DSN: %v", err)
+	}
+	userDB, err := sql.Open("mysql", normalizedUserDSN)
+	if err != nil {
+		t.Fatalf("open user MySQL connection: %v", err)
+	}
+	t.Cleanup(func() { _ = userDB.Close() })
+
+	// Build the pre-migration schema by running the base CREATE TABLEs and
+	// then adding the legacy wechat_app_id / wechat_app_secret columns.
+	for _, stmt := range schemaStatements {
+		if _, err := userDB.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("create base table: %v", err)
+		}
+	}
+	for _, stmt := range []string{
+		"ALTER TABLE auth_applications ADD COLUMN wechat_app_id VARCHAR(128) NULL AFTER allowed_scopes",
+		"ALTER TABLE auth_applications ADD COLUMN wechat_app_secret TEXT NULL AFTER wechat_app_id",
+	} {
+		if _, err := userDB.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("add legacy wechat column: %v", err)
+		}
+	}
+
+	now := time.Now().UTC()
+	appID := uuid.NewString()
+	if _, err := userDB.ExecContext(ctx, `INSERT INTO auth_applications
+		(id, name, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_active, wechat_app_id, wechat_app_secret, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		appID, "Legacy App", "legacy-client", "hash", "[]", "[]", true,
+		"prod-appid", "prod-secret", now, now); err != nil {
+		t.Fatalf("insert legacy app: %v", err)
+	}
+	_ = userDB.Close()
+
+	// Drive New() — the full constructor path that runs EnsureSchema.
+	// Before the fix this panicked on the nil appProvRepo.
+	repo, err := New(ctx, userDSN)
+	if err != nil {
+		t.Fatalf("New() returned error (expected success): %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+
+	// The backfill must have created a wechat provider row.
+	p, err := repo.AppProviders().FindByAppAndProvider(ctx, appID, "wechat")
+	if err != nil {
+		t.Fatalf("find wechat provider: %v", err)
+	}
+	if p == nil {
+		t.Fatal("expected a wechat provider row after New(), got nil")
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(p.Config), &cfg); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	if cfg["appid"] != "prod-appid" {
+		t.Fatalf("appid = %v, want prod-appid", cfg["appid"])
+	}
+	if cfg["secret"] != "prod-secret" {
+		t.Fatalf("secret = %v, want prod-secret", cfg["secret"])
+	}
+
+	// The legacy columns must have been dropped.
+	for _, col := range []string{"wechat_app_id", "wechat_app_secret"} {
+		exists, err := repo.columnExists(ctx, "auth_applications", col)
+		if err != nil {
+			t.Fatalf("check column %s: %v", col, err)
+		}
+		if exists {
+			t.Fatalf("column %s should have been dropped by New()", col)
+		}
+	}
+}
