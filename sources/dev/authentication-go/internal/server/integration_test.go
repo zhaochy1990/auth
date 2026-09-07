@@ -9,6 +9,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"hash/crc64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -26,6 +28,7 @@ import (
 
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/config"
+	"github.com/zhaochy1990/auth-service/internal/cos"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	mysqlrepo "github.com/zhaochy1990/auth-service/internal/repository/mysql"
 	redisstore "github.com/zhaochy1990/auth-service/internal/repository/redis"
@@ -64,6 +67,52 @@ func init() {
 	})
 }
 
+// fakeCosServer is the simulated Tencent Cloud COS object endpoint. It accepts
+// PUT /avatars/<key>, records the object key and Content-Type, and responds with
+// the CRC64 checksum the cos-go-sdk-v5 client verifies (EnableCRC is on).
+type fakeCosServer struct {
+	srv   *httptest.Server
+	mu    sync.Mutex
+	keys  []string
+	types []string
+}
+
+func (f *fakeCosServer) URL() string { return f.srv.URL }
+func (f *fakeCosServer) Close()      { f.srv.Close() }
+func (f *fakeCosServer) lastUpload() (key, contentType string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.keys) == 0 {
+		return "", ""
+	}
+	return f.keys[len(f.keys)-1], f.types[len(f.types)-1]
+}
+
+func newFakeCosServer(t *testing.T) *fakeCosServer {
+	t.Helper()
+	f := &fakeCosServer{}
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		f.mu.Lock()
+		f.keys = append(f.keys, strings.TrimPrefix(r.URL.Path, "/"))
+		f.types = append(f.types, r.Header.Get("Content-Type"))
+		f.mu.Unlock()
+		// The SDK verifies the uploaded bytes against x-cos-hash-crc64ecma.
+		h := crc64.New(crc64.MakeTable(crc64.ECMA))
+		_, _ = h.Write(body)
+		w.Header().Set("x-cos-hash-crc64ecma", strconv.FormatUint(h.Sum64(), 10))
+		w.Header().Set("ETag", strconv.Quote("fake"))
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `<ETag>"fake"</ETag>`)
+	}))
+	t.Cleanup(f.Close)
+	return f
+}
+
 type testApp struct {
 	t            *testing.T
 	repo         *mysqlrepo.Repository
@@ -76,6 +125,7 @@ type testApp struct {
 	adminToken   string
 	wechatSrv    *fakeWeChatServer
 	smsStore     *redisstore.Store
+	fakeCos      *fakeCosServer
 }
 
 // fakeWeChatServer is the simulated code2Session endpoint, recording the
@@ -188,6 +238,11 @@ func newTestAppWithRateLimits(t *testing.T, smsSendLimit, smsVerifyLimit int) *t
 		SMSTestMode:               true, // fixed code 123456, no Tencent call
 		SMSSendRateLimit:          smsSendLimit,
 		SMSVerifyRateLimit:        smsVerifyLimit,
+		TencentCosSecretID:        "test-secret-id",
+		TencentCosSecretKey:       "test-secret-key",
+		TencentCosBucket:          "stride-running-1255867366",
+		TencentCosRegion:          "ap-shanghai",
+		TencentCosBaseURL:         "https://stride-running-1255867366.cos.ap-shanghai.myqcloud.com",
 	}
 	jwtMgr, err := auth.NewJWTManager(cfg)
 	if err != nil {
@@ -197,6 +252,16 @@ func newTestAppWithRateLimits(t *testing.T, smsSendLimit, smsVerifyLimit int) *t
 	// Unconfigured SMS client: test mode never calls it, and the
 	// not-configured path is exercised by flipping SMSTestMode off.
 	smsClient := sms.NewClient(sms.Config{}, "")
+
+	fakeCos := newFakeCosServer(t)
+	cosURL, _ := url.Parse(fakeCos.URL())
+	cosClient := cos.NewClient(cos.Config{
+		SecretID:  cfg.TencentCosSecretID,
+		SecretKey: cfg.TencentCosSecretKey,
+		Bucket:    cfg.TencentCosBucket,
+		Region:    cfg.TencentCosRegion,
+		BaseURL:   cfg.TencentCosBaseURL,
+	}, cosURL)
 
 	pw := "AdminPass1!"
 	res, err := seed.Bootstrap(ctx, repo, "test-admin@internal", &pw)
@@ -238,13 +303,14 @@ func newTestAppWithRateLimits(t *testing.T, smsSendLimit, smsVerifyLimit int) *t
 	return &testApp{
 		t:            t,
 		repo:         repo,
-		engine:       server.NewRouter(repo, jwtMgr, cfg, smsStore, smsClient),
+		engine:       server.NewRouter(repo, jwtMgr, cfg, smsStore, smsClient, cosClient),
 		cfg:          cfg,
 		jwt:          jwtMgr,
 		clientID:     res.AppClientID,
 		clientSecret: secret,
 		wechatSrv:    wechatSrv,
 		smsStore:     smsStore,
+		fakeCos:      fakeCos,
 		adminUserID:  adminUser.ID,
 		adminToken:   adminToken,
 	}

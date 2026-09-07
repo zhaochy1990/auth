@@ -115,6 +115,11 @@ definitions:
           type: string
         type: array
     type: object
+  internal_handlers.avatarUploadResponse:
+    properties:
+      avatar_url:
+        type: string
+    type: object
   internal_handlers.createApplicationRequest:
     properties:
       allowed_scopes:
@@ -2266,6 +2271,42 @@ paths:
       security:
       - BearerAuth: []
       summary: Link an external provider account
+      tags:
+      - users
+  /api/users/me/avatar:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Uploads an avatar image (multipart/form-data, field `file`, \u2264
+        2MB, image/*) to Tencent Cloud COS and returns its public URL.
+      parameters:
+      - description: Avatar image
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.avatarUploadResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Upload the current user's avatar
       tags:
       - users
   /api/users/me/teams:

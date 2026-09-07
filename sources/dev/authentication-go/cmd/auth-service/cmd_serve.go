@@ -12,6 +12,7 @@ import (
 
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/config"
+	"github.com/zhaochy1990/auth-service/internal/cos"
 	"github.com/zhaochy1990/auth-service/internal/repository/redis"
 	"github.com/zhaochy1990/auth-service/internal/server"
 	"github.com/zhaochy1990/auth-service/internal/sms"
@@ -67,7 +68,15 @@ func runServe() error {
 		Region:     cfg.TencentSMSRegion,
 	}, "")
 
-	r := server.NewRouter(repo, jwt, cfg, smsStore, smsClient)
+	cosClient := cos.NewClient(cos.Config{
+		SecretID:  cfg.TencentCosSecretID,
+		SecretKey: cfg.TencentCosSecretKey,
+		Bucket:    cfg.TencentCosBucket,
+		Region:    cfg.TencentCosRegion,
+		BaseURL:   cfg.TencentCosBaseURL,
+	}, nil)
+
+	r := server.NewRouter(repo, jwt, cfg, smsStore, smsClient, cosClient)
 	logger.S().Infow("starting server", "addr", cfg.Addr(), "swagger_enabled", cfg.SwaggerEnabled)
 	if cfg.SwaggerEnabled {
 		logger.S().Infof("swagger UI available at http://%s%s", cfg.Addr(), "/swagger/index.html")

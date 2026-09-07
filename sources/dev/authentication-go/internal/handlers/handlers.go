@@ -14,6 +14,7 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/apperror"
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/config"
+	"github.com/zhaochy1990/auth-service/internal/cos"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/repository"
 	"github.com/zhaochy1990/auth-service/internal/sms"
@@ -29,6 +30,10 @@ type Handler struct {
 	// — an unconfigured client makes send fail with sms_not_configured.
 	SMSStore  repository.SmsCodeStore
 	SMSClient *sms.Client
+	// CosClient wraps Tencent Cloud COS for avatar uploads. Always present
+	// (constructed with the router); an unconfigured client makes the upload
+	// endpoint fail with cos_not_configured.
+	CosClient *cos.Client
 }
 
 // ErrorResponse is the JSON body returned for every error. It mirrors

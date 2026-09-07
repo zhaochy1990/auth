@@ -159,6 +159,13 @@ func SmsProviderError(detail string) *Error {
 	return New(http.StatusBadGateway, "sms_provider_error", "SMS provider error: "+detail)
 }
 
+func CosNotConfigured() *Error {
+	return New(http.StatusBadRequest, "cos_not_configured", "Avatar upload is not configured")
+}
+func CosProviderError(detail string) *Error {
+	return New(http.StatusBadGateway, "cos_provider_error", "COS provider error: "+detail)
+}
+
 // ServiceUnavailable is the fail-closed response when a required backing store
 // (e.g. Redis) is unreachable. SMS send/verify return this rather than falling
 // back to a second store.

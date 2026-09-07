@@ -60,6 +60,16 @@ tencent_sms_region: "ap-beijing"
 sms_send_rate_limit: 10
 sms_verify_rate_limit: 60
 
+# --- Tencent Cloud COS (user avatars) ---
+# Empty values don't block startup; POST /api/users/me/avatar returns
+# cos_not_configured until configured. base_url is the public/CDN endpoint
+# used to build the returned avatar_url (COS box endpoint now, CDN later).
+tencent_cos_secret_id: ""
+tencent_cos_secret_key: ""
+tencent_cos_bucket: "stride-running-1255867366"
+tencent_cos_region: "ap-shanghai"
+tencent_cos_base_url: "https://stride-running-1255867366.cos.ap-shanghai.myqcloud.com"
+
 # --- Logging ---
 # log_level: debug|info|warning|error (empty falls back to debug)
 # log_format: "json" (structured, for log aggregation) or "console"

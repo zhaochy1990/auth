@@ -11,6 +11,7 @@ import (
 
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/config"
+	"github.com/zhaochy1990/auth-service/internal/cos"
 	"github.com/zhaochy1990/auth-service/internal/handlers"
 	"github.com/zhaochy1990/auth-service/internal/middleware"
 	"github.com/zhaochy1990/auth-service/internal/repository"
@@ -21,7 +22,7 @@ import (
 // Redis verification-code store and the Tencent Cloud SMS client; both are
 // required (construct them from config even when SMS is not configured — the
 // endpoints fail with clear errors).
-func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Config, smsStore repository.SmsCodeStore, smsClient *sms.Client) *gin.Engine {
+func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Config, smsStore repository.SmsCodeStore, smsClient *sms.Client, cosClient *cos.Client) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
@@ -33,6 +34,7 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	h := handlers.New(repo, jwt, cfg)
 	h.SMSStore = smsStore
 	h.SMSClient = smsClient
+	h.CosClient = cosClient
 	am := &middleware.Auth{Repo: repo, JWT: jwt}
 
 	// Per-IP sliding-window rate limiters.
@@ -87,6 +89,7 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	{
 		users.GET("/me", h.GetProfile)
 		users.PATCH("/me", h.UpdateProfile)
+		users.POST("/me/avatar", h.UploadAvatar)
 		users.DELETE("/me", h.DeleteMe)
 		users.GET("/me/accounts", h.ListAccounts)
 		users.POST("/me/accounts/:provider_id/link", h.LinkAccount)

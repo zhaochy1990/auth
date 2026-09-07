@@ -70,6 +70,16 @@ type Config struct {
 	SMSSendRateLimit   int `mapstructure:"sms_send_rate_limit"`
 	SMSVerifyRateLimit int `mapstructure:"sms_verify_rate_limit"`
 
+	// Tencent Cloud COS object storage (user avatars). Missing values do not
+	// prevent startup; POST /api/users/me/avatar returns cos_not_configured
+	// until configured. BaseURL is the public/CDN endpoint used to build the
+	// returned avatar_url (the COS box endpoint now, the CDN domain later).
+	TencentCosSecretID  string `mapstructure:"tencent_cos_secret_id"`
+	TencentCosSecretKey string `mapstructure:"tencent_cos_secret_key"`
+	TencentCosBucket    string `mapstructure:"tencent_cos_bucket"`
+	TencentCosRegion    string `mapstructure:"tencent_cos_region"`
+	TencentCosBaseURL   string `mapstructure:"tencent_cos_base_url"`
+
 	// RequireInviteCode gates registration on a valid invite code. Env
 	// override is REQUIRE_INVITE_CODE; the legacy STRIDE_REQUIRE_INVITE_CODE /
 	// AUTH_REQUIRE_INVITE_CODE vars are honored as aliases so existing

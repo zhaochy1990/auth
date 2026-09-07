@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -148,6 +151,82 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 		CustomAttributes:    customAttributesOrEmpty(user.CustomAttributes),
 		CreatedAt:           displayDT(user.CreatedAt),
 	})
+}
+
+const avatarMaxBytes = 2 << 20 // 2 MB
+
+// UploadAvatar stores a mini-program avator image in Tencent Cloud COS and
+// returns its public URL. The mini-program then PATCHes avatar_url with that
+// URL (the existing profile flow). COS credentials stay server-side; the file
+// is never stored in MySQL. Objects are keyed by the user UUID so the key is
+// not guessable and does not leak personal info.
+//
+// @Summary		Upload the current user's avatar
+// @Description	Uploads an avatar image (multipart/form-data, field `file`, \u2264 2MB, image/*) to Tencent Cloud COS and returns its public URL.
+// @Tags			users
+// @Accept			multipart/form-data
+// @Produce		json
+// @Param			file	formData	file	true	"Avatar image"
+// @Success		200			{object}	avatarUploadResponse
+// @Failure		400			{object}	ErrorResponse
+// @Failure		401			{object}	ErrorResponse
+// @Failure		502			{object}	ErrorResponse
+// @Security		BearerAuth
+// @Router			/api/users/me/avatar [post]
+func (h *Handler) UploadAvatar(c *gin.Context) {
+	if !h.CosClient.Configured() {
+		middleware.RespondError(c, apperror.CosNotConfigured())
+		return
+	}
+	file, err := c.FormFile("file")
+	if err != nil {
+		middleware.RespondError(c, apperror.BadRequest("file is required"))
+		return
+	}
+	if file.Size > avatarMaxBytes {
+		middleware.RespondError(c, apperror.BadRequest("avatar file exceeds 2MB"))
+		return
+	}
+	f, err := file.Open()
+	if err != nil {
+		middleware.RespondError(c, apperror.BadRequest("unable to read uploaded file"))
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		middleware.RespondError(c, apperror.BadRequest("unable to read uploaded file"))
+		return
+	}
+	contentType := http.DetectContentType(data)
+	if !strings.HasPrefix(contentType, "image/") {
+		middleware.RespondError(c, apperror.BadRequest("uploaded file must be an image"))
+		return
+	}
+	key := "avatars/" + middleware.UserID(c) + "." + avatarExt(contentType)
+	if err := h.CosClient.Upload(c.Request.Context(), key, bytes.NewReader(data), contentType); err != nil {
+		middleware.RespondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, avatarUploadResponse{AvatarURL: h.CosClient.PublicURL(key)})
+}
+
+func avatarExt(contentType string) string {
+	switch strings.ToLower(contentType) {
+	case "image/png":
+		return "png"
+	case "image/webp":
+		return "webp"
+	case "image/gif":
+		return "gif"
+	default:
+		return "jpg"
+	}
+}
+
+// avatarUploadResponse is the JSON body returned by POST /api/users/me/avatar.
+type avatarUploadResponse struct {
+	AvatarURL string `json:"avatar_url"`
 }
 
 // ListAccounts lists the authenticated user's linked accounts.
