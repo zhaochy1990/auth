@@ -98,10 +98,11 @@ Feature pages keep API calls in `src\api\admin.ts`, shared TypeScript contracts 
 
 A push to `master` runs `release.yml` in three phases: bump-versions (work out
 the next version from this push's diff), build (vendor the Go dependencies, then
-build and push `auth-backend` to GHCR + Aliyun ACR tagged with that version),
+build and push `auth-backend` to Aliyun ACR tagged with that version),
 commit-versions (record it in the root `versions.json`). A failing test blocks
 the build, and the version is only recorded once the image exists.
 
-Tencent production is released via a Renovate PR against `stride-devops` that
-bumps `AUTH_IMAGE_TAG` in that repo's root `versions.env`. The admin dashboard
+Tencent production is released via a PR that `stride-devops`'s own
+`pin-images.yml` opens to bump `AUTH_IMAGE_TAG` in its root `versions.env`;
+this repo only dispatches it. GHCR is no longer published to. The admin dashboard
 and its release workflow live in `stride-devops/admin-dashboard`.
