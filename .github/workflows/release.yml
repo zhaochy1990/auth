@@ -22,9 +22,6 @@ concurrency:
   group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
-env:
-  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/auth-backend
-
 jobs:
   # ── 1. bump-versions ───────────────────────────────────────────────────────
   # Works out the next version of every package this push touched. Writes
@@ -145,16 +142,9 @@ jobs:
           go-version: "1.25"
           cache-dependency-path: sources/dev/authentication-go/go.sum
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Also publish to Aliyun ACR (China mirror) so the Tencent CVM can pull
-      # in-region — GHCR's blob CDN is throttled from mainland China. Host in the
-      # ALIYUN_ACR_REGISTRY repo variable; creds in secrets.
+      # Aliyun ACR only. It is what the Tencent CVM pulls from, and GHCR is no
+      # longer published to. Host in the ALIYUN_ACR_REGISTRY repo variable; creds
+      # in secrets.
       - name: Login to Aliyun ACR
         uses: docker/login-action@v3
         with:
@@ -175,17 +165,13 @@ jobs:
           VERSION: ${{ fromJSON(needs.bump-versions.outputs.packages)[0].version }}
           ACR_IMAGE: ${{ vars.ALIYUN_ACR_REGISTRY }}/stride/auth-backend
         run: |
+          # No `:latest`: versions.env pins an exact tag and nothing consumes a
+          # floating one, so it would only be a drifting second source of truth.
           docker build \
             --build-arg APP_VERSION="$VERSION" \
-            -t "$GHCR_IMAGE:$VERSION" \
-            -t "$GHCR_IMAGE:latest" \
             -t "$ACR_IMAGE:$VERSION" \
-            -t "$ACR_IMAGE:latest" \
             .
-          docker push "$GHCR_IMAGE:$VERSION"
-          docker push "$GHCR_IMAGE:latest"
           docker push "$ACR_IMAGE:$VERSION"
-          docker push "$ACR_IMAGE:latest"
 
   # ── 4. commit-versions ─────────────────────────────────────────────────────
   # Only now, with the image pushed, record the version. Handed phase 1's plan
@@ -203,47 +189,25 @@ jobs:
           packages: ${{ needs.bump-versions.outputs.packages }}
           base-branch: ${{ github.ref_name }}
 
-  # ── 5. renovate ────────────────────────────────────────────────────────────
-  # Renovate clones stride-devops, reads its renovate.json, sees the new CalVer
-  # tag in GHCR, and opens the versions.env bump PR there. Best effort: a missing
-  # token or a Renovate hiccup must NOT fail the publish.
-  #   RENOVATE_TOKEN  — PAT/App token with contents+pull-requests write on
-  #                     zhaochy1990/stride-devops.
-  #   GHCR_READ_TOKEN — read:packages, to list private GHCR tags.
-  # Pin renovate@41 and Node 22 to match.
-  renovate:
-    name: Open version-bump PR in stride-devops
+  # ── 5. open the deploy PR ──────────────────────────────────────────────────
+  # The deploy manifest (stride-devops/versions.env) is owned by stride-devops,
+  # so the workflow that edits it lives there too. This only hands over the plan.
+  pin-images:
+    name: Open deploy PR in stride-devops
     needs: [bump-versions, commit-versions]
     if: needs.bump-versions.outputs.changed != ''
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Open version-bump PR in stride-devops (Renovate)
-        continue-on-error: true
+      - name: Dispatch pin-images
         env:
-          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
-          RENOVATE_HOST_RULES: >-
-            [{"hostType":"docker","matchHost":"ghcr.io","username":"zhaochy1990","password":"${{ secrets.GHCR_READ_TOKEN }}"}]
-          LOG_LEVEL: info
+          # PAT with actions:write (or `repo`) on zhaochy1990/stride-devops.
+          GH_TOKEN: ${{ secrets.DEVOPS_DISPATCH_TOKEN }}
+          PACKAGES: ${{ needs.bump-versions.outputs.packages }}
         run: |
-          if [ -z "$RENOVATE_TOKEN" ]; then
-            echo "RENOVATE_TOKEN not set — skipping Renovate run."
-            exit 0
+          if [ -z "$GH_TOKEN" ]; then
+            echo "DEVOPS_DISPATCH_TOKEN not set — skipping the deploy PR." >&2
+            exit 1
           fi
-          # GHCR's tag-list API can lag a few seconds behind the push we just
-          # made; wait so Renovate reliably sees this release's own new tag.
-          sleep 30
-          # Retry transient registry/network failures: 3 attempts, 10s apart.
-          for attempt in 1 2 3; do
-            if npx --yes renovate@41 zhaochy1990/stride-devops; then
-              exit 0
-            fi
-            echo "Renovate attempt ${attempt} failed."
-            [ "${attempt}" -lt 3 ] && sleep 10
-          done
-          echo "Renovate did not succeed after 3 attempts."
-          exit 1
+          gh workflow run pin-images.yml \
+            -R zhaochy1990/stride-devops \
+            -f packages="$PACKAGES"

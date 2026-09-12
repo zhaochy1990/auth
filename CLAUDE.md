@@ -58,7 +58,7 @@ that was never published. It is handed phase 1's result verbatim and never
 recomputes, so a push landing mid-build cannot skew it.
 
 Seed a new package with its currently deployed version, or numbering restarts
-at `.1` and Renovate reads it as a downgrade.
+at `.1` and the deploy PR reads it as a downgrade.
 
 ## CI/CD Architecture
 
@@ -69,9 +69,10 @@ at `.1` and Renovate reads it as a downgrade.
   filter — change detection is path-based and lives in
   `.github/release-packages.json`, so the workflow has to see the whole push. It
   runs the same lint and test as CI before building, so a failing test blocks the
-  release. Then it pushes the image to GHCR + Aliyun ACR (CalVer + `:latest`),
-  commits `versions.json`, and runs Renovate against `stride-devops` to open an
-  `AUTH_IMAGE_TAG` bump PR.
+  release. Then it pushes the image to Aliyun ACR, commits `versions.json`, and
+  dispatches `stride-devops`'s `pin-images.yml` to open the `AUTH_IMAGE_TAG` bump
+  PR. ACR only: GHCR is no longer published to, and `:latest` is no longer pushed
+  — `versions.env` pins an exact tag and nothing consumes a floating one.
 
 Note the consequence of path-based detection: a `docs`/`chore` commit inside
 `sources/dev/authentication-go/` cuts a release too, unlike the old commit-type
@@ -81,10 +82,11 @@ gating.
 
 Primary target: **Tencent Cloud** (Azure is fully retired).
 
-- **Backend**: Docker container on a Tencent Cloud CVM, pulling the `auth-backend` image from Aliyun ACR (in-region mirror of GHCR). Uses Tencent Cloud MySQL for data persistence. Runs with the production `MYSQL_DSN`, and `MYSQL_TLS_CA_PEM` when the Tencent MySQL instance requires a custom CA. JWT keys are mounted into the container.
+- **Backend**: Docker container on a Tencent Cloud CVM, pulling the `auth-backend` image from Aliyun ACR. Uses Tencent Cloud MySQL for data persistence. Runs with the production `MYSQL_DSN`, and `MYSQL_TLS_CA_PEM` when the Tencent MySQL instance requires a custom CA. JWT keys are mounted into the container.
 - **Frontend**: Owned and released from `stride-devops/admin-dashboard`.
-- **Release**: GitOps via `stride-devops` (root `versions.env`); the backend
-  image tag is bumped by Renovate. No cloud deploy runs from this repo.
+- **Release**: GitOps via `stride-devops` (root `versions.env`); this repo
+  dispatches `stride-devops`'s `pin-images.yml`, which updates the image tag.
+  No cloud deploy runs from this repo.
 
 ## Agent skills
 
