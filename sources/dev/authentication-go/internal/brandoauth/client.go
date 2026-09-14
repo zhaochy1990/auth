@@ -17,10 +17,15 @@ import (
 // brand's stable account id plus the tokens and metadata to persist.
 type Token struct {
 	ProviderAccountID string
-	AccessToken       string
-	RefreshToken      string
-	Scopes            []string
-	ExpiresAt         *time.Time
+	// BindingAppID is the STRIDE application the link was started through. It is
+	// recorded in the metadata so deauthorization later uses the same client
+	// credentials, even when the request comes from a different app (admin
+	// console, account deletion).
+	BindingAppID string
+	AccessToken  string
+	RefreshToken string
+	Scopes       []string
+	ExpiresAt    *time.Time
 	// RawTokenResponse / RawIdentityResponse are the brand's responses, kept
 	// verbatim so a future data-sync integration does not have to re-fetch.
 	RawTokenResponse    json.RawMessage
@@ -35,6 +40,9 @@ func (t *Token) Metadata() json.RawMessage {
 	m := map[string]any{"access_token": t.AccessToken}
 	if t.ExpiresAt != nil {
 		m["expires_at"] = t.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	if t.BindingAppID != "" {
+		m["app_id"] = t.BindingAppID
 	}
 	if len(t.Scopes) > 0 {
 		m["scope"] = strings.Join(t.Scopes, " ")
@@ -110,33 +118,9 @@ func (c *Client) ExchangeCode(ctx context.Context, code, redirectURI string) (*T
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
 	form.Set("redirect_uri", redirectURI)
-	if c.desc.ClientAuthStyle != ClientAuthBasic {
-		form.Set("client_id", c.cfg.ClientID)
-		form.Set("client_secret", c.cfg.ClientSecret)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.desc.baseURL(c.cfg.BaseURL)+c.desc.TokenPath, strings.NewReader(form.Encode()))
+	body, err := c.postForm(ctx, c.desc.TokenPath, form)
 	if err != nil {
-		return nil, oauthProviderError("could not build token request")
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	if c.desc.ClientAuthStyle == ClientAuthBasic {
-		req.SetBasicAuth(c.cfg.ClientID, c.cfg.ClientSecret)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, oauthProviderError("token request failed")
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, oauthProviderError("could not read token response")
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, oauthProviderError(providerErrorDetail(body, resp.StatusCode))
+		return nil, err
 	}
 
 	var raw map[string]any
@@ -191,14 +175,23 @@ func (c *Client) Deauthorize(ctx context.Context, refreshToken string) error {
 
 	form := url.Values{}
 	form.Set("token", refreshToken)
+	_, err := c.postForm(ctx, c.desc.DeauthorizePath, form)
+	return err
+}
+
+// postForm sends an application/x-www-form-urlencoded request to the brand,
+// authenticating the client in the form body or via HTTP Basic per the
+// descriptor, and returns the response body. A non-2xx response becomes an
+// oauth_provider_error carrying the brand's detail.
+func (c *Client) postForm(ctx context.Context, path string, form url.Values) ([]byte, error) {
 	if c.desc.ClientAuthStyle != ClientAuthBasic {
 		form.Set("client_id", c.cfg.ClientID)
 		form.Set("client_secret", c.cfg.ClientSecret)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.desc.baseURL(c.cfg.BaseURL)+c.desc.DeauthorizePath, strings.NewReader(form.Encode()))
+		c.desc.baseURL(c.cfg.BaseURL)+path, strings.NewReader(form.Encode()))
 	if err != nil {
-		return oauthProviderError("could not build deauthorize request")
+		return nil, oauthProviderError("could not build request")
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -207,14 +200,17 @@ func (c *Client) Deauthorize(ctx context.Context, refreshToken string) error {
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return oauthProviderError("deauthorize request failed")
+		return nil, oauthProviderError("request failed")
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return oauthProviderError(providerErrorDetail(body, resp.StatusCode))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, oauthProviderError("could not read response")
 	}
-	return nil
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, oauthProviderError(providerErrorDetail(body, resp.StatusCode))
+	}
+	return body, nil
 }
 
 func (c *Client) fetchUserInfo(ctx context.Context, accessToken string) (json.RawMessage, error) {

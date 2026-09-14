@@ -29,6 +29,23 @@ func TestDefaultRegistryHasCoros(t *testing.T) {
 	}
 }
 
+func TestRegistryWithAddsBrandWithoutMutatingDefault(t *testing.T) {
+	extended := Default().With(TestBrand())
+	if _, ok := extended.Lookup("testbrand"); !ok {
+		t.Fatal("extended registry must contain the test brand")
+	}
+	if _, ok := Default().Lookup("testbrand"); ok {
+		t.Fatal("With must not mutate the default registry")
+	}
+}
+
+func TestTestBrandIsFullyDescribed(t *testing.T) {
+	d := TestBrand()
+	if d.ID == "" || d.DefaultBaseURL == "" || d.TokenPath == "" || d.Token.AccessTokenField == "" {
+		t.Fatalf("test brand descriptor incomplete: %+v", d)
+	}
+}
+
 // --- Config parsing ---
 
 func TestParseConfig(t *testing.T) {
@@ -408,6 +425,20 @@ func TestTokenMetadataPreservesRawResponses(t *testing.T) {
 	}
 	if _, ok := m["raw_identity_response"]; !ok {
 		t.Fatal("raw identity response must be preserved")
+	}
+	if _, ok := m["app_id"]; ok {
+		t.Fatal("app_id must be absent when unset")
+	}
+}
+
+func TestTokenMetadataRecordsBindingAppID(t *testing.T) {
+	tok := &Token{AccessToken: "at", BindingAppID: "app-1"}
+	var m map[string]any
+	if err := json.Unmarshal(tok.Metadata(), &m); err != nil {
+		t.Fatalf("metadata json: %v", err)
+	}
+	if m["app_id"] != "app-1" {
+		t.Fatalf("app_id = %v, want app-1", m["app_id"])
 	}
 }
 

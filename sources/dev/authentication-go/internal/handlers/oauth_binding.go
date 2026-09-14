@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -22,9 +23,14 @@ import (
 // oauthLinkStateTTL bounds how long an authorize URL stays usable.
 const oauthLinkStateTTL = 10 * time.Minute
 
+// Link-outcome error codes carried on the redirect back to the application.
+// access_denied, invalid_request and server_error are the RFC 6749 §4.1.2.1
+// authorization-response codes; account_already_linked is our own business code
+// because the standard has no equivalent.
 const (
-	linkStatusSuccess = "success"
-	linkStatusError   = "error"
+	linkErrInvalidRequest = "invalid_request"
+	linkErrServerError    = "server_error"
+	linkErrAlreadyLinked  = "account_already_linked"
 )
 
 type authorizeAccountRequest struct {
@@ -35,6 +41,36 @@ type authorizeAccountResponse struct {
 	ProviderID   string `json:"provider_id"`
 	AuthorizeURL string `json:"authorize_url"`
 	ExpiresIn    int64  `json:"expires_in"`
+}
+
+// oauthRegistry returns the brand registry (which includes the test brand when
+// the service runs with test providers enabled).
+func (h *Handler) oauthRegistry() *brandoauth.Registry {
+	if h.OAuthRegistry == nil {
+		return brandoauth.Default()
+	}
+	return h.OAuthRegistry
+}
+
+// oauthClient resolves the brand client for one application from its provider
+// config. Shared by the authorize endpoint, the callback and deauthorization so
+// the descriptor lookup and config resolution cannot drift apart.
+func (h *Handler) oauthClient(ctx context.Context, appID, providerID string) (*brandoauth.Client, error) {
+	desc, ok := h.oauthRegistry().Lookup(providerID)
+	if !ok {
+		return nil, apperror.ProviderNotSupported(providerID)
+	}
+	cfg, err := h.oauthProviderConfig(ctx, appID, providerID)
+	if err != nil {
+		return nil, err
+	}
+	return brandoauth.NewClient(desc, cfg, h.Cfg.OAuthMockEnabled, nil), nil
+}
+
+// oauthCallbackURL is this service's public callback for a brand. It is
+// configured, never derived from the request Host.
+func (h *Handler) oauthCallbackURL(providerID string) string {
+	return strings.TrimRight(h.Cfg.OAuthPublicBaseURL, "/") + "/oauth/link/" + providerID + "/callback"
 }
 
 // AuthorizeAccount starts a third-party OAuth2 account link: it mints a
@@ -57,8 +93,7 @@ type authorizeAccountResponse struct {
 func (h *Handler) AuthorizeAccount(c *gin.Context) {
 	ctx := c.Request.Context()
 	providerID := c.Param("provider_id")
-	desc, ok := brandoauth.Default().Lookup(providerID)
-	if !ok {
+	if _, ok := h.oauthRegistry().Lookup(providerID); !ok {
 		middleware.RespondError(c, apperror.ProviderNotSupported(providerID))
 		return
 	}
@@ -80,12 +115,14 @@ func (h *Handler) AuthorizeAccount(c *gin.Context) {
 		middleware.RespondError(c, apperror.ApplicationNotFound())
 		return
 	}
-	cfg, err := h.oauthProviderConfig(ctx, app.ID, providerID)
+	// Resolve the brand config first so an unconfigured provider reports
+	// provider_not_configured rather than a misleading redirect error.
+	client, err := h.oauthClient(ctx, app.ID, providerID)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
 	}
-	if !redirectURIAllowed(app, req.RedirectURI) {
+	if !app.RedirectURIAllowed(req.RedirectURI) {
 		middleware.RespondError(c, apperror.InvalidRedirectURI())
 		return
 	}
@@ -107,36 +144,36 @@ func (h *Handler) AuthorizeAccount(c *gin.Context) {
 		return
 	}
 
-	callbackURL := strings.TrimRight(h.Cfg.OAuthPublicBaseURL, "/") + "/oauth/link/" + providerID + "/callback"
-	client := brandoauth.NewClient(desc, cfg, h.Cfg.OAuthMockEnabled, nil)
 	c.JSON(http.StatusOK, authorizeAccountResponse{
 		ProviderID:   providerID,
-		AuthorizeURL: client.AuthorizeURL(callbackURL, handle),
+		AuthorizeURL: client.AuthorizeURL(h.oauthCallbackURL(providerID), handle),
 		ExpiresIn:    int64(oauthLinkStateTTL.Seconds()),
 	})
 }
 
 // OAuthCallback completes a third-party OAuth2 account link. It is public (the
 // browser carries no Bearer token); the security comes from the single-use
-// state handle minted for the authenticated user. It never renders HTML — it
-// only redirects back to the registered callback URI with a success or failure
-// marker.
+// state handle minted for the authenticated user. It never renders HTML: once
+// the redirect target is trusted, every outcome is a 302 carrying the OAuth2
+// authorization-response parameters (RFC 6749 §4.1.2.1) — success carries no
+// `error`, failures carry `error` / `error_description`. Only when the redirect
+// target itself cannot be trusted (unknown/expired state, unregistered URI)
+// does it respond with a plain 4xx, mirroring §4.1.2.1's "MUST NOT redirect to
+// the invalid redirection URI".
 //
 // @Summary		Third-party OAuth2 link callback
 // @Tags			oauth
 // @Param			provider_id	path		string	true	"Provider id"
 // @Param			code		query		string	false	"Authorization code"
 // @Param			state		query		string	true	"Opaque state handle"
-// @Success		302			"Redirect to the registered callback URI"
+// @Success		302			"Redirect to the registered callback URI (success or error query)"
 // @Failure		400			{object}	ErrorResponse
-// @Failure		502			{object}	ErrorResponse
 // @Failure		503			{object}	ErrorResponse
 // @Router			/oauth/link/{provider_id}/callback [get]
 func (h *Handler) OAuthCallback(c *gin.Context) {
 	ctx := c.Request.Context()
 	providerID := c.Param("provider_id")
-	desc, ok := brandoauth.Default().Lookup(providerID)
-	if !ok {
+	if _, ok := h.oauthRegistry().Lookup(providerID); !ok {
 		middleware.RespondError(c, apperror.ProviderNotSupported(providerID))
 		return
 	}
@@ -163,34 +200,40 @@ func (h *Handler) OAuthCallback(c *gin.Context) {
 		middleware.RespondError(c, err)
 		return
 	}
-	if app == nil || !redirectURIAllowed(app, state.RedirectURI) {
+	// The redirect target must still be one the application registered; if not,
+	// we cannot safely send the browser anywhere.
+	if app == nil || !app.RedirectURIAllowed(state.RedirectURI) {
 		middleware.RespondError(c, apperror.InvalidRedirectURI())
 		return
 	}
 
-	// The user denied (or the brand otherwise reported an error) — send them
-	// back to where they started with a failure marker.
+	// From here the target is trusted: report every business outcome by
+	// redirecting, not by returning a JSON error to the browser.
 	if providerErr := c.Query("error"); providerErr != "" {
-		c.Redirect(http.StatusFound, linkResultURL(state.RedirectURI, linkStatusError, providerID, providerErr))
+		h.redirectLinkResult(c, state.RedirectURI, providerID, providerErr, c.Query("error_description"))
 		return
 	}
 	code := c.Query("code")
 	if code == "" {
-		middleware.RespondError(c, apperror.BadRequest("Missing 'code' parameter"))
+		h.redirectLinkResult(c, state.RedirectURI, providerID, linkErrInvalidRequest, "Missing 'code' parameter")
 		return
 	}
 
-	cfg, err := h.oauthProviderConfig(ctx, app.ID, providerID)
+	client, err := h.oauthClient(ctx, app.ID, providerID)
 	if err != nil {
-		middleware.RespondError(c, err)
+		h.redirectLinkResult(c, state.RedirectURI, providerID, linkErrServerError, "Account linking is not configured")
 		return
 	}
-	client := brandoauth.NewClient(desc, cfg, h.Cfg.OAuthMockEnabled, nil)
-	token, err := client.ExchangeCode(ctx, code, state.RedirectURI)
+	// redirect_uri MUST be identical to the one used in the authorization
+	// request (RFC 6749 §4.1.3) — our callback URL, not the page the user
+	// started from.
+	token, err := client.ExchangeCode(ctx, code, h.oauthCallbackURL(providerID))
 	if err != nil {
-		middleware.RespondError(c, err)
+		logger.S().Warnw("oauth code exchange failed", "provider_id", providerID, "error", err)
+		h.redirectLinkResult(c, state.RedirectURI, providerID, linkErrServerError, "The provider could not complete the link")
 		return
 	}
+	token.BindingAppID = app.ID
 
 	// The brand identity must not already belong to a different STRIDE user.
 	// Re-linking the same identity to the same user is idempotent.
@@ -201,10 +244,11 @@ func (h *Handler) OAuthCallback(c *gin.Context) {
 	}
 	if existing != nil {
 		if existing.ProviderAccountID != nil && *existing.ProviderAccountID == token.ProviderAccountID {
-			c.Redirect(http.StatusFound, linkResultURL(state.RedirectURI, linkStatusSuccess, providerID, ""))
+			h.redirectLinkResult(c, state.RedirectURI, providerID, "", "")
 			return
 		}
-		middleware.RespondError(c, apperror.AccountAlreadyLinked())
+		h.redirectLinkResult(c, state.RedirectURI, providerID, linkErrAlreadyLinked,
+			"This watch account is already linked to another STRIDE account")
 		return
 	}
 	linked, err := h.Repo.Accounts().FindByProviderAccount(ctx, providerID, token.ProviderAccountID)
@@ -213,7 +257,8 @@ func (h *Handler) OAuthCallback(c *gin.Context) {
 		return
 	}
 	if linked != nil {
-		middleware.RespondError(c, apperror.AccountAlreadyLinked())
+		h.redirectLinkResult(c, state.RedirectURI, providerID, linkErrAlreadyLinked,
+			"This watch account is already linked to another STRIDE account")
 		return
 	}
 
@@ -234,25 +279,48 @@ func (h *Handler) OAuthCallback(c *gin.Context) {
 		middleware.RespondError(c, err)
 		return
 	}
-	c.Redirect(http.StatusFound, linkResultURL(state.RedirectURI, linkStatusSuccess, providerID, ""))
+	h.redirectLinkResult(c, state.RedirectURI, providerID, "", "")
+}
+
+// redirectLinkResult sends the browser back to the application's registered URI
+// with the link outcome as OAuth2 authorization-response parameters. An empty
+// errCode marks success; otherwise error / error_description are set.
+func (h *Handler) redirectLinkResult(c *gin.Context, redirectURI, providerID, errCode, errDescription string) {
+	u, err := url.Parse(redirectURI)
+	if err != nil {
+		middleware.RespondError(c, apperror.InvalidRedirectURI())
+		return
+	}
+	q := u.Query()
+	q.Set("provider_id", providerID)
+	if errCode != "" {
+		q.Set("error", errCode)
+		if errDescription != "" {
+			q.Set("error_description", errDescription)
+		}
+	}
+	u.RawQuery = q.Encode()
+	c.Redirect(http.StatusFound, u.String())
 }
 
 // revokeOAuthAccount best-effort asks the brand to revoke a linked account's
-// grant. It is shared by self-unlink, admin unlink and account deletion.
-// Failures are logged, never returned: the local unlink must still succeed.
-func (h *Handler) revokeOAuthAccount(ctx context.Context, account *domain.Account, appClientID string) {
-	if account == nil || appClientID == "" {
+// grant. It is shared by self-unlink, admin unlink and account deletion and
+// resolves the credentials from the application the link was created through
+// (recorded in the metadata), not the application making the request. Failures
+// are logged, never returned: the local unlink must still succeed.
+func (h *Handler) revokeOAuthAccount(ctx context.Context, account *domain.Account) {
+	if account == nil {
 		return
 	}
-	desc, ok := brandoauth.Default().Lookup(account.ProviderID)
+	desc, ok := h.oauthRegistry().Lookup(account.ProviderID)
 	if !ok {
 		return
 	}
-	app, err := h.Repo.Applications().FindByClientID(ctx, appClientID)
-	if err != nil || app == nil {
+	appID := bindingAppID(account.ProviderMetadata)
+	if appID == "" {
 		return
 	}
-	cfg, err := h.oauthProviderConfig(ctx, app.ID, account.ProviderID)
+	cfg, err := h.oauthProviderConfig(ctx, appID, account.ProviderID)
 	if err != nil {
 		return
 	}
@@ -267,6 +335,18 @@ func (h *Handler) revokeOAuthAccount(ctx context.Context, account *domain.Accoun
 	}
 }
 
+// bindingAppID reads the application id a link was created through from the
+// account metadata.
+func bindingAppID(metadata string) string {
+	var m struct {
+		AppID string `json:"app_id"`
+	}
+	if err := json.Unmarshal([]byte(metadata), &m); err != nil {
+		return ""
+	}
+	return m.AppID
+}
+
 // oauthProviderConfig loads the brand configuration for one application. It is
 // shared by the authorize endpoint, the callback and the deauthorize helper.
 func (h *Handler) oauthProviderConfig(ctx context.Context, appID, providerID string) (brandoauth.Config, error) {
@@ -278,33 +358,4 @@ func (h *Handler) oauthProviderConfig(ctx context.Context, appID, providerID str
 		return brandoauth.Config{}, apperror.ProviderNotConfigured()
 	}
 	return brandoauth.ParseConfig(provider.Config)
-}
-
-// redirectURIAllowed reports whether uri is one of the application's registered
-// callback URIs (exact match). This is the open-redirect guard for the link
-// flow; the existing OAuth2 token endpoint is intentionally left unchanged.
-func redirectURIAllowed(app *domain.Application, uri string) bool {
-	for _, registered := range auth.DecodeStringArray(app.RedirectURIs) {
-		if registered == uri {
-			return true
-		}
-	}
-	return false
-}
-
-// linkResultURL appends the link outcome marker to the registered callback URI,
-// preserving any query it already carries.
-func linkResultURL(redirectURI, status, providerID, detail string) string {
-	u, err := url.Parse(redirectURI)
-	if err != nil {
-		return redirectURI
-	}
-	q := u.Query()
-	q.Set("link_status", status)
-	q.Set("provider_id", providerID)
-	if status == linkStatusError && detail != "" {
-		q.Set("link_error", detail)
-	}
-	u.RawQuery = q.Encode()
-	return u.String()
 }

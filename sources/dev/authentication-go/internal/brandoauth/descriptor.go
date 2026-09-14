@@ -101,6 +101,20 @@ func (r *Registry) Lookup(id string) (Descriptor, bool) {
 	return d, ok
 }
 
+// With returns a copy of the registry with additional descriptors. It is used
+// to add the test brand when the service runs with test providers enabled,
+// without mutating the production registry.
+func (r *Registry) With(descs ...Descriptor) *Registry {
+	out := &Registry{byID: make(map[string]Descriptor, len(r.byID)+len(descs))}
+	for id, d := range r.byID {
+		out.byID[id] = d
+	}
+	for _, d := range descs {
+		out.byID[d.ID] = d
+	}
+	return out
+}
+
 func (d Descriptor) scopeSeparator() string {
 	if d.ScopeSeparator == "" {
 		return " "

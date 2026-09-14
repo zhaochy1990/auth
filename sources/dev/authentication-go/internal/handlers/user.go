@@ -14,7 +14,6 @@ import (
 
 	"github.com/zhaochy1990/auth-service/internal/apperror"
 	"github.com/zhaochy1990/auth-service/internal/auth/providers"
-	"github.com/zhaochy1990/auth-service/internal/brandoauth"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/middleware"
 )
@@ -278,7 +277,7 @@ func (h *Handler) LinkAccount(c *gin.Context) {
 	// Providers on the OAuth2 linking layer are driven by a browser redirect,
 	// not by a submitted credential; point callers at the right endpoint
 	// instead of the unhelpful "provider not supported".
-	if _, ok := brandoauth.Default().Lookup(providerID); ok {
+	if _, ok := h.oauthRegistry().Lookup(providerID); ok {
 		middleware.RespondError(c, apperror.BadRequest(
 			"This provider requires OAuth authorization; use POST /api/users/me/accounts/"+providerID+"/authorize"))
 		return
@@ -402,7 +401,7 @@ func (h *Handler) UnlinkAccount(c *gin.Context) {
 	}
 	// Best-effort: ask the brand to revoke the grant before dropping the local
 	// row. A failure here must not block the unlink.
-	h.revokeOAuthAccount(ctx, target, middleware.ClientID(c))
+	h.revokeOAuthAccount(ctx, target)
 	if err := h.Repo.Accounts().DeleteByID(ctx, target.ID); err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -424,7 +423,7 @@ func (h *Handler) UnlinkAccount(c *gin.Context) {
 // @Security		BearerAuth
 // @Router			/api/users/me [delete]
 func (h *Handler) DeleteMe(c *gin.Context) {
-	if err := h.deleteUserAccount(c.Request.Context(), middleware.UserID(c), middleware.ClientID(c)); err != nil {
+	if err := h.deleteUserAccount(c.Request.Context(), middleware.UserID(c)); err != nil {
 		middleware.RespondError(c, err)
 		return
 	}
@@ -432,10 +431,8 @@ func (h *Handler) DeleteMe(c *gin.Context) {
 }
 
 // deleteUserAccount removes a user and all dependent rows, refusing if the user
-// still owns any team. Shared by self-delete and admin delete. appClientID
-// identifies the calling application whose provider config is used for the
-// best-effort brand deauthorization that precedes deleting the account rows.
-func (h *Handler) deleteUserAccount(ctx context.Context, userID, appClientID string) error {
+// still owns any team. Shared by self-delete and admin delete.
+func (h *Handler) deleteUserAccount(ctx context.Context, userID string) error {
 	user, err := h.Repo.Users().FindByID(ctx, userID)
 	if err != nil {
 		return err
@@ -455,7 +452,7 @@ func (h *Handler) deleteUserAccount(ctx context.Context, userID, appClientID str
 		return err
 	}
 	for i := range accounts {
-		h.revokeOAuthAccount(ctx, &accounts[i], appClientID)
+		h.revokeOAuthAccount(ctx, &accounts[i])
 	}
 	if err := h.Repo.RefreshTokens().DeleteAllByUser(ctx, userID); err != nil {
 		return err

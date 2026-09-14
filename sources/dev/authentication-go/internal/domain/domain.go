@@ -6,6 +6,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -203,6 +204,25 @@ type Application struct {
 	IsActive         bool
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+// RedirectURIAllowed reports whether uri exactly matches one of the
+// application's registered redirect URIs. Exact matching is required by RFC
+// 9700 §2.1; a malformed or empty list allows nothing.
+func (a *Application) RedirectURIAllowed(uri string) bool {
+	if uri == "" {
+		return false
+	}
+	var registered []string
+	if err := json.Unmarshal([]byte(a.RedirectURIs), &registered); err != nil {
+		return false
+	}
+	for _, r := range registered {
+		if r == uri {
+			return true
+		}
+	}
+	return false
 }
 
 // AppProvider is an auth-provider configuration attached to an Application.

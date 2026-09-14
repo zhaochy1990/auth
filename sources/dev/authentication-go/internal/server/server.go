@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/zhaochy1990/auth-service/internal/auth"
+	"github.com/zhaochy1990/auth-service/internal/brandoauth"
 	"github.com/zhaochy1990/auth-service/internal/config"
 	"github.com/zhaochy1990/auth-service/internal/cos"
 	"github.com/zhaochy1990/auth-service/internal/handlers"
@@ -37,6 +38,11 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	// different store is injected the link endpoints fail closed (503).
 	if stateStore, ok := smsStore.(repository.OAuthStateStore); ok {
 		h.OAuthStateStore = stateStore
+	}
+	// With test providers enabled, register the test brand so integration tests
+	// can exercise provider-parameterized guards (e.g. cross-provider state).
+	if cfg.EnableTestProviders {
+		h.OAuthRegistry = brandoauth.Default().With(brandoauth.TestBrand())
 	}
 	h.SMSClient = smsClient
 	h.CosClient = cosClient

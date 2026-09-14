@@ -298,9 +298,14 @@ descriptor plus a provider config row.
   minutes) and returns the brand's `authorize_url`. The redirect URI must be on
   the calling application's registered `redirect_uris` list.
 - The user approves at the brand and returns to the public
-  `GET /oauth/link/{provider_id}/callback`, which exchanges the code, validates
-  the state (single use, same provider) and redirects back to the registered URI
-  with `link_status=success` or `link_status=error&link_error=...`.
+  `GET /oauth/link/{provider_id}/callback`, which exchanges the code (sending
+  the same redirect URI used for authorization, per RFC 6749 §4.1.3) and
+  redirects back to the registered URI. Once the redirect target is trusted,
+  every outcome is a 302 carrying the OAuth2 authorization-response parameters
+  (RFC 6749 §4.1.2.1): success has no `error`; failures set `error` /
+  `error_description` (`access_denied`, `server_error`, `account_already_linked`,
+  ...). Only an unknown/expired state or an unregistered redirect URI returns a
+  plain 400 (we cannot trust the target).
 - Credentials are per application: configure the brand on `auth_app_providers`
   via `POST /admin/applications/{id}/providers` with
   `config: {"client_id":"...","client_secret":"...","scopes":[...],"base_url":"...","authorize_params":{...},"mock":false}`.
@@ -310,13 +315,16 @@ descriptor plus a provider config row.
   account deletion) deletes locally first and best-effort asks the brand to
   revoke the grant; a failed revocation never blocks the unlink.
 - Tokens are stored in plaintext (`credential` = refresh token,
-  `provider_metadata` = access token, expiry, scope and the brand's raw
-  responses), matching the existing WeChat-secret precedent; encryption at rest
-  is a separate follow-up. The brand's stable user id is required
-  (`provider_account_id`) so one watch identity cannot bind two STRIDE users.
+  `provider_metadata` = access token, expiry, scope, the binding app id
+  (`app_id`, so revocation uses the credentials that created the link) and the
+  brand's raw responses), matching the existing WeChat-secret precedent;
+  encryption at rest is a separate follow-up. The brand's stable user id is
+  required (`provider_account_id`) so one watch identity cannot bind two STRIDE
+  users.
 
-Missing credentials make the endpoints return `400 provider_not_configured`;
-an unreachable brand returns `502 oauth_provider_error`. See
+Missing credentials make the authorize endpoint return `400
+provider_not_configured`; a brand that cannot complete the exchange is reported
+back to the application as `error=server_error`. See
 `docs/adr/0008-third-party-watch-oauth-account-linking.md`.
 
 ### SMS verification-code login (mainland-China phone numbers)

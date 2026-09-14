@@ -63,7 +63,14 @@ func newFakeBrandServer(t *testing.T) *fakeBrandServer {
 		f.code = append(f.code, code)
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"accessToken":"at-` + code + `","refreshToken":"rt-` + code + `","expiresIn":3600,"openId":"coros-` + code + `"}`))
+		_, _ = w.Write([]byte(`{"accessToken":"at-` + code + `","refreshToken":"rt-` + code + `","expiresIn":3600}`))
+	})
+	mux.HandleFunc("/oauth/userinfo", func(w http.ResponseWriter, r *http.Request) {
+		// The access token carries the code so the identity is deterministic and
+		// the test exercises the userinfo (no user id in the token response) path.
+		id := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer at-")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"openId":"coros-` + id + `"}`))
 	})
 	mux.HandleFunc("/oauth/deauthorize", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
@@ -229,8 +236,8 @@ func TestCallbackSuccessStoresTokensAndRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse location: %v", err)
 	}
-	if loc.Query().Get("link_status") != "success" {
-		t.Fatalf("redirect = %q, want link_status=success", w.Header().Get("Location"))
+	if loc.Query().Get("error") != "" {
+		t.Fatalf("redirect = %q, want no error on success", w.Header().Get("Location"))
 	}
 	if loc.Query().Get("provider_id") != "coros" {
 		t.Fatalf("redirect = %q, want provider_id=coros", w.Header().Get("Location"))
@@ -265,6 +272,15 @@ func TestCallbackSuccessStoresTokensAndRedirects(t *testing.T) {
 	}
 	if _, ok := meta["raw_token_response"]; !ok {
 		t.Fatal("metadata must preserve the raw token response")
+	}
+	if _, ok := meta["raw_identity_response"]; !ok {
+		t.Fatal("metadata must preserve the raw identity response")
+	}
+	if _, ok := meta["expires_at"]; !ok {
+		t.Fatal("metadata must record the token expiry")
+	}
+	if meta["app_id"] == nil || meta["app_id"] == "" {
+		t.Fatalf("metadata must record the binding app id, got %v", meta["app_id"])
 	}
 }
 
@@ -301,8 +317,12 @@ func TestCallbackRejectsCrossProviderState(t *testing.T) {
 
 	_, state := ta.startCorosAuthorize(t, token, "https://app.example/oauth/done")
 	// The same handle replayed against a different provider path is rejected.
-	w := ta.callback("garmin", "code-1", state)
+	// A handle minted for one provider is rejected at another registered
+	// provider's callback (the test brand is registered because the harness
+	// enables test providers).
+	w := ta.callback("testbrand", "code-1", state)
 	mustStatus(t, w, http.StatusBadRequest)
+	assertErrorCode(t, w, "invalid_oauth_state")
 }
 
 func TestCallbackConflictWhenIdentityBoundToAnotherUser(t *testing.T) {
@@ -319,8 +339,8 @@ func TestCallbackConflictWhenIdentityBoundToAnotherUser(t *testing.T) {
 	user2 := ta.registerUser(t, "owner-2@example.com")
 	_, state2 := ta.startCorosAuthorize(t, user2, "https://app.example/oauth/done")
 	w := ta.callback("coros", "shared", state2)
-	mustStatus(t, w, http.StatusConflict)
-	assertErrorCode(t, w, "account_already_linked")
+	mustStatus(t, w, http.StatusFound)
+	assertLinkError(t, w, "account_already_linked")
 }
 
 func TestCallbackProviderErrorRedirectsWithFailure(t *testing.T) {
@@ -333,12 +353,24 @@ func TestCallbackProviderErrorRedirectsWithFailure(t *testing.T) {
 	w := ta.do(http.MethodGet, "/oauth/link/coros/callback?error=access_denied&state="+url.QueryEscape(state), nil, nil)
 	mustStatus(t, w, http.StatusFound)
 	loc, _ := url.Parse(w.Header().Get("Location"))
-	if loc.Query().Get("link_status") != "error" || loc.Query().Get("link_error") != "access_denied" {
-		t.Fatalf("redirect = %q, want error marker", w.Header().Get("Location"))
+	if loc.Query().Get("error") != "access_denied" {
+		t.Fatalf("redirect = %q, want error=access_denied", w.Header().Get("Location"))
 	}
 }
 
-func TestCallbackExchangeFailureIsProviderError(t *testing.T) {
+func TestCallbackMissingCodeRedirectsWithInvalidRequest(t *testing.T) {
+	ta := newTestApp(t)
+	fake := newFakeBrandServer(t)
+	ta.configureCorosProvider(t, fake.URL(), nil)
+	token := ta.registerUser(t, "no-code@example.com")
+
+	_, state := ta.startCorosAuthorize(t, token, "https://app.example/oauth/done")
+	w := ta.callback("coros", "", state)
+	mustStatus(t, w, http.StatusFound)
+	assertLinkError(t, w, "invalid_request")
+}
+
+func TestCallbackExchangeFailureRedirectsWithServerError(t *testing.T) {
 	ta := newTestApp(t)
 	// A brand server whose token endpoint rejects the code.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -351,8 +383,8 @@ func TestCallbackExchangeFailureIsProviderError(t *testing.T) {
 
 	_, state := ta.startCorosAuthorize(t, token, "https://app.example/oauth/done")
 	w := ta.callback("coros", "bad-code", state)
-	mustStatus(t, w, http.StatusBadGateway)
-	assertErrorCode(t, w, "oauth_provider_error")
+	mustStatus(t, w, http.StatusFound)
+	assertLinkError(t, w, "server_error")
 }
 
 // --- Unlink / deauthorize ---
@@ -373,6 +405,47 @@ func TestUnlinkCallsProviderDeauthorize(t *testing.T) {
 	tokens := fake.deauthorizedTokens()
 	if len(tokens) != 1 || tokens[0] != "rt-code-9" {
 		t.Fatalf("deauthorized tokens = %v, want [rt-code-9]", tokens)
+	}
+}
+
+// TestAdminUnlinkDeauthorizesViaBindingApp covers the case the credentials live
+// on the app that created the link, while the caller is a different app (admin
+// console): deauthorization must resolve the binding app from the account
+// metadata, not from the calling token.
+func TestAdminUnlinkDeauthorizesViaBindingApp(t *testing.T) {
+	ta := newTestApp(t)
+	fake := newFakeBrandServer(t)
+	ta.configureCorosProvider(t, fake.URL(), nil)
+	token := ta.registerUser(t, "admin-unlink@example.com")
+	_, state := ta.startCorosAuthorize(t, token, "https://app.example/oauth/done")
+	if w := ta.callback("coros", "code-7", state); w.Code != http.StatusFound {
+		t.Fatalf("bind status = %d", w.Code)
+	}
+
+	// A second application the admin request is issued through. It has no coros
+	// provider config, so only the binding app's metadata can drive revocation.
+	ctx := context.Background()
+	now := time.Now().UTC()
+	other := &domain.Application{
+		ID: uuid.NewString(), Name: "other-app", ClientID: "other-client",
+		ClientSecretHash: "x", RedirectURIs: "[]", AllowedScopes: "[]",
+		IsActive: true, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := ta.repo.Applications().Insert(ctx, other); err != nil {
+		t.Fatalf("insert second app: %v", err)
+	}
+	adminToken, err := ta.jwt.IssueAccessToken(ta.adminUserID, "other-client", []string{"admin"}, "admin",
+		domain.MembershipRegular, domain.UserTypeRegular, nil)
+	if err != nil {
+		t.Fatalf("issue admin token: %v", err)
+	}
+
+	userID := ta.userIDFromToken(t, token)
+	w := ta.do(http.MethodDelete, "/admin/users/"+userID+"/accounts/coros", nil, ta.bearer(adminToken))
+	mustStatus(t, w, http.StatusOK)
+	tokens := fake.deauthorizedTokens()
+	if len(tokens) != 1 || tokens[0] != "rt-code-7" {
+		t.Fatalf("deauthorized tokens = %v, want [rt-code-7]", tokens)
 	}
 }
 
@@ -480,6 +553,20 @@ func assertErrorCode(t *testing.T, w *httptest.ResponseRecorder, want string) {
 	decode(t, w, &body)
 	if body.Error != want {
 		t.Fatalf("error = %q, want %q (body: %s)", body.Error, want, w.Body.String())
+	}
+}
+
+func assertLinkError(t *testing.T, w *httptest.ResponseRecorder, want string) {
+	t.Helper()
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302 (body: %s)", w.Code, w.Body.String())
+	}
+	loc, err := url.Parse(w.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse location: %v", err)
+	}
+	if got := loc.Query().Get("error"); got != want {
+		t.Fatalf("link error = %q, want %q (location: %s)", got, want, loc)
 	}
 }
 

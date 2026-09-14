@@ -1,4 +1,6 @@
-// Package redis implements the repository.SmsCodeStore interface against Redis.
+// Package redis implements the repository.SmsCodeStore interface against Redis
+// and the repository.OAuthStateStore interface for third-party OAuth2 link
+// state.
 //
 // Verification codes are stored under three keys per phone:
 //
@@ -11,6 +13,9 @@
 // surfaces as a 503 service_unavailable apperror so the SMS endpoints never
 // fall back to a second store. Consume and attempt accounting are atomic Lua
 // scripts, so concurrent verifies cannot both consume the same code.
+//
+// Third-party OAuth2 link state (oauth:state:{handle}) is single-use, TTL-bound
+// and consumed atomically, and also fails closed; see oauth_state.go.
 package redis
 
 import (
