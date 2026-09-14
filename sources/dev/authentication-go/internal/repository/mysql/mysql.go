@@ -203,6 +203,76 @@ func (r *Repository) InviteCodes() repository.InviteCodeRepository         { ret
 func (r *Repository) Teams() repository.TeamRepository                     { return r.teamRepo }
 func (r *Repository) TeamMemberships() repository.TeamMembershipRepository { return r.membershipRepo }
 
+// DeleteUser removes a user and every dependent row in one transaction. When
+// the target is an active administrator it first locks the active-admin rows
+// (SELECT ... FOR UPDATE) and refuses if it is the last one, so two concurrent
+// admin deletions cannot both pass the check and leave zero administrators
+// (which would lock everyone out of the console).
+func (r *Repository) DeleteUser(ctx context.Context, userID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return dbErr(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	adminIDs, err := lockActiveAdminIDs(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if isActiveAdmin(adminIDs, userID) && len(adminIDs) <= 1 {
+		return apperror.LastAdmin()
+	}
+
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{"DELETE FROM auth_refresh_tokens WHERE user_id = ?", []any{userID}},
+		{"DELETE FROM auth_auth_codes WHERE user_id = ?", []any{userID}},
+		{"DELETE FROM auth_accounts WHERE user_id = ?", []any{userID}},
+		{"DELETE FROM auth_user_wechat_links WHERE user_id = ?", []any{userID}},
+		{"DELETE FROM auth_team_memberships WHERE user_id = ?", []any{userID}},
+		{"UPDATE auth_invite_codes SET used_by = NULL WHERE used_by = ?", []any{userID}},
+		{"UPDATE auth_invite_codes SET created_by = NULL WHERE created_by = ?", []any{userID}},
+		{"DELETE FROM auth_users WHERE id = ?", []any{userID}},
+	}
+	for _, stmt := range statements {
+		if _, err := tx.ExecContext(ctx, stmt.query, stmt.args...); err != nil {
+			return dbErr(err)
+		}
+	}
+	return dbErr(tx.Commit())
+}
+
+// lockActiveAdminIDs locks every active admin row (and the role-index gap) for
+// the rest of the transaction and returns their ids. Locking the same ordered
+// set in every call serializes concurrent admin deletions instead of deadlocking.
+func lockActiveAdminIDs(ctx context.Context, tx *sql.Tx) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM auth_users WHERE role = ? AND is_active = TRUE FOR UPDATE", "admin")
+	if err != nil {
+		return nil, dbErr(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, dbErr(err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, dbErr(rows.Err())
+}
+
+func isActiveAdmin(ids []string, userID string) bool {
+	for _, id := range ids {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}
+
 // EnsureSchema creates the MySQL schema used by the auth service.
 func (r *Repository) EnsureSchema(ctx context.Context) error {
 	for _, stmt := range schemaStatements {
@@ -231,6 +301,11 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 	if err := r.ensureColumn(ctx, "auth_users", "phone", "VARCHAR(20) NULL AFTER email_lookup"); err != nil {
 		return err
 	}
+	// A deleted user leaves no dangling id on invite codes; making created_by
+	// nullable lets DeleteUser null both reference columns.
+	if err := r.ensureNullable(ctx, "auth_invite_codes", "created_by", "VARCHAR(64) NULL"); err != nil {
+		return err
+	}
 	return r.ensureIndex(ctx, "auth_users", "uq_auth_users_phone", "UNIQUE", []string{"phone"})
 }
 
@@ -241,6 +316,18 @@ func (r *Repository) ensureColumn(ctx context.Context, table, column, definition
 		return err
 	}
 	_, err = r.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition))
+	return err
+}
+
+// ensureNullable relaxes a NOT NULL column to nullable, leaving an already-nullable
+// column untouched. It is a no-op on a database created with the current schema.
+func (r *Repository) ensureNullable(ctx context.Context, table, column, definition string) error {
+	var isNullable string
+	err := r.db.QueryRowContext(ctx, `SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, table, column).Scan(&isNullable)
+	if err != nil || isNullable == "YES" {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s", table, column, definition))
 	return err
 }
 
@@ -490,7 +577,7 @@ var schemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS auth_invite_codes (
 		id VARCHAR(64) NOT NULL PRIMARY KEY,
 		code VARCHAR(64) NOT NULL,
-		created_by VARCHAR(64) NOT NULL,
+		created_by VARCHAR(64) NULL,
 		created_at DATETIME(6) NOT NULL,
 		used_at DATETIME(6) NULL,
 		used_by VARCHAR(64) NULL,
@@ -1306,11 +1393,12 @@ type inviteCodeRepo struct{ db dbConn }
 func scanInviteCode(s rowScanner) (*domain.InviteCode, error) {
 	var c domain.InviteCode
 	var usedAt sql.NullTime
-	var usedBy, kind, grants, grantsUserType sql.NullString
+	var createdBy, usedBy, kind, grants, grantsUserType sql.NullString
 	var grantDays sql.NullInt64
-	if err := s.Scan(&c.ID, &c.Code, &c.CreatedBy, &c.CreatedAt, &usedAt, &usedBy, &c.IsRevoked, &kind, &grants, &grantDays, &grantsUserType); err != nil {
+	if err := s.Scan(&c.ID, &c.Code, &createdBy, &c.CreatedAt, &usedAt, &usedBy, &c.IsRevoked, &kind, &grants, &grantDays, &grantsUserType); err != nil {
 		return nil, err
 	}
+	c.CreatedBy = createdBy.String
 	c.CreatedAt = c.CreatedAt.UTC()
 	c.UsedAt = ptrTime(usedAt)
 	c.UsedBy = ptrString(usedBy)
@@ -1448,6 +1536,10 @@ func (r *inviteCodeRepo) Revoke(ctx context.Context, code string) error {
 	_, err = r.db.ExecContext(ctx, "UPDATE auth_invite_codes SET is_revoked = TRUE WHERE code = ?", code)
 	return dbErr(err)
 }
+
+// ClearUserReferences is folded into the transactional Repository.DeleteUser;
+// the direct method was removed to keep invite-code cleanup inside the same
+// transaction as the rest of the account teardown.
 
 const teamColumns = `id, name, description, owner_user_id, is_open, created_at, updated_at`
 

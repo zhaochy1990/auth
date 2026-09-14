@@ -149,3 +149,80 @@ func TestAvatarUploadNoToken(t *testing.T) {
 	w := uploadAvatar(t, ta, "", "me.jpg", testJPEGBytes)
 	mustStatus(t, w, http.StatusUnauthorized)
 }
+
+// Deleting the account removes the avatar object from COS, derived from the
+// stored avatar_url, not just the database row.
+func TestAvatarDeletedWithAccount(t *testing.T) {
+	ta := newTestApp(t)
+	token := ta.registerUser(t, "avatar-delete@example.com")
+	claims, err := ta.jwt.VerifyAccessToken(token)
+	if err != nil {
+		t.Fatalf("verify token: %v", err)
+	}
+
+	up := uploadAvatar(t, ta, token, "me.jpg", testJPEGBytes)
+	mustStatus(t, up, http.StatusOK)
+	var resp avatarURLResponse
+	decode(t, up, &resp)
+
+	patch := ta.do(http.MethodPatch, "/api/users/me", map[string]any{"avatar_url": resp.AvatarURL}, ta.bearer(token))
+	mustStatus(t, patch, http.StatusOK)
+
+	del := ta.do(http.MethodDelete, "/api/users/me", nil, ta.bearer(token))
+	mustStatus(t, del, http.StatusNoContent)
+
+	want := "avatars/" + claims.Sub + ".jpg"
+	deleted := ta.fakeCos.deletedKeys()
+	if len(deleted) != 1 || deleted[0] != want {
+		t.Fatalf("deleted COS keys = %v, want [%s]", deleted, want)
+	}
+}
+
+// An unrelated object URL on the user row must never be deleted.
+func TestAvatarDeleteIgnoresForeignURL(t *testing.T) {
+	ta := newTestApp(t)
+	token := ta.registerUser(t, "avatar-foreign@example.com")
+
+	patch := ta.do(http.MethodPatch, "/api/users/me", map[string]any{
+		"avatar_url": "https://cdn.example.com/someone-else/photo.jpg",
+	}, ta.bearer(token))
+	mustStatus(t, patch, http.StatusOK)
+
+	del := ta.do(http.MethodDelete, "/api/users/me", nil, ta.bearer(token))
+	mustStatus(t, del, http.StatusNoContent)
+	if deleted := ta.fakeCos.deletedKeys(); len(deleted) != 0 {
+		t.Fatalf("deleted COS keys = %v, want none for a foreign URL", deleted)
+	}
+}
+
+// A stored avatar_url that sits in the user's namespace but has a traversal tail
+// (or is a prefix-sibling of another user's id) must never delete an object.
+func TestAvatarDeleteRejectsTraversalShapedKey(t *testing.T) {
+	ta := newTestApp(t)
+	// (email suffix, avatar_url builder). The uid depends on the registered user,
+	// so build the URL after registration.
+	cases := []struct {
+		email string
+		url   func(uid string) string
+	}{
+		{"avatar-traversal-dots@example.com", func(uid string) string { return "https://cdn.example.com/avatars/" + uid + ".png/../../victim.png" }},
+		{"avatar-traversal-extra@example.com", func(uid string) string { return "https://cdn.example.com/avatars/" + uid + ".png/extra" }},
+		{"avatar-prefix-sibling@example.com", func(uid string) string { return "https://cdn.example.com/avatars/" + uid + "2.png" }},
+	}
+	for i, tc := range cases {
+		token := ta.registerUser(t, tc.email)
+		claims, err := ta.jwt.VerifyAccessToken(token)
+		if err != nil {
+			t.Fatalf("case %d verify token: %v", i, err)
+		}
+		patch := ta.do(http.MethodPatch, "/api/users/me", map[string]any{"avatar_url": tc.url(claims.Sub)}, ta.bearer(token))
+		mustStatus(t, patch, http.StatusOK)
+
+		before := len(ta.fakeCos.deletedKeys())
+		del := ta.do(http.MethodDelete, "/api/users/me", nil, ta.bearer(token))
+		mustStatus(t, del, http.StatusNoContent)
+		if after := len(ta.fakeCos.deletedKeys()); after != before {
+			t.Fatalf("case %d (%s): deleted %v, want no COS deletion", i, tc.email, ta.fakeCos.deletedKeys()[before:])
+		}
+	}
+}

@@ -71,10 +71,11 @@ func init() {
 // PUT /avatars/<key>, records the object key and Content-Type, and responds with
 // the CRC64 checksum the cos-go-sdk-v5 client verifies (EnableCRC is on).
 type fakeCosServer struct {
-	srv   *httptest.Server
-	mu    sync.Mutex
-	keys  []string
-	types []string
+	srv     *httptest.Server
+	mu      sync.Mutex
+	keys    []string
+	types   []string
+	deleted []string
 }
 
 func (f *fakeCosServer) URL() string { return f.srv.URL }
@@ -88,10 +89,23 @@ func (f *fakeCosServer) lastUpload() (key, contentType string) {
 	return f.keys[len(f.keys)-1], f.types[len(f.types)-1]
 }
 
+func (f *fakeCosServer) deletedKeys() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.deleted...)
+}
+
 func newFakeCosServer(t *testing.T) *fakeCosServer {
 	t.Helper()
 	f := &fakeCosServer{}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			f.mu.Lock()
+			f.deleted = append(f.deleted, strings.TrimPrefix(r.URL.Path, "/"))
+			f.mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodPut {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -1592,5 +1606,217 @@ func TestUserProfileWeChatBoundFalse(t *testing.T) {
 	decode(t, me, &meResp)
 	if meResp.WeChatBound {
 		t.Fatalf("expected wechat_bound=false for non-wechat user, got %+v", meResp)
+	}
+}
+
+// createAdminUser creates a second administrator and returns its id and an
+// admin access token, so tests can exercise the "not the last admin" path.
+func (ta *testApp) createAdminUser(t *testing.T, email string) (string, string) {
+	t.Helper()
+	create := ta.do(http.MethodPost, "/admin/users", map[string]any{
+		"email": email, "password": "Password1!", "name": "Second Admin", "role": "admin",
+	}, ta.bearer(ta.adminToken))
+	mustStatus(t, create, http.StatusOK)
+	var created struct {
+		ID string `json:"id"`
+	}
+	decode(t, create, &created)
+	if created.ID == "" {
+		t.Fatal("created admin has no id")
+	}
+	token, err := ta.jwt.IssueAccessToken(created.ID, ta.clientID, []string{"admin"}, "admin", domain.MembershipRegular, domain.UserTypeRegular, nil)
+	if err != nil {
+		t.Fatalf("issue second-admin token: %v", err)
+	}
+	return created.ID, token
+}
+
+func TestDeleteUser_LastAdminRejected(t *testing.T) {
+	ta := newTestApp(t)
+
+	del := ta.do(http.MethodDelete, "/admin/users/"+ta.adminUserID, nil, ta.bearer(ta.adminToken))
+	mustStatus(t, del, http.StatusConflict)
+	var body map[string]any
+	decode(t, del, &body)
+	if body["error"] != "last_admin" {
+		t.Fatalf("error = %v, want last_admin", body["error"])
+	}
+
+	// The last administrator must still exist.
+	get := ta.do(http.MethodGet, "/admin/users/"+ta.adminUserID, nil, ta.bearer(ta.adminToken))
+	mustStatus(t, get, http.StatusOK)
+}
+
+func TestDeleteUser_NonLastAdminAllowed(t *testing.T) {
+	ta := newTestApp(t)
+	secondID, _ := ta.createAdminUser(t, "second-admin@example.com")
+
+	del := ta.do(http.MethodDelete, "/admin/users/"+secondID, nil, ta.bearer(ta.adminToken))
+	mustStatus(t, del, http.StatusNoContent)
+
+	get := ta.do(http.MethodGet, "/admin/users/"+secondID, nil, ta.bearer(ta.adminToken))
+	mustStatus(t, get, http.StatusNotFound)
+}
+
+func TestDeleteUser_NullsInviteCodeReferences(t *testing.T) {
+	ta := newTestApp(t)
+
+	// A code created by the seeded admin, then used to register a doomed user.
+	mk := ta.do(http.MethodPost, "/admin/invite-codes", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, mk, http.StatusOK)
+	var code struct {
+		Code string `json:"code"`
+	}
+	decode(t, mk, &code)
+
+	ta.cfg.RequireInviteCode = true
+	reg := ta.do(http.MethodPost, "/api/auth/register", map[string]any{
+		"email": "invite-doomed@example.com", "password": "Password1!", "invite_code": code.Code,
+	}, ta.clientHeaders())
+	mustStatus(t, reg, http.StatusCreated)
+	var registered struct {
+		AccessToken string `json:"access_token"`
+	}
+	decode(t, reg, &registered)
+
+	// A second admin creates another code so created_by also points at a user.
+	secondID, secondToken := ta.createAdminUser(t, "code-creator@example.com")
+	mk2 := ta.do(http.MethodPost, "/admin/invite-codes", nil, ta.bearer(secondToken))
+	mustStatus(t, mk2, http.StatusOK)
+	var code2 struct {
+		Code string `json:"code"`
+	}
+	decode(t, mk2, &code2)
+
+	// Delete the registered user (self) and the second admin.
+	delUser := ta.do(http.MethodDelete, "/api/users/me", nil, ta.bearer(registered.AccessToken))
+	mustStatus(t, delUser, http.StatusNoContent)
+	delAdmin := ta.do(http.MethodDelete, "/admin/users/"+secondID, nil, ta.bearer(ta.adminToken))
+	mustStatus(t, delAdmin, http.StatusNoContent)
+
+	list := ta.do(http.MethodGet, "/admin/invite-codes", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, list, http.StatusOK)
+	var codes []struct {
+		Code      string  `json:"code"`
+		CreatedBy string  `json:"created_by"`
+		UsedBy    *string `json:"used_by"`
+	}
+	decode(t, list, &codes)
+	found := map[string]struct {
+		createdBy string
+		usedBy    *string
+	}{}
+	for _, c := range codes {
+		found[c.Code] = struct {
+			createdBy string
+			usedBy    *string
+		}{c.CreatedBy, c.UsedBy}
+	}
+	if entry, ok := found[code.Code]; !ok {
+		t.Fatalf("invite code %q missing from list", code.Code)
+	} else if entry.usedBy != nil {
+		t.Fatalf("used_by = %v, want null after user deletion", *entry.usedBy)
+	}
+	if entry, ok := found[code2.Code]; !ok {
+		t.Fatalf("invite code %q missing from list", code2.Code)
+	} else if entry.createdBy != "" {
+		t.Fatalf("created_by = %q, want empty (NULL) after admin deletion", entry.createdBy)
+	}
+}
+
+// deleteUserAs issues DELETE /admin/users/{id} with a bearer, for use inside
+// goroutines (ta.do calls t.Helper, which is not safe off the test goroutine).
+func (ta *testApp) deleteUserAs(targetID, token string) int {
+	req := httptest.NewRequest(http.MethodDelete, "/admin/users/"+targetID, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	ta.engine.ServeHTTP(w, req)
+	return w.Code
+}
+
+// countActiveAdmins reads the admin list and counts active administrators. The
+// admin middleware re-checks that the caller still exists, so after a concurrent
+// delete the deleted admin's token is a 401; callers pass both candidates and
+// the first working token is used.
+func (ta *testApp) countActiveAdmins(t *testing.T, tokens ...string) int {
+	t.Helper()
+	for _, token := range tokens {
+		list := ta.do(http.MethodGet, "/admin/users?per_page=100", nil, ta.bearer(token))
+		if list.Code != http.StatusOK {
+			continue
+		}
+		var resp struct {
+			Users []struct {
+				Role     string `json:"role"`
+				IsActive bool   `json:"is_active"`
+			} `json:"users"`
+		}
+		decode(t, list, &resp)
+		n := 0
+		for _, u := range resp.Users {
+			if u.Role == "admin" && u.IsActive {
+				n++
+			}
+		}
+		return n
+	}
+	t.Fatal("no surviving admin token could list users")
+	return 0
+}
+
+// Two administrators deleting each other concurrently must never both pass the
+// last-admin guard. Before the guard was folded into a single SELECT ... FOR
+// UPDATE transaction it left zero admins on the first iteration.
+func TestDeleteUser_ConcurrentAdminsNeverLeaveZero(t *testing.T) {
+	for iter := 0; iter < 5; iter++ {
+		ta := newTestApp(t)
+		secondID, secondToken := ta.createAdminUser(t, "concurrent-admin@example.com")
+
+		start := make(chan struct{})
+		statuses := make(chan int, 2)
+		go func() { <-start; statuses <- ta.deleteUserAs(ta.adminUserID, secondToken) }()
+		go func() { <-start; statuses <- ta.deleteUserAs(secondID, ta.adminToken) }()
+		close(start)
+		s1, s2 := <-statuses, <-statuses
+
+		if n := ta.countActiveAdmins(t, ta.adminToken, secondToken); n < 1 {
+			t.Fatalf("iter %d: concurrent deletes left %d active admins (statuses %d,%d)", iter, n, s1, s2)
+		}
+	}
+}
+
+// A disabled administrator is not a usable one, so it must not satisfy the
+// last-admin guard.
+func TestDeleteUser_DisabledAdminDoesNotSatisfyGuard(t *testing.T) {
+	ta := newTestApp(t)
+	secondID, _ := ta.createAdminUser(t, "disabled-admin@example.com")
+	patch := ta.do(http.MethodPatch, "/admin/users/"+secondID, map[string]any{"is_active": false}, ta.bearer(ta.adminToken))
+	mustStatus(t, patch, http.StatusOK)
+
+	del := ta.do(http.MethodDelete, "/admin/users/"+ta.adminUserID, nil, ta.bearer(ta.adminToken))
+	mustStatus(t, del, http.StatusConflict)
+	var body map[string]any
+	decode(t, del, &body)
+	if body["error"] != "last_admin" {
+		t.Fatalf("error = %v, want last_admin", body["error"])
+	}
+}
+
+func TestDeleteUser_UserOwnsTeamsRejected(t *testing.T) {
+	ta := newTestApp(t)
+	token := ta.registerUser(t, "team-owner@example.com")
+	create := ta.do(http.MethodPost, "/api/teams", map[string]any{"name": "Owned"}, ta.bearer(token))
+	mustStatus(t, create, http.StatusOK)
+
+	claims, err := ta.jwt.VerifyAccessToken(token)
+	if err != nil {
+		t.Fatalf("verify token: %v", err)
+	}
+	del := ta.do(http.MethodDelete, "/admin/users/"+claims.Sub, nil, ta.bearer(ta.adminToken))
+	mustStatus(t, del, http.StatusConflict)
+	var body map[string]any
+	decode(t, del, &body)
+	if body["error"] != "user_owns_teams" {
+		t.Fatalf("error = %v, want user_owns_teams", body["error"])
 	}
 }

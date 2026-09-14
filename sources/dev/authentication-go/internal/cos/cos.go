@@ -109,3 +109,17 @@ func (c *Client) Upload(ctx context.Context, key string, r io.Reader, contentTyp
 func (c *Client) PublicURL(key string) string {
 	return c.cfg.BaseURL + "/" + key
 }
+
+// Delete removes the object at key. It is used during account erasure to clear
+// the user's avatar. A call on an unconfigured client returns cos_not_configured
+// so the caller can decide whether that is fatal.
+func (c *Client) Delete(ctx context.Context, key string) error {
+	if !c.cfg.Configured() || c.cli == nil {
+		return apperror.CosNotConfigured()
+	}
+	if _, err := c.cli.Object.Delete(ctx, key); err != nil {
+		logger.S().Errorw("COS delete failed", "key", key, "err", err)
+		return apperror.CosProviderError("Tencent Cloud COS delete failed")
+	}
+	return nil
+}
