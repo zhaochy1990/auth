@@ -23,6 +23,8 @@ prod-recent-logins.png
 # Local JWT keys (never commit)
 /keys/
 sources/dev/authentication-go/config.local.yml
+.DS_Store
+docs/.DS_Store
 
 # Agent worktrees
 .worktrees/

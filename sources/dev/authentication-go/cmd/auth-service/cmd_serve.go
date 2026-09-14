@@ -77,7 +77,7 @@ func runServe() error {
 	}, nil)
 
 	r := server.NewRouter(repo, jwt, cfg, smsStore, smsClient, cosClient)
-	logger.S().Infow("starting server", "addr", cfg.Addr(), "swagger_enabled", cfg.SwaggerEnabled)
+	logger.S().Infow("starting server", "addr", cfg.Addr(), "version", cfg.AppVersion, "swagger_enabled", cfg.SwaggerEnabled)
 	if cfg.SwaggerEnabled {
 		logger.S().Infof("swagger UI available at http://%s%s", cfg.Addr(), "/swagger/index.html")
 	}

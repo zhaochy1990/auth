@@ -1,121 +1,213 @@
 name: Release
 
+# Runs on every push to master and deliberately has NO on.push.paths: change
+# detection is path-based and lives in .github/release-packages.json, so this
+# workflow has to see the whole push.
+#
+# Replaces the old chain (ci.yml -> release.yml -> deploy.yml) which cut a git
+# tag, bumped package.json, published a GitHub Release and dispatched deploy.yml
+# by tag. There are no tags any more; the image tag is the artifact identity and
+# versions.json is the record.
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
     branches: [master]
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  actions: write
+  contents: write # commit-versions pushes a commit
+  packages: write # the image push
+
+# Two runs committing versions.json concurrently would race.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Create Release
+  # ── 1. bump-versions ───────────────────────────────────────────────────────
+  # Works out the next version of every package this push touched. Writes
+  # nothing and commits nothing; its output is what the build tags images with.
+  bump-versions:
+    name: Bump versions
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
+    outputs:
+      changed: ${{ steps.bump.outputs.changed }}
+      packages: ${{ steps.bump.outputs.packages }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: master
+          # required: change detection diffs against github.event.before
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - id: bump
+        uses: zhaochy1990/configurations/calver-release@v1
+        with:
+          phase: bump-versions
+          # workflow_dispatch has no `before`; fall back to the previous commit.
+          base: ${{ github.event.before || 'HEAD~1' }}
 
-      - name: Fetch tags
-        run: git fetch --tags
-
-      - name: Calculate next version
-        id: version
-        run: |
-          YEAR=$(date +%Y)
-          MONTH=$(date +%-m)
-
-          # Find latest tag
-          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -n1)
-
-          if [ -z "$LATEST_TAG" ]; then
-            # No tags yet — first release
-            MICRO=1
-          else
-            # Extract year, month, micro from latest tag (vYYYY.M.MICRO)
-            TAG_VERSION="${LATEST_TAG#v}"
-            TAG_YEAR=$(echo "$TAG_VERSION" | cut -d. -f1)
-            TAG_MONTH=$(echo "$TAG_VERSION" | cut -d. -f2)
-            TAG_MICRO=$(echo "$TAG_VERSION" | cut -d. -f3)
-
-            if [ "$TAG_YEAR" = "$YEAR" ] && [ "$TAG_MONTH" = "$MONTH" ]; then
-              MICRO=$((TAG_MICRO + 1))
-            else
-              MICRO=1
-            fi
-          fi
-
-          VERSION="${YEAR}.${MONTH}.${MICRO}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Next version: $VERSION"
-
-      - name: Check for releasable commits
-        id: check
-        run: |
-          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -n1)
-
-          if [ -z "$LATEST_TAG" ]; then
-            RANGE="HEAD"
-          else
-            RANGE="${LATEST_TAG}..HEAD"
-          fi
-
-          # Only release on commit types that change the deployed artifact.
-          # Deliberately EXCLUDES ci|docs|style|test|chore so that trivial PRs
-          # (e.g. workflow/docs tweaks) don't cut a CalVer release + deploy, and
-          # so the auto-generated "chore: bump version" commit can never itself
-          # be counted as releasable (loop guard).
-          RELEASABLE=$(git log "$RANGE" --pretty=format:"%s" | grep -cE "^(feat|fix|perf|refactor|build|revert)(\(.+\))?!?:" || true)
-
-          if [ "$RELEASABLE" -eq 0 ]; then
-            echo "No releasable commits found"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Found $RELEASABLE releasable commit(s)"
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Update version in package.json
-        if: steps.check.outputs.should_release == 'true'
-        run: |
-          sed -i 's/"version": *"[^"]*"/"version": "${{ steps.version.outputs.version }}"/' package.json || true
-
-      - name: Commit version bump
-        if: steps.check.outputs.should_release == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json
-          # [skip ci] so this bot commit never re-runs CI -> Release (loop guard),
-          # in addition to it being a non-releasable `chore:` type above.
-          git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]" || echo "No changes to commit"
-
-      - name: Create tag and push
-        if: steps.check.outputs.should_release == 'true'
-        run: |
-          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
-          git push origin master
-          git push origin "${{ steps.version.outputs.tag }}"
-
-      - name: Create GitHub Release
-        if: steps.check.outputs.should_release == 'true'
+  # ── 2. test ────────────────────────────────────────────────────────────────
+  # The gate the old CI -> Release chain used to provide. A failure here stops
+  # the build, so versions.json never records a version that was not published.
+  test:
+    name: Backend test
+    needs: bump-versions
+    if: needs.bump-versions.outputs.changed != ''
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sources/dev/authentication-go
+    services:
+      mysql:
+        image: mysql:8.4
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "${{ steps.version.outputs.tag }}" \
-            --generate-notes
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: auth_test
+          MYSQL_USER: auth
+          MYSQL_PASSWORD: auth_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uauth -pauth_password"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Trigger deploy workflow
-        if: steps.check.outputs.should_release == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The Go module uses a local `replace` for the public `x` library.
+      - name: Checkout x dependency
+        uses: actions/checkout@v4
+        with:
+          repository: zhaochy1990/x
+          path: _x
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: sources/dev/authentication-go/go.sum
+
+      - name: Point the x replace at the checked-out copy
+        run: go mod edit -replace github.com/zhaochy1990/x="$GITHUB_WORKSPACE/_x"
+
+      - name: Check formatting
         run: |
-          gh workflow run deploy.yml --ref "${{ steps.version.outputs.tag }}"
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Generate ephemeral JWT keys
+        run: |
+          mkdir -p keys
+          openssl genpkey -algorithm RSA -out keys/private.pem -pkeyopt rsa_keygen_bits:2048
+          openssl rsa -pubout -in keys/private.pem -out keys/public.pem
+
+      - name: Test
+        env:
+          TEST_MYSQL_DSN: "mysql://auth:auth_password@127.0.0.1:3306/auth_test"
+        run: go test ./... -count=1
+
+  # ── 3. build ───────────────────────────────────────────────────────────────
+  # Build and push the image, tagged with the version from phase 1.
+  build:
+    name: Build & push auth-backend
+    needs: [bump-versions, test]
+    if: needs.bump-versions.outputs.changed != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout x dependency
+        uses: actions/checkout@v4
+        with:
+          repository: zhaochy1990/x
+          path: _x
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: sources/dev/authentication-go/go.sum
+
+      # Aliyun ACR only. It is what the Tencent CVM pulls from, and GHCR is no
+      # longer published to. Host in the ALIYUN_ACR_REGISTRY repo variable; creds
+      # in secrets.
+      - name: Login to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.ALIYUN_ACR_REGISTRY }}
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+
+      # Vendor with the checked-out x so the image builds offline (-mod=vendor).
+      - name: Vendor backend dependencies
+        working-directory: sources/dev/authentication-go
+        run: |
+          go mod edit -replace github.com/zhaochy1990/x="$GITHUB_WORKSPACE/_x"
+          go mod vendor
+
+      - name: Build and push
+        working-directory: sources/dev/authentication-go
+        env:
+          VERSION: ${{ fromJSON(needs.bump-versions.outputs.packages)[0].version }}
+          ACR_IMAGE: ${{ vars.ALIYUN_ACR_REGISTRY }}/stride/auth-backend
+        run: |
+          # No `:latest`: versions.env pins an exact tag and nothing consumes a
+          # floating one, so it would only be a drifting second source of truth.
+          docker build \
+            --build-arg APP_VERSION="$VERSION" \
+            -t "$ACR_IMAGE:$VERSION" \
+            .
+          docker push "$ACR_IMAGE:$VERSION"
+
+  # ── 4. commit-versions ─────────────────────────────────────────────────────
+  # Only now, with the image pushed, record the version. Handed phase 1's plan
+  # verbatim, so it can never record a version that was not built.
+  commit-versions:
+    name: Commit versions
+    needs: [bump-versions, build]
+    if: needs.bump-versions.outputs.changed != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: zhaochy1990/configurations/calver-release@v1
+        with:
+          phase: commit-versions
+          packages: ${{ needs.bump-versions.outputs.packages }}
+          base-branch: ${{ github.ref_name }}
+
+  # ── 5. open the deploy PR ──────────────────────────────────────────────────
+  # The deploy manifest (stride-devops/versions.env) is owned by stride-devops,
+  # so the workflow that edits it lives there too. This only hands over the plan.
+  pin-images:
+    name: Open deploy PR in stride-devops
+    needs: [bump-versions, commit-versions]
+    if: needs.bump-versions.outputs.changed != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch pin-images
+        env:
+          # PAT with actions:write (or `repo`) on zhaochy1990/stride-devops.
+          GH_TOKEN: ${{ secrets.DEVOPS_DISPATCH_TOKEN }}
+          PACKAGES: ${{ needs.bump-versions.outputs.packages }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "DEVOPS_DISPATCH_TOKEN not set — skipping the deploy PR." >&2
+            exit 1
+          fi
+          gh workflow run pin-images.yml \
+            -R zhaochy1990/stride-devops \
+            -f packages="$PACKAGES"

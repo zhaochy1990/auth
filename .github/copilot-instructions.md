@@ -86,19 +86,23 @@ Feature pages keep API calls in `src\api\admin.ts`, shared TypeScript contracts 
 - Cross-cutting frontend changes belong in the `stride-devops` repository under
   `admin-dashboard/`.
 - CI path filters run backend jobs for `sources\dev\authentication-go\**`
-  changes. Backend CI uses `gofmt`, `go vet`, MySQL-backed `go test`,
-  and Docker dry-run builds.
-- Versions use CalVer `YYYY.M.MICRO` and are stored in the root
-  `package.json`. Backend runtime version is injected with `APP_VERSION`
-  during deployment.
+  changes. Backend CI runs on pull requests only and uses `gofmt`, `go vet`,
+  MySQL-backed `go test`, and Docker dry-run builds.
+- Versions use CalVer `YYYY.M.MICRO`, tracked per package in the root
+  `versions.json`; `.github/release-packages.json` maps packages to paths. There
+  are no git tags. Backend runtime version is injected with `APP_VERSION` at
+  image build time.
 - Commit messages follow Conventional Commits, enforced by commitlint; use `type(scope): description` such as `feat(auth): add provider`.
 
 ## Deployment context
 
-Release runs after CI succeeds on `main`, bumps the backend version, creates a
-`vYYYY.M.MICRO` tag, and triggers the deploy workflow. Deploy vendors the Go
-dependencies, builds `auth-backend` from `sources\dev\authentication-go`,
-pushes it to GHCR + Aliyun ACR. Tencent production is released via a Renovate PR
-against `stride-devops` that bumps `AUTH_IMAGE_TAG` in the root
-`versions.env`. The admin dashboard and its release workflow live in
-`stride-devops/admin-dashboard`.
+A push to `master` runs `release.yml` in three phases: bump-versions (work out
+the next version from this push's diff), build (vendor the Go dependencies, then
+build and push `auth-backend` to Aliyun ACR tagged with that version),
+commit-versions (record it in the root `versions.json`). A failing test blocks
+the build, and the version is only recorded once the image exists.
+
+Tencent production is released via a PR that `stride-devops`'s own
+`pin-images.yml` opens to bump `AUTH_IMAGE_TAG` in its root `versions.env`;
+this repo only dispatches it. GHCR is no longer published to. The admin dashboard
+and its release workflow live in `stride-devops/admin-dashboard`.
