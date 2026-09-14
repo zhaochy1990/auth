@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -430,8 +431,11 @@ func (h *Handler) DeleteMe(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// deleteUserAccount removes a user and all dependent rows, refusing if the user
-// still owns any team. Shared by self-delete and admin delete.
+// deleteUserAccount removes a user and all dependent rows. It refuses when the
+// user still owns a team; the last-active-admin guard and the atomic teardown of
+// every dependent row live in Repository.DeleteUser. The avatar object is
+// removed before any DB mutation, so a COS failure leaves the account fully
+// intact rather than half-erased. Shared by self-delete and admin delete.
 func (h *Handler) deleteUserAccount(ctx context.Context, userID string) error {
 	user, err := h.Repo.Users().FindByID(ctx, userID)
 	if err != nil {
@@ -447,6 +451,8 @@ func (h *Handler) deleteUserAccount(ctx context.Context, userID string) error {
 	if len(owned) > 0 {
 		return apperror.UserOwnsTeams(len(owned))
 	}
+	// Revoke third-party watch OAuth tokens at the provider before the account
+	// rows are removed.
 	accounts, err := h.Repo.Accounts().FindAllByUser(ctx, userID)
 	if err != nil {
 		return err
@@ -454,20 +460,50 @@ func (h *Handler) deleteUserAccount(ctx context.Context, userID string) error {
 	for i := range accounts {
 		h.revokeOAuthAccount(ctx, &accounts[i])
 	}
-	if err := h.Repo.RefreshTokens().DeleteAllByUser(ctx, userID); err != nil {
+	if err := h.deleteAvatar(ctx, user); err != nil {
 		return err
 	}
-	if err := h.Repo.AuthCodes().DeleteAllByUser(ctx, userID); err != nil {
-		return err
+	return h.Repo.DeleteUser(ctx, userID)
+}
+
+// deleteAvatar removes the user's avatar object from COS. It is a no-op when
+// there is no avatar URL or object storage is not configured; a configured COS
+// failure aborts the deletion so the object is not silently orphaned. That makes
+// self-service deletion impossible during a COS incident — the escape hatch is
+// to clear the avatar first (`PATCH /admin/users/:id {"avatar_url": ""}`), after
+// which the next attempt skips the object.
+func (h *Handler) deleteAvatar(ctx context.Context, user *domain.User) error {
+	if user.AvatarURL == nil || strings.TrimSpace(*user.AvatarURL) == "" {
+		return nil
 	}
-	if err := h.Repo.Accounts().DeleteAllByUser(ctx, userID); err != nil {
-		return err
+	if h.CosClient == nil || !h.CosClient.Configured() {
+		return nil
 	}
-	if err := h.Repo.Users().DeleteWeChatLinksByUser(ctx, userID); err != nil {
-		return err
+	key, ok := avatarObjectKey(user.ID, *user.AvatarURL)
+	if !ok {
+		return nil
 	}
-	if err := h.Repo.TeamMemberships().DeleteAllByUser(ctx, userID); err != nil {
-		return err
+	return h.CosClient.Delete(ctx, key)
+}
+
+// avatarObjectKey reverses the avatar URL uploaded by UploadAvatar back into its
+// object key. It only accepts keys in the user's own namespace
+// ("avatars/<user_id>.<ext>") so a stored URL can never delete another object.
+func avatarObjectKey(userID, rawURL string) (string, bool) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false
 	}
-	return h.Repo.Users().DeleteByID(ctx, userID)
+	key := strings.TrimPrefix(parsed.Path, "/")
+	prefix := "avatars/" + userID + "."
+	if !strings.HasPrefix(key, prefix) {
+		return "", false
+	}
+	// The remainder must be a single path segment (the extension), so a key such
+	// as "avatars/<uid>.png/../../victim.png" can never be accepted even if a
+	// future client stops percent-encoding separators.
+	if rest := strings.TrimPrefix(key, prefix); rest == "" || strings.Contains(rest, "/") {
+		return "", false
+	}
+	return key, true
 }

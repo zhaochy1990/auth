@@ -126,6 +126,9 @@ func TeamTransferTargetNotMember() *Error {
 func UserOwnsTeams(n int) *Error {
 	return New(http.StatusConflict, "user_owns_teams", "User still owns "+strconv.Itoa(n)+" team(s)")
 }
+func LastAdmin() *Error {
+	return New(http.StatusConflict, "last_admin", "Cannot delete the last administrator")
+}
 func BadRequest(msg string) *Error {
 	return New(http.StatusBadRequest, "bad_request", msg)
 }

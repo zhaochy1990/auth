@@ -247,4 +247,11 @@ type Repository interface {
 	InviteCodes() InviteCodeRepository
 	Teams() TeamRepository
 	TeamMemberships() TeamMembershipRepository
+
+	// DeleteUser removes a user and every dependent row in one transaction.
+	// When the target is an active administrator it locks the active-admin rows
+	// first and refuses if none other would remain, so two concurrent admin
+	// deletions can never leave the system with zero administrators (and no way
+	// back into the console).
+	DeleteUser(ctx context.Context, userID string) error
 }
