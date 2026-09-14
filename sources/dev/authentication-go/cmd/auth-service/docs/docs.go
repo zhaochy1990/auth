@@ -1759,6 +1759,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/internal_handlers.ErrorResponse"
                         }
                     },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
@@ -3552,6 +3558,10 @@ const docTemplate = `{
         "internal_handlers.smsSendRequest": {
             "type": "object",
             "properties": {
+                "login_only": {
+                    "description": "LoginOnly restricts the send to already-registered phones (the web login\nform). Omitted (false) keeps the login-or-register behavior for clients\nthat still auto-create the account on first verification.",
+                    "type": "boolean"
+                },
                 "phone": {
                     "type": "string"
                 }

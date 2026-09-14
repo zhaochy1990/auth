@@ -28,6 +28,10 @@ const (
 
 type smsSendRequest struct {
 	Phone string `json:"phone"`
+	// LoginOnly restricts the send to already-registered phones (the web login
+	// form). Omitted (false) keeps the login-or-register behavior for clients
+	// that still auto-create the account on first verification.
+	LoginOnly bool `json:"login_only"`
 }
 
 type smsVerifyRequest struct {
@@ -38,8 +42,11 @@ type smsVerifyRequest struct {
 
 // SendSmsCode sends a one-time verification code to a mainland-China phone
 // number. The flow is login-or-register: verification later auto-creates the
-// account on first use. Enforces the 60-second send cooldown and the 10-per-day
-// cap per phone, and fails closed (503) when Redis is unavailable. In
+// account on first use. With login_only the phone must already be bound to a
+// user, otherwise the request is rejected with phone_not_registered and no SMS
+// is sent (the web login form uses this so an unregistered phone is guided to
+// registration). Enforces the 60-second send cooldown and the 10-per-day cap
+// per phone, and fails closed (503) when Redis is unavailable. In
 // AUTH_SMS_TEST_MODE the fixed code 123456 is stored and the Tencent Cloud call
 // is skipped.
 //
@@ -51,6 +58,7 @@ type smsVerifyRequest struct {
 // @Param			body	body		smsSendRequest	true	"Phone number"
 // @Success		200		{object}	StatusResponse
 // @Failure		400		{object}	ErrorResponse
+// @Failure		404		{object}	ErrorResponse
 // @Failure		429		{object}	ErrorResponse
 // @Failure		503		{object}	ErrorResponse
 // @Security		ClientID
@@ -67,6 +75,20 @@ func (h *Handler) SendSmsCode(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
+
+	// login_only: reject phones with no bound user BEFORE reserving the cooldown
+	// or calling the SMS provider, so a failed login attempt sends nothing.
+	if req.LoginOnly {
+		user, err := h.Repo.Users().FindByPhone(ctx, phone.String())
+		if err != nil {
+			middleware.RespondError(c, err)
+			return
+		}
+		if user == nil {
+			middleware.RespondError(c, apperror.PhoneNotRegistered())
+			return
+		}
+	}
 
 	if !h.Cfg.SMSTestMode && !h.SMSClient.Configured() {
 		middleware.RespondError(c, apperror.SmsNotConfigured())

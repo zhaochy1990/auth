@@ -161,6 +161,13 @@ func SmsDailyLimit() *Error {
 func SmsNotConfigured() *Error {
 	return New(http.StatusBadRequest, "sms_not_configured", "SMS login is not configured")
 }
+
+// PhoneNotRegistered is the login-only send rejection: the phone is not bound
+// to any user, so it cannot be used to log in (the client should guide the
+// user to register instead).
+func PhoneNotRegistered() *Error {
+	return New(http.StatusNotFound, "phone_not_registered", "Phone number is not registered")
+}
 func SmsProviderError(detail string) *Error {
 	return New(http.StatusBadGateway, "sms_provider_error", "SMS provider error: "+detail)
 }

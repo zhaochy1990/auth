@@ -154,6 +154,40 @@ func TestSMSExistingUserLogin(t *testing.T) {
 	}
 }
 
+// login_only is the web login form's "existing users only" mode: an unbound
+// phone is rejected at send time (nothing stored, no SMS sent), while a phone
+// already bound to a user still sends normally.
+func TestSMSSendLoginOnlyRequiresRegisteredPhone(t *testing.T) {
+	ta := newTestApp(t)
+	phone := smsPhone(60)
+
+	// Unbound phone → 404 and no code is stored, so verification cannot proceed.
+	w := ta.do(http.MethodPost, "/api/auth/sms/send", map[string]any{"phone": phone, "login_only": true}, ta.clientHeaders())
+	mustStatus(t, w, http.StatusNotFound)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "phone_not_registered" {
+		t.Fatalf("error = %v, want phone_not_registered", body["error"])
+	}
+
+	verify := ta.do(http.MethodPost, "/api/auth/sms/verify", map[string]any{"phone": phone, "code": "123456"}, ta.clientHeaders())
+	mustStatus(t, verify, http.StatusBadRequest)
+	decode(t, verify, &body)
+	if body["error"] != "sms_code_expired" {
+		t.Fatalf("verify error = %v, want sms_code_expired", body["error"])
+	}
+
+	// Register through the default login-or-register flow, then login_only works.
+	smsSend(t, ta, phone)
+	smsVerify(t, ta, phone, "123456", nil)
+	if err := ta.smsStore.ReleaseSend(context.Background(), phone); err != nil {
+		t.Fatalf("release cooldown: %v", err)
+	}
+
+	w = ta.do(http.MethodPost, "/api/auth/sms/send", map[string]any{"phone": phone, "login_only": true}, ta.clientHeaders())
+	mustStatus(t, w, http.StatusOK)
+}
+
 // Wrong code → sms_code_invalid; correct code consumes (single-use) so a replay
 // is rejected.
 func TestSMSVerifyInvalidAndSingleUse(t *testing.T) {

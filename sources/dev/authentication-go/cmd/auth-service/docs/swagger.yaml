@@ -357,6 +357,12 @@ definitions:
     type: object
   internal_handlers.smsSendRequest:
     properties:
+      login_only:
+        description: |-
+          LoginOnly restricts the send to already-registered phones (the web login
+          form). Omitted (false) keeps the login-or-register behavior for clients
+          that still auto-create the account on first verification.
+        type: boolean
       phone:
         type: string
     type: object
@@ -1717,6 +1723,10 @@ paths:
             $ref: '#/definitions/internal_handlers.StatusResponse'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/internal_handlers.ErrorResponse'
         "429":
