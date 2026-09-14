@@ -1148,6 +1148,13 @@ func (r *accountRepo) CountByUser(ctx context.Context, userID string) (uint64, e
 func (r *accountRepo) Insert(ctx context.Context, a *domain.Account) error {
 	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_accounts (id, user_id, provider_id, provider_account_id, credential, provider_metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, a.ID, a.UserID, a.ProviderID, nullString(a.ProviderAccountID), nullString(a.Credential), defaultJSONObj(a.ProviderMetadata), a.CreatedAt.UTC(), a.UpdatedAt.UTC())
 	if err != nil {
+		// A duplicate wins either the (user_id, provider_id) unique key (the
+		// user already linked a different identity for this provider) or the
+		// (provider_id, provider_account_id) unique key (the identity belongs
+		// to another user). Both are the same "already linked" conflict.
+		if isDuplicate(err) {
+			return apperror.AccountAlreadyLinked()
+		}
 		return dbErr(err)
 	}
 	return nil

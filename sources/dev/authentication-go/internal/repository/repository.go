@@ -214,6 +214,28 @@ type SmsCodeStore interface {
 	Ping(ctx context.Context) error
 }
 
+// OAuthState is the payload behind an opaque third-party OAuth2 link state
+// handle. The handle itself carries no information; this payload is stored
+// server-side and consumed once.
+type OAuthState struct {
+	UserID      string    `json:"user_id"`
+	AppID       string    `json:"app_id"`
+	ProviderID  string    `json:"provider_id"`
+	RedirectURI string    `json:"redirect_uri"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// OAuthStateStore is the backing store for third-party OAuth2 link state
+// handles (Redis). It is fail-closed: an unreachable store surfaces as a 503,
+// so a callback can never proceed with a state check that did not happen.
+type OAuthStateStore interface {
+	// StoreState records the payload under handle with the given TTL.
+	StoreState(ctx context.Context, handle string, st OAuthState, ttl time.Duration) error
+	// ConsumeState atomically returns the payload and deletes it (single use).
+	// A missing or expired handle returns (nil, nil).
+	ConsumeState(ctx context.Context, handle string) (*OAuthState, error)
+}
+
 // Repository is the composite store handed to handlers.
 type Repository interface {
 	Users() UserRepository

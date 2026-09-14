@@ -45,3 +45,23 @@ func TestPhoneNumberMasked(t *testing.T) {
 		t.Fatalf("Masked() = %q, want 138****5678", got)
 	}
 }
+
+func TestApplicationRedirectURIAllowed(t *testing.T) {
+	app := &Application{RedirectURIs: `["https://app.example/oauth/done","http://localhost:5173"]`}
+	if !app.RedirectURIAllowed("https://app.example/oauth/done") {
+		t.Fatal("registered redirect URI should be allowed")
+	}
+	if app.RedirectURIAllowed("https://evil.example/steal") {
+		t.Fatal("unregistered redirect URI must be rejected")
+	}
+	if app.RedirectURIAllowed("https://app.example/oauth/done/") {
+		t.Fatal("redirect URI matching must be exact")
+	}
+}
+
+func TestApplicationRedirectURIAllowedMalformed(t *testing.T) {
+	app := &Application{RedirectURIs: "not json"}
+	if app.RedirectURIAllowed("https://app.example/oauth/done") {
+		t.Fatal("malformed redirect_uris must allow nothing")
+	}
+}

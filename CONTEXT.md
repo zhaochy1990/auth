@@ -39,3 +39,15 @@ _Avoid_: "验证码" alone (overloaded), "动态码"
 **PhoneNumber**:
 A mainland-China mobile number, stored as bare 11 digits (no +86 prefix). At most one account holds a given phone number; phone-only accounts have no email.
 _Avoid_: "mobile", "phone", 国际手机号
+
+**品牌 OAuth2 绑定**:
+Linking a third-party watch brand account (COROS first; Strava / Suunto / Polar later) to a STRIDE user through the brand's official OAuth2 authorization-code flow. It starts from an authenticated session, returns through the public callback `/oauth/link/{provider_id}/callback`, and stores a revocable token instead of the user's watch password. One brand identity belongs to exactly one account; one account holds at most one identity per brand.
+_Avoid_: "手表登录" (it never logs in), "第三方登录", "绑定高驰" (the brand is a parameter, not the concept)
+
+**品牌描述符**:
+The compile-time description of one watch brand on the link layer — endpoint paths, default scopes, client-authentication style, token-response field mapping, and where the stable user id lives — held in the single registry keyed by `provider_id`. Structural differences between brands live here, not in configuration, so adding a brand does not touch the callback engine.
+_Avoid_: "provider config" (that is the per-application credentials and base URL)
+
+**link state** (授权 state):
+The opaque, server-minted, single-use handle carried through a **品牌 OAuth2 绑定**. Its payload — STRIDE user, application, provider, callback URI, created-at — lives in Redis with a 10-minute TTL; the handle itself carries no information. The STRIDE user in the payload comes from the authenticated session, never from the callback, which is what makes the flow CSRF-safe.
+_Avoid_: "token" (it authorizes nothing), "code" (that is the brand's authorization code)

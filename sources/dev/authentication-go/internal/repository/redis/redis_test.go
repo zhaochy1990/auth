@@ -180,3 +180,78 @@ func TestStoreFailClosedOnRedisOutage(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestOAuthStateStoreRoundTripAndSingleUse(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newTestStore(t)
+	want := repository.OAuthState{
+		UserID:      "user-1",
+		AppID:       "app-1",
+		ProviderID:  "coros",
+		RedirectURI: "https://app.example/oauth/done",
+		CreatedAt:   time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := s.StoreState(ctx, "handle-1", want, 10*time.Minute); err != nil {
+		t.Fatalf("StoreState = %v", err)
+	}
+	got, err := s.ConsumeState(ctx, "handle-1")
+	if err != nil {
+		t.Fatalf("ConsumeState = %v", err)
+	}
+	if got == nil || got.UserID != want.UserID || got.AppID != want.AppID ||
+		got.ProviderID != want.ProviderID || got.RedirectURI != want.RedirectURI ||
+		!got.CreatedAt.Equal(want.CreatedAt) {
+		t.Fatalf("ConsumeState = %+v, want %+v", got, want)
+	}
+	// The handle is single-use: a second consume is empty.
+	second, err := s.ConsumeState(ctx, "handle-1")
+	if err != nil {
+		t.Fatalf("second ConsumeState = %v", err)
+	}
+	if second != nil {
+		t.Fatalf("second ConsumeState = %+v, want nil", second)
+	}
+}
+
+func TestOAuthStateUnknownReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newTestStore(t)
+	got, err := s.ConsumeState(ctx, "never-stored")
+	if err != nil {
+		t.Fatalf("ConsumeState = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("ConsumeState = %+v, want nil", got)
+	}
+}
+
+func TestOAuthStateExpiry(t *testing.T) {
+	ctx := context.Background()
+	s, mr := newTestStore(t)
+	if err := s.StoreState(ctx, "handle-exp", repository.OAuthState{UserID: "u"}, 10*time.Minute); err != nil {
+		t.Fatalf("StoreState = %v", err)
+	}
+	mr.FastForward(11 * time.Minute)
+	got, err := s.ConsumeState(ctx, "handle-exp")
+	if err != nil {
+		t.Fatalf("ConsumeState = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expired ConsumeState = %+v, want nil", got)
+	}
+}
+
+func TestOAuthStateFailClosedOnRedisOutage(t *testing.T) {
+	ctx := context.Background()
+	s := New("127.0.0.1:1", "", 0)
+	if err := s.StoreState(ctx, "h", repository.OAuthState{UserID: "u"}, time.Minute); err == nil {
+		t.Fatal("StoreState on unreachable Redis = nil, want fail-closed error")
+	} else if !strings.Contains(err.Error(), "temporarily unavailable") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := s.ConsumeState(ctx, "h"); err == nil {
+		t.Fatal("ConsumeState on unreachable Redis = nil, want fail-closed error")
+	} else if !strings.Contains(err.Error(), "temporarily unavailable") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

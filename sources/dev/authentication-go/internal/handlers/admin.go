@@ -977,6 +977,9 @@ func (h *Handler) AdminUnlinkAccount(c *gin.Context) {
 		middleware.RespondError(c, apperror.CannotUnlinkLastAccount())
 		return
 	}
+	// Best-effort brand deauthorization, shared with self-unlink and account
+	// deletion; a failure must not block the local unlink.
+	h.revokeOAuthAccount(ctx, account)
 	if err := h.Repo.Accounts().DeleteByID(ctx, account.ID); err != nil {
 		middleware.RespondError(c, err)
 		return

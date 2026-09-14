@@ -86,6 +86,17 @@ type Config struct {
 	// deployments keep working (see applyLegacyEnvAliases).
 	RequireInviteCode bool `mapstructure:"require_invite_code"`
 
+	// OAuthPublicBaseURL is this service's externally reachable base URL, used
+	// to build third-party OAuth2 callback URLs. It is configured explicitly
+	// and never derived from the request Host (which a reverse proxy can be
+	// tricked into spoofing).
+	OAuthPublicBaseURL string `mapstructure:"oauth_public_base_url"`
+	// OAuthMockEnabled is the service-wide master switch for third-party
+	// OAuth2 mock mode. A provider only mocks when this AND the application's
+	// provider config `mock` flag are both true, so a misconfigured production
+	// application still talks to the real brand.
+	OAuthMockEnabled bool `mapstructure:"oauth_mock_enabled"`
+
 	// LogLevel / LogFormat configure the zap logger
 	// (debug|info|warning|error / json|console). LogFormat accepts "json"
 	// (structured output for log aggregation) or "console" (human-readable);

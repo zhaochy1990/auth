@@ -96,6 +96,9 @@ func UserDisabled() *Error {
 func AccountAlreadyLinked() *Error {
 	return New(http.StatusConflict, "account_already_linked", "Account already linked")
 }
+func InvalidOAuthState() *Error {
+	return New(http.StatusBadRequest, "invalid_oauth_state", "Invalid or expired OAuth state; please restart the link flow")
+}
 func CannotUnlinkLastAccount() *Error {
 	return New(http.StatusBadRequest, "cannot_unlink_last_account", "Cannot unlink last account")
 }

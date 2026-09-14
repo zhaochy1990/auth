@@ -13,6 +13,7 @@ import (
 
 	"github.com/zhaochy1990/auth-service/internal/apperror"
 	"github.com/zhaochy1990/auth-service/internal/auth"
+	"github.com/zhaochy1990/auth-service/internal/brandoauth"
 	"github.com/zhaochy1990/auth-service/internal/config"
 	"github.com/zhaochy1990/auth-service/internal/cos"
 	"github.com/zhaochy1990/auth-service/internal/domain"
@@ -34,6 +35,14 @@ type Handler struct {
 	// (constructed with the router); an unconfigured client makes the upload
 	// endpoint fail with cos_not_configured.
 	CosClient *cos.Client
+	// OAuthStateStore holds the single-use state handles for third-party
+	// OAuth2 account linking. Always present in production (the Redis store);
+	// a nil store fails the link endpoints closed with 503.
+	OAuthStateStore repository.OAuthStateStore
+	// OAuthRegistry is the brand registry for third-party OAuth2 linking.
+	// Defaults to the production registry; the server swaps in one that also
+	// contains the test brand when test providers are enabled.
+	OAuthRegistry *brandoauth.Registry
 }
 
 // ErrorResponse is the JSON body returned for every error. It mirrors
@@ -53,9 +62,10 @@ type StatusResponse struct {
 // New builds a Handler.
 func New(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Config) *Handler {
 	return &Handler{
-		Repo: repo,
-		JWT:  jwt,
-		Cfg:  cfg,
+		Repo:          repo,
+		JWT:           jwt,
+		Cfg:           cfg,
+		OAuthRegistry: brandoauth.Default(),
 	}
 }
 

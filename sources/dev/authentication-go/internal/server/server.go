@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/zhaochy1990/auth-service/internal/auth"
+	"github.com/zhaochy1990/auth-service/internal/brandoauth"
 	"github.com/zhaochy1990/auth-service/internal/config"
 	"github.com/zhaochy1990/auth-service/internal/cos"
 	"github.com/zhaochy1990/auth-service/internal/handlers"
@@ -33,6 +34,16 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 
 	h := handlers.New(repo, jwt, cfg)
 	h.SMSStore = smsStore
+	// The Redis store also backs third-party OAuth2 link state handles. When a
+	// different store is injected the link endpoints fail closed (503).
+	if stateStore, ok := smsStore.(repository.OAuthStateStore); ok {
+		h.OAuthStateStore = stateStore
+	}
+	// With test providers enabled, register the test brand so integration tests
+	// can exercise provider-parameterized guards (e.g. cross-provider state).
+	if cfg.EnableTestProviders {
+		h.OAuthRegistry = brandoauth.Default().With(brandoauth.TestBrand())
+	}
 	h.SMSClient = smsClient
 	h.CosClient = cosClient
 	am := &middleware.Auth{Repo: repo, JWT: jwt}
@@ -64,6 +75,10 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		oauth.POST("/token", am.OptionalAppAuth(), h.Token)
 		oauth.POST("/revoke", am.AuthenticatedApp(), h.Revoke)
 		oauth.POST("/introspect", am.AuthenticatedApp(), h.Introspect)
+		// Public third-party OAuth2 link callback (no Bearer: the browser
+		// carries the single-use state handle, minted for an authenticated
+		// user by the authorize endpoint).
+		oauth.GET("/link/:provider_id/callback", h.OAuthCallback)
 	}
 
 	// Auth endpoints (X-Client-Id). Logout revokes by refresh_token in the body,
@@ -92,6 +107,7 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		users.POST("/me/avatar", h.UploadAvatar)
 		users.DELETE("/me", h.DeleteMe)
 		users.GET("/me/accounts", h.ListAccounts)
+		users.POST("/me/accounts/:provider_id/authorize", h.AuthorizeAccount)
 		users.POST("/me/accounts/:provider_id/link", h.LinkAccount)
 		users.DELETE("/me/accounts/:provider_id", h.UnlinkAccount)
 		users.GET("/me/teams", h.ListMyTeams)

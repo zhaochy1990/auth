@@ -36,6 +36,15 @@ auth_sms_test_mode: false
 # Registration invite gate. New env override: REQUIRE_INVITE_CODE.
 require_invite_code: false
 
+# --- Third-party watch OAuth2 account linking ---
+# This service's externally reachable base URL, used to build the OAuth2
+# callback URL (oauth_public_base_url + /oauth/link/<provider>/callback).
+# Never derived from the request Host.
+oauth_public_base_url: ""
+# Service-wide master switch for mock mode. Mocking happens only when this AND
+# the application's provider config mock flag are both true.
+oauth_mock_enabled: false
+
 # --- WeChat mini-program ---
 # Overrides the public jscode2session endpoint (tests only). Appid/secret are
 # configured per application via the admin API, not here.

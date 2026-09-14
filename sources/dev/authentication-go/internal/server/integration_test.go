@@ -238,6 +238,7 @@ func newTestAppWithRateLimits(t *testing.T, smsSendLimit, smsVerifyLimit int) *t
 		SMSTestMode:               true, // fixed code 123456, no Tencent call
 		SMSSendRateLimit:          smsSendLimit,
 		SMSVerifyRateLimit:        smsVerifyLimit,
+		OAuthPublicBaseURL:        "https://auth.test",
 		TencentCosSecretID:        "test-secret-id",
 		TencentCosSecretKey:       "test-secret-key",
 		TencentCosBucket:          "stride-running-1255867366",

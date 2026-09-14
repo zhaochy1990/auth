@@ -25,3 +25,6 @@ prod-recent-logins.png
 sources/dev/authentication-go/config.local.yml
 .DS_Store
 docs/.DS_Store
+
+# Agent worktrees
+.worktrees/

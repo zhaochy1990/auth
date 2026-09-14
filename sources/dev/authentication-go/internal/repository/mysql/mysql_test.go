@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/url"
@@ -21,6 +22,7 @@ import (
 	"github.com/google/uuid"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
+	"github.com/zhaochy1990/auth-service/internal/apperror"
 	"github.com/zhaochy1990/auth-service/internal/domain"
 )
 
@@ -341,5 +343,34 @@ func TestNewWithLegacyWeChatColumnsDoesNotPanic(t *testing.T) {
 		if exists {
 			t.Fatalf("column %s should have been dropped by New()", col)
 		}
+	}
+}
+
+func TestAccountInsertDuplicateProviderIdentityReturnsConflict(t *testing.T) {
+	repo, ctx := newTestRepository(t)
+	now := time.Now().UTC()
+	providerAccountID := "coros-user-1"
+	first := &domain.Account{
+		ID: uuid.NewString(), UserID: uuid.NewString(), ProviderID: "coros",
+		ProviderAccountID: &providerAccountID, ProviderMetadata: "{}",
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := repo.Accounts().Insert(ctx, first); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	// A different STRIDE user racing to bind the same brand identity must
+	// surface as a conflict, not an opaque 500.
+	second := &domain.Account{
+		ID: uuid.NewString(), UserID: uuid.NewString(), ProviderID: "coros",
+		ProviderAccountID: &providerAccountID, ProviderMetadata: "{}",
+		CreatedAt: now, UpdatedAt: now,
+	}
+	err := repo.Accounts().Insert(ctx, second)
+	if err == nil {
+		t.Fatal("duplicate provider identity insert = nil, want conflict")
+	}
+	var ae *apperror.Error
+	if !errors.As(err, &ae) || ae.Type != "account_already_linked" {
+		t.Fatalf("error = %v, want account_already_linked", err)
 	}
 }

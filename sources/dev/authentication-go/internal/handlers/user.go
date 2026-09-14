@@ -274,6 +274,14 @@ func (h *Handler) ListAccounts(c *gin.Context) {
 // @Router			/api/users/me/accounts/{provider_id}/link [post]
 func (h *Handler) LinkAccount(c *gin.Context) {
 	providerID := c.Param("provider_id")
+	// Providers on the OAuth2 linking layer are driven by a browser redirect,
+	// not by a submitted credential; point callers at the right endpoint
+	// instead of the unhelpful "provider not supported".
+	if _, ok := h.oauthRegistry().Lookup(providerID); ok {
+		middleware.RespondError(c, apperror.BadRequest(
+			"This provider requires OAuth authorization; use POST /api/users/me/accounts/"+providerID+"/authorize"))
+		return
+	}
 	var req linkAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		middleware.RespondError(c, apperror.BadRequest("Invalid request body"))
@@ -391,6 +399,9 @@ func (h *Handler) UnlinkAccount(c *gin.Context) {
 		middleware.RespondError(c, apperror.BadRequest("Account not linked"))
 		return
 	}
+	// Best-effort: ask the brand to revoke the grant before dropping the local
+	// row. A failure here must not block the unlink.
+	h.revokeOAuthAccount(ctx, target)
 	if err := h.Repo.Accounts().DeleteByID(ctx, target.ID); err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -435,6 +446,13 @@ func (h *Handler) deleteUserAccount(ctx context.Context, userID string) error {
 	}
 	if len(owned) > 0 {
 		return apperror.UserOwnsTeams(len(owned))
+	}
+	accounts, err := h.Repo.Accounts().FindAllByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for i := range accounts {
+		h.revokeOAuthAccount(ctx, &accounts[i])
 	}
 	if err := h.Repo.RefreshTokens().DeleteAllByUser(ctx, userID); err != nil {
 		return err
