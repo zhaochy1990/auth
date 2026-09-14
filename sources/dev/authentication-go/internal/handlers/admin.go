@@ -854,7 +854,7 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 // @Security    BearerAuth
 // @Router      /admin/users/{id} [delete]
 func (h *Handler) DeleteUser(c *gin.Context) {
-	if err := h.deleteUserAccount(c.Request.Context(), c.Param("id")); err != nil {
+	if err := h.deleteUserAccount(c.Request.Context(), c.Param("id"), middleware.ClientID(c)); err != nil {
 		middleware.RespondError(c, err)
 		return
 	}
@@ -977,6 +977,9 @@ func (h *Handler) AdminUnlinkAccount(c *gin.Context) {
 		middleware.RespondError(c, apperror.CannotUnlinkLastAccount())
 		return
 	}
+	// Best-effort brand deauthorization, shared with self-unlink and account
+	// deletion; a failure must not block the local unlink.
+	h.revokeOAuthAccount(ctx, account, middleware.ClientID(c))
 	if err := h.Repo.Accounts().DeleteByID(ctx, account.ID); err != nil {
 		middleware.RespondError(c, err)
 		return

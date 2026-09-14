@@ -115,6 +115,20 @@ definitions:
           type: string
         type: array
     type: object
+  internal_handlers.authorizeAccountRequest:
+    properties:
+      redirect_uri:
+        type: string
+    type: object
+  internal_handlers.authorizeAccountResponse:
+    properties:
+      authorize_url:
+        type: string
+      expires_in:
+        type: integer
+      provider_id:
+        type: string
+    type: object
   internal_handlers.avatarUploadResponse:
     properties:
       avatar_url:
@@ -2225,6 +2239,48 @@ paths:
       summary: Unlink a provider account
       tags:
       - users
+  /api/users/me/accounts/{provider_id}/authorize:
+    post:
+      consumes:
+      - application/json
+      description: Returns the provider's OAuth2 authorization URL. The caller redirects
+        the user there; the provider returns to the callback endpoint.
+      parameters:
+      - description: Provider id (e.g. coros)
+        in: path
+        name: provider_id
+        required: true
+        type: string
+      - description: Registered callback URI
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.authorizeAccountRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.authorizeAccountResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Start linking a third-party watch account
+      tags:
+      - users
   /api/users/me/accounts/{provider_id}/link:
     post:
       consumes:
@@ -2357,6 +2413,41 @@ paths:
       security:
       - BasicAuth: []
       summary: Introspect a token (RFC 7662 subset)
+      tags:
+      - oauth
+  /oauth/link/{provider_id}/callback:
+    get:
+      parameters:
+      - description: Provider id
+        in: path
+        name: provider_id
+        required: true
+        type: string
+      - description: Authorization code
+        in: query
+        name: code
+        type: string
+      - description: Opaque state handle
+        in: query
+        name: state
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Redirect to the registered callback URI
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Third-party OAuth2 link callback
       tags:
       - oauth
   /oauth/revoke:

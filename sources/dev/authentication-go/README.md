@@ -186,6 +186,8 @@ values so the same config file works everywhere.
 | `auth_enable_test_providers` | `AUTH_ENABLE_TEST_PROVIDERS` | `false` |
 | `swagger_enabled` | `SWAGGER_ENABLED` | `false` (UI also requires the `swagger` build tag) |
 | `require_invite_code` | `REQUIRE_INVITE_CODE` | `false` (legacy aliases `STRIDE_REQUIRE_INVITE_CODE` / `AUTH_REQUIRE_INVITE_CODE`) |
+| `oauth_public_base_url` | `OAUTH_PUBLIC_BASE_URL` | - (externally reachable base URL used to build third-party OAuth2 callback URLs; never derived from the request Host) |
+| `oauth_mock_enabled` | `OAUTH_MOCK_ENABLED` | `false` (service-wide master switch; mock mode also needs the per-application provider `mock` flag) |
 | `redis_addr` | `REDIS_ADDR` | `127.0.0.1:6379` |
 | `redis_password` | `REDIS_PASSWORD` | - |
 | `redis_db` | `REDIS_DB` | `0` |
@@ -206,9 +208,9 @@ values so the same config file works everywhere.
 
 | Prefix | Auth | Endpoints |
 |--------|------|-----------|
-| `/oauth/*` | Basic | `token` (authz-code, client-creds, refresh, password, `token_exchange`), `revoke`, `introspect` |
+| `/oauth/*` | Basic | `token` (authz-code, client-creds, refresh, password, `token_exchange`), `revoke`, `introspect`; `link/{provider_id}/callback` is public (the browser carries the single-use state handle) |
 | `/api/auth/*` | `X-Client-Id` | `register`, `login`, `provider/:id/login`, `refresh`, `logout`, `sms/send`, `sms/verify` |
-| `/api/users/*` | Bearer | `me`, accounts, teams |
+| `/api/users/*` | Bearer | `me`, accounts (`link`, `authorize`, unlink), teams |
 | `/api/teams/*` | Bearer | team CRUD, join/leave/transfer-owner, members |
 | `/admin/*` | Bearer admin | app/provider/user/team/invite-code management |
 | `/health` | none | health + version |
@@ -280,6 +282,42 @@ grant_type=token_exchange
 WeChat identities are stored per mini-program in the `auth_user_wechat_links`
 table (see `docs/adr/0002-user-wechat-links-table.md`); `users` carries only a
 `wechat_bound` flag derived from it.
+
+### Third-party watch account linking (OAuth2)
+
+STRIDE links watch brands (COROS first; Strava / Suunto / Polar later) through
+the brand's official OAuth2 authorization-code flow, so users never hand over
+their watch password. It is a generic, provider-parameterized layer: a brand is
+a descriptor in `internal/brandoauth` (endpoint paths, token field names,
+client-auth style, stable-user-id location) and the callback route is
+`/oauth/link/{provider_id}/callback`; adding a brand should need only a
+descriptor plus a provider config row.
+
+- `POST /api/users/me/accounts/{provider_id}/authorize` (Bearer) takes the
+  registered `redirect_uri`, mints an opaque single-use state handle (Redis, 10
+  minutes) and returns the brand's `authorize_url`. The redirect URI must be on
+  the calling application's registered `redirect_uris` list.
+- The user approves at the brand and returns to the public
+  `GET /oauth/link/{provider_id}/callback`, which exchanges the code, validates
+  the state (single use, same provider) and redirects back to the registered URI
+  with `link_status=success` or `link_status=error&link_error=...`.
+- Credentials are per application: configure the brand on `auth_app_providers`
+  via `POST /admin/applications/{id}/providers` with
+  `config: {"client_id":"...","client_secret":"...","scopes":[...],"base_url":"...","authorize_params":{...},"mock":false}`.
+  `base_url` overrides the descriptor's default (sandbox); `mock` only takes
+  effect together with `oauth_mock_enabled`.
+- Unlinking (`DELETE /api/users/me/accounts/{provider_id}`, admin unlink,
+  account deletion) deletes locally first and best-effort asks the brand to
+  revoke the grant; a failed revocation never blocks the unlink.
+- Tokens are stored in plaintext (`credential` = refresh token,
+  `provider_metadata` = access token, expiry, scope and the brand's raw
+  responses), matching the existing WeChat-secret precedent; encryption at rest
+  is a separate follow-up. The brand's stable user id is required
+  (`provider_account_id`) so one watch identity cannot bind two STRIDE users.
+
+Missing credentials make the endpoints return `400 provider_not_configured`;
+an unreachable brand returns `502 oauth_provider_error`. See
+`docs/adr/0008-third-party-watch-oauth-account-linking.md`.
 
 ### SMS verification-code login (mainland-China phone numbers)
 

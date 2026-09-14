@@ -34,6 +34,10 @@ type Handler struct {
 	// (constructed with the router); an unconfigured client makes the upload
 	// endpoint fail with cos_not_configured.
 	CosClient *cos.Client
+	// OAuthStateStore holds the single-use state handles for third-party
+	// OAuth2 account linking. Always present in production (the Redis store);
+	// a nil store fails the link endpoints closed with 503.
+	OAuthStateStore repository.OAuthStateStore
 }
 
 // ErrorResponse is the JSON body returned for every error. It mirrors
