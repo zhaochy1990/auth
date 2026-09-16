@@ -479,3 +479,216 @@ func TestSMSAdminListIncludesPhoneUsers(t *testing.T) {
 		t.Fatalf("phone-only user must not fabricate a display name, got %v", *body.Users[0].Name)
 	}
 }
+
+// --- Phone bind / rebind / unbind (POST & DELETE /api/users/me/phone) ---
+
+// bindPhone posts a verified phone for an authenticated user. The caller must
+// seedCode first (the send cooldown is bypassed in setup).
+func bindPhone(t *testing.T, ta *testApp, token, phone, code string) *httptest.ResponseRecorder {
+	t.Helper()
+	return ta.do(http.MethodPost, "/api/users/me/phone", map[string]any{"phone": phone, "code": code}, ta.bearer(token))
+}
+
+func profilePhone(t *testing.T, ta *testApp, token string) *string {
+	t.Helper()
+	w := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(token))
+	mustStatus(t, w, http.StatusOK)
+	var prof struct {
+		Phone *string `json:"phone"`
+	}
+	decode(t, w, &prof)
+	return prof.Phone
+}
+
+// An email-registered user binds a phone: the profile gains the phone and the
+// phone immediately becomes a working login method for the SAME account.
+func TestPhoneBindSuccess(t *testing.T) {
+	ta := newTestApp(t)
+	token := ta.registerUser(t, "bind@example.com")
+	phone := smsPhone(70)
+
+	if got := profilePhone(t, ta, token); got != nil {
+		t.Fatalf("fresh email user should have no phone, got %q", *got)
+	}
+
+	seedCode(t, ta, phone, "123456")
+	w := bindPhone(t, ta, token, phone, "123456")
+	mustStatus(t, w, http.StatusOK)
+
+	if got := profilePhone(t, ta, token); got == nil || *got != phone {
+		t.Fatalf("profile phone = %v, want %q", got, phone)
+	}
+
+	// The bound phone logs the same account in (no duplicate registration).
+	me := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(token))
+	mustStatus(t, me, http.StatusOK)
+	var before struct {
+		ID string `json:"id"`
+	}
+	decode(t, me, &before)
+	seedCode(t, ta, phone, "123456")
+	viaSMS := smsVerify(t, ta, phone, "123456", nil)
+	me2 := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(viaSMS.AccessToken))
+	mustStatus(t, me2, http.StatusOK)
+	var after struct {
+		ID string `json:"id"`
+	}
+	decode(t, me2, &after)
+	if after.ID != before.ID {
+		t.Fatalf("sms login after bind hit a different account: %s != %s", after.ID, before.ID)
+	}
+}
+
+// A second bind replaces the phone (rebind) and frees the old one for another
+// user.
+func TestPhoneRebind(t *testing.T) {
+	ta := newTestApp(t)
+	token := ta.registerUser(t, "rebind@example.com")
+	oldPhone, newPhone := smsPhone(71), smsPhone(72)
+
+	seedCode(t, ta, oldPhone, "123456")
+	bindPhone(t, ta, token, oldPhone, "123456")
+
+	seedCode(t, ta, newPhone, "123456")
+	w := bindPhone(t, ta, token, newPhone, "123456")
+	mustStatus(t, w, http.StatusOK)
+
+	if got := profilePhone(t, ta, token); got == nil || *got != newPhone {
+		t.Fatalf("profile phone after rebind = %v, want %q", got, newPhone)
+	}
+
+	// The old phone is released: another user can bind it.
+	other := ta.registerUser(t, "other@example.com")
+	seedCode(t, ta, oldPhone, "123456")
+	if w := bindPhone(t, ta, other, oldPhone, "123456"); w.Code != http.StatusOK {
+		t.Fatalf("old phone should be free after rebind, got status %d", w.Code)
+	}
+}
+
+// Binding the phone the user already owns is an idempotent no-op (no code is
+// even required — nothing changes).
+func TestPhoneBindIdempotentSamePhone(t *testing.T) {
+	ta := newTestApp(t)
+	token := ta.registerUser(t, "same@example.com")
+	phone := smsPhone(73)
+
+	seedCode(t, ta, phone, "123456")
+	bindPhone(t, ta, token, phone, "123456")
+
+	w := bindPhone(t, ta, token, phone, "000000") // wrong code, but already own
+	mustStatus(t, w, http.StatusOK)
+	if got := profilePhone(t, ta, token); got == nil || *got != phone {
+		t.Fatalf("phone should be unchanged, got %v", got)
+	}
+}
+
+// A phone held by a different account is rejected with phone_already_bound (no
+// account merge), while a fresh phone still binds.
+func TestPhoneBindConflictAnotherUser(t *testing.T) {
+	ta := newTestApp(t)
+	phone := smsPhone(74)
+
+	first := ta.registerUser(t, "first@example.com")
+	seedCode(t, ta, phone, "123456")
+	bindPhone(t, ta, first, phone, "123456")
+
+	second := ta.registerUser(t, "second@example.com")
+	seedCode(t, ta, phone, "123456")
+	w := bindPhone(t, ta, second, phone, "123456")
+	mustStatus(t, w, http.StatusConflict)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "phone_already_bound" {
+		t.Fatalf("error = %v, want phone_already_bound", body["error"])
+	}
+
+	fresh := smsPhone(75)
+	seedCode(t, ta, fresh, "123456")
+	if w := bindPhone(t, ta, second, fresh, "123456"); w.Code != http.StatusOK {
+		t.Fatalf("fresh phone should bind, got status %d", w.Code)
+	}
+}
+
+// A wrong code is rejected before any state change; the correct code then binds.
+func TestPhoneBindInvalidCode(t *testing.T) {
+	ta := newTestApp(t)
+	token := ta.registerUser(t, "code@example.com")
+	phone := smsPhone(76)
+
+	seedCode(t, ta, phone, "123456")
+	w := bindPhone(t, ta, token, phone, "000000")
+	mustStatus(t, w, http.StatusBadRequest)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "sms_code_invalid" {
+		t.Fatalf("error = %v, want sms_code_invalid", body["error"])
+	}
+
+	if got := profilePhone(t, ta, token); got != nil {
+		t.Fatalf("invalid code must not bind, got %q", *got)
+	}
+
+	bindPhone(t, ta, token, phone, "123456")
+	if got := profilePhone(t, ta, token); got == nil || *got != phone {
+		t.Fatalf("profile phone after valid code = %v, want %q", got, phone)
+	}
+}
+
+// An email user with a bound phone (two login methods) can unbind; the phone is
+// released for another account.
+func TestPhoneUnbindSuccess(t *testing.T) {
+	ta := newTestApp(t)
+	token := ta.registerUser(t, "unbind@example.com")
+	phone := smsPhone(77)
+
+	seedCode(t, ta, phone, "123456")
+	bindPhone(t, ta, token, phone, "123456")
+
+	w := ta.do(http.MethodDelete, "/api/users/me/phone", nil, ta.bearer(token))
+	mustStatus(t, w, http.StatusOK)
+
+	if got := profilePhone(t, ta, token); got != nil {
+		t.Fatalf("profile phone after unbind = %q, want nil", *got)
+	}
+
+	other := ta.registerUser(t, "taker@example.com")
+	seedCode(t, ta, phone, "123456")
+	if w := bindPhone(t, ta, other, phone, "123456"); w.Code != http.StatusOK {
+		t.Fatalf("unbound phone should be reusable, got status %d", w.Code)
+	}
+}
+
+// A phone-only account cannot unbind: the sms account is its last login method.
+func TestPhoneUnbindRefusedLastLoginMethod(t *testing.T) {
+	ta := newTestApp(t)
+	phone := smsPhone(78)
+
+	smsSend(t, ta, phone)
+	tok := smsVerify(t, ta, phone, "123456", nil)
+
+	w := ta.do(http.MethodDelete, "/api/users/me/phone", nil, ta.bearer(tok.AccessToken))
+	mustStatus(t, w, http.StatusConflict)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "cannot_unlink_last_account" {
+		t.Fatalf("error = %v, want cannot_unlink_last_account", body["error"])
+	}
+
+	if got := profilePhone(t, ta, tok.AccessToken); got == nil || *got != phone {
+		t.Fatalf("phone must survive a refused unbind, got %v", got)
+	}
+}
+
+// Unbinding without a phone is a 404.
+func TestPhoneUnbindWithoutPhone(t *testing.T) {
+	ta := newTestApp(t)
+	token := ta.registerUser(t, "nophone@example.com")
+
+	w := ta.do(http.MethodDelete, "/api/users/me/phone", nil, ta.bearer(token))
+	mustStatus(t, w, http.StatusNotFound)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "phone_not_bound" {
+		t.Fatalf("error = %v, want phone_not_bound", body["error"])
+	}
+}

@@ -168,6 +168,19 @@ func SmsNotConfigured() *Error {
 func PhoneNotRegistered() *Error {
 	return New(http.StatusNotFound, "phone_not_registered", "Phone number is not registered")
 }
+
+// PhoneAlreadyBound is the bind/rebid rejection: the phone is already held by
+// a different account (or by this account), so it cannot be bound again. The
+// product deliberately does not merge accounts, so there is no "take over"
+// path — the caller must pick a different phone.
+func PhoneAlreadyBound() *Error {
+	return New(http.StatusConflict, "phone_already_bound", "Phone number is already bound")
+}
+
+// PhoneNotBound is the unbind rejection: the user has no phone to unbind.
+func PhoneNotBound() *Error {
+	return New(http.StatusNotFound, "phone_not_bound", "Phone number is not bound")
+}
 func SmsProviderError(detail string) *Error {
 	return New(http.StatusBadGateway, "sms_provider_error", "SMS provider error: "+detail)
 }

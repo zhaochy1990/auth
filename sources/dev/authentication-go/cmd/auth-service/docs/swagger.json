@@ -2760,6 +2760,116 @@
                 }
             }
         },
+        "/api/users/me/phone": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Verifies a phone + one-time SMS code, then binds the phone to the authenticated user. If the user already has a phone it is replaced (rebind); binding the same phone is a no-op.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Bind (or rebind) the current user's phone",
+                "parameters": [
+                    {
+                        "description": "Phone and verification code",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.phoneBindRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.StatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes the phone from the authenticated user. Refused when the phone is the user's last remaining login method.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Unbind the current user's phone",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.StatusResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/users/me/teams": {
             "get": {
                 "security": [
@@ -3415,6 +3525,17 @@
                     "type": "string"
                 },
                 "token_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.phoneBindRequest": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "phone": {
                     "type": "string"
                 }
             }
