@@ -667,7 +667,7 @@ func TestPhoneUnbindRefusedLastLoginMethod(t *testing.T) {
 	tok := smsVerify(t, ta, phone, "123456", nil)
 
 	w := ta.do(http.MethodDelete, "/api/users/me/phone", nil, ta.bearer(tok.AccessToken))
-	mustStatus(t, w, http.StatusConflict)
+	mustStatus(t, w, http.StatusBadRequest)
 	var body map[string]any
 	decode(t, w, &body)
 	if body["error"] != "cannot_unlink_last_account" {
