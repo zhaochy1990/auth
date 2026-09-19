@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	redisstore "github.com/zhaochy1990/auth-service/internal/repository/redis"
 )
 
 // smsPhone returns a unique phone per test so Redis keys never collide across
@@ -269,15 +271,18 @@ func TestSMSVerifyAttemptCap(t *testing.T) {
 	}
 }
 
-// A second send to the same phone within 60 seconds is rejected.
-func TestSMSSendCooldown(t *testing.T) {
+// Up to five sends to the same phone fit inside one 60-second window; the
+// sixth is rejected with sms_send_cooldown.
+func TestSMSSendWindow(t *testing.T) {
 	ta := newTestApp(t)
 	phone := smsPhone(6)
 
-	w := smsSend(t, ta, phone)
-	mustStatus(t, w, http.StatusOK)
+	for i := 1; i <= 5; i++ {
+		w := smsSend(t, ta, phone)
+		mustStatus(t, w, http.StatusOK)
+	}
 
-	w = smsSend(t, ta, phone)
+	w := smsSend(t, ta, phone)
 	mustStatus(t, w, http.StatusTooManyRequests)
 	var body map[string]any
 	decode(t, w, &body)
@@ -286,14 +291,14 @@ func TestSMSSendCooldown(t *testing.T) {
 	}
 }
 
-// Ten sends per phone per day; the 11th is rejected (cooldown bypassed via the
-// store for setup).
+// Twenty sends per phone per day (sms_daily_max); the 21st is rejected
+// (cooldown bypassed via the store for setup).
 func TestSMSSendDailyLimit(t *testing.T) {
 	ta := newTestApp(t)
 	phone := smsPhone(7)
 
 	ctx := context.Background()
-	for i := 0; i < 10; i++ {
+	for i := 0; i < redisstore.DefaultDailyMax; i++ {
 		if err := ta.smsStore.ReserveDailyCount(ctx, phone); err != nil {
 			t.Fatalf("seed daily #%d: %v", i+1, err)
 		}

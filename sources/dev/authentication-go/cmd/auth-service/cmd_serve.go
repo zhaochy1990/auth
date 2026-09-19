@@ -58,7 +58,7 @@ func runServe() error {
 
 	// The Redis code store connects lazily: the service boots even when Redis
 	// is unreachable, and the SMS endpoints fail closed (503) per request.
-	smsStore := redis.New(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	smsStore := redis.New(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.SMSSendWindowMax, cfg.SMSDailyMax)
 	smsClient := sms.NewClient(sms.Config{
 		SecretID:   cfg.TencentSMSSecretID,
 		SecretKey:  cfg.TencentSMSSecretKey,

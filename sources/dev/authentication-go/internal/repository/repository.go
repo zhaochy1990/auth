@@ -189,13 +189,13 @@ const (
 // when Redis is unreachable, so the SMS endpoints fail closed on a Redis
 // outage.
 type SmsCodeStore interface {
-	// ReserveCooldown atomically claims the 60-second send cooldown for phone.
-	// It returns false (no error) when the phone is still cooling down from a
-	// previous send; the existing cooldown window is left untouched.
+	// ReserveCooldown atomically claims a send slot for phone inside the
+	// current 60-second window. It returns false (no error) once the window's
+	// send cap is exhausted; the running window is left untouched.
 	ReserveCooldown(ctx context.Context, phone string) (bool, error)
 	// ReserveDailyCount atomically increments the per-phone daily send counter
-	// (24h window, max 10), returning an error when the cap is reached. On an
-	// over-limit call the counter is left unchanged.
+	// (24h window), returning an error when the configured daily cap is
+	// reached. On an over-limit call the counter is left unchanged.
 	ReserveDailyCount(ctx context.Context, phone string) error
 	// StoreCode records a fresh verification code for phone (stored as a
 	// SHA-256 hash, single-use, with the given TTL) and resets the failed
@@ -206,8 +206,8 @@ type SmsCodeStore interface {
 	// failed-attempt counter; maxAttempts failed attempts invalidate the code
 	// (SmsVerifyAttemptsExceeded). A missing record is SmsVerifyExpired.
 	VerifyCode(ctx context.Context, phone, code string, maxAttempts int) (SmsVerifyResult, error)
-	// ReleaseSend undoes a reserved cooldown and daily increment when a send
-	// failed before the code was stored (best-effort).
+	// ReleaseSend undoes a reserved window slot and daily increment when a
+	// send failed before the code was stored (best-effort).
 	ReleaseSend(ctx context.Context, phone string) error
 	// Ping verifies Redis connectivity (used by the test harness to skip when
 	// Redis is unavailable, mirroring the MySQL convention).

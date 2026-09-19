@@ -14,21 +14,25 @@ import (
 func newTestStore(t *testing.T) (*Store, *miniredis.Miniredis) {
 	t.Helper()
 	mr := miniredis.RunT(t)
-	return New(mr.Addr(), "", 0), mr
+	return New(mr.Addr(), "", 0, DefaultSendWindowMax, DefaultDailyMax), mr
 }
 
-func TestReserveCooldown(t *testing.T) {
+func TestReserveCooldownWindow(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newTestStore(t)
 	const phone = "13812345678"
 
-	ok, err := s.ReserveCooldown(ctx, phone)
-	if err != nil || !ok {
-		t.Fatalf("first ReserveCooldown = (%v, %v), want (true, nil)", ok, err)
+	// The whole window budget is granted...
+	for i := 0; i < DefaultSendWindowMax; i++ {
+		ok, err := s.ReserveCooldown(ctx, phone)
+		if err != nil || !ok {
+			t.Fatalf("ReserveCooldown #%d = (%v, %v), want (true, nil)", i+1, ok, err)
+		}
 	}
-	ok, err = s.ReserveCooldown(ctx, phone)
+	// ...and the next send inside the same window is rejected.
+	ok, err := s.ReserveCooldown(ctx, phone)
 	if err != nil || ok {
-		t.Fatalf("second ReserveCooldown = (%v, %v), want (false, nil)", ok, err)
+		t.Fatalf("ReserveCooldown #%d = (%v, %v), want (false, nil)", DefaultSendWindowMax+1, ok, err)
 	}
 }
 
@@ -37,15 +41,15 @@ func TestReserveDailyCount(t *testing.T) {
 	s, _ := newTestStore(t)
 	const phone = "13812345678"
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < DefaultDailyMax; i++ {
 		if err := s.ReserveDailyCount(ctx, phone); err != nil {
 			t.Fatalf("ReserveDailyCount #%d = %v, want nil", i+1, err)
 		}
 	}
 	if err := s.ReserveDailyCount(ctx, phone); err == nil {
-		t.Fatal("11th ReserveDailyCount = nil, want daily-limit error")
+		t.Fatalf("ReserveDailyCount #%d = nil, want daily-limit error", DefaultDailyMax+1)
 	} else if err.Error() != "Daily SMS limit reached for this phone number" {
-		t.Fatalf("11th ReserveDailyCount error = %q", err.Error())
+		t.Fatalf("over-cap ReserveDailyCount error = %q", err.Error())
 	}
 }
 
@@ -173,7 +177,7 @@ func TestStoreCodeExpiry(t *testing.T) {
 
 func TestStoreFailClosedOnRedisOutage(t *testing.T) {
 	ctx := context.Background()
-	s := New("127.0.0.1:1", "", 0) // nothing listens here
+	s := New("127.0.0.1:1", "", 0, 0, 0) // nothing listens here
 	if _, err := s.ReserveCooldown(ctx, "13812345678"); err == nil {
 		t.Fatal("ReserveCooldown on unreachable Redis = nil, want fail-closed error")
 	} else if !strings.Contains(err.Error(), "temporarily unavailable") {
@@ -243,7 +247,7 @@ func TestOAuthStateExpiry(t *testing.T) {
 
 func TestOAuthStateFailClosedOnRedisOutage(t *testing.T) {
 	ctx := context.Background()
-	s := New("127.0.0.1:1", "", 0)
+	s := New("127.0.0.1:1", "", 0, 0, 0)
 	if err := s.StoreState(ctx, "h", repository.OAuthState{UserID: "u"}, time.Minute); err == nil {
 		t.Fatal("StoreState on unreachable Redis = nil, want fail-closed error")
 	} else if !strings.Contains(err.Error(), "temporarily unavailable") {
