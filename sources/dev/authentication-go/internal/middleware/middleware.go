@@ -14,6 +14,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/zhaochy1990/x/logger"
+
 	"github.com/zhaochy1990/auth-service/internal/apperror"
 	"github.com/zhaochy1990/auth-service/internal/auth"
 	"github.com/zhaochy1990/auth-service/internal/domain"
@@ -341,8 +343,11 @@ func (a *Auth) authenticateAppToken(c *gin.Context, token string) error {
 
 // --- Rate limiter (per-key sliding window) ---
 
-// RateLimiter is a per-key sliding-window rate limiter.
+// RateLimiter is a per-key sliding-window rate limiter. The state is
+// in-process only: buckets are per replica and reset on restart, so limits
+// hold exactly while a single replica serves all traffic.
 type RateLimiter struct {
+	name        string
 	mu          sync.Mutex
 	buckets     map[string][]time.Time
 	lastCleanup time.Time
@@ -350,9 +355,10 @@ type RateLimiter struct {
 	window      time.Duration
 }
 
-// NewRateLimiter builds a limiter allowing max requests per window.
-func NewRateLimiter(max int, window time.Duration) *RateLimiter {
-	return &RateLimiter{buckets: make(map[string][]time.Time), lastCleanup: time.Now(), max: max, window: window}
+// NewRateLimiter builds a limiter allowing max requests per window. name
+// identifies the limiter in rejection logs (e.g. "sms_send").
+func NewRateLimiter(name string, max int, window time.Duration) *RateLimiter {
+	return &RateLimiter{name: name, buckets: make(map[string][]time.Time), lastCleanup: time.Now(), max: max, window: window}
 }
 
 func (l *RateLimiter) check(key string) bool {
@@ -385,11 +391,20 @@ func (l *RateLimiter) check(key string) bool {
 	return true
 }
 
-// Middleware rate-limits by client IP.
+// Middleware rate-limits by client IP. A rejection is logged with the limiter
+// name and key so a tripped bucket (e.g. a shared office NAT exhausting the
+// hourly SMS send cap) can be diagnosed from logs alone — the limiter keeps no
+// counters anywhere else.
 func (l *RateLimiter) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := ClientIP(c, "global")
 		if !l.check(key) {
+			logger.S().Warnw("rate limit exceeded",
+				"limiter", l.name,
+				"key", key,
+				"max", l.max,
+				"window", l.window.String(),
+			)
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error":   "rate_limited",
 				"message": "Too many requests. Please try again later.",

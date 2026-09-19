@@ -48,13 +48,14 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	h.CosClient = cosClient
 	am := &middleware.Auth{Repo: repo, JWT: jwt}
 
-	// Per-IP sliding-window rate limiters.
-	authLimiter := middleware.NewRateLimiter(20, 60*time.Second)  // brute-force protection
-	oauthLimiter := middleware.NewRateLimiter(30, 60*time.Second) // OAuth2
-	userLimiter := middleware.NewRateLimiter(60, 60*time.Second)  // shared by /api/users + /api/teams
-	adminLimiter := middleware.NewRateLimiter(60, 60*time.Second) // admin
-	smsSendLimiter := middleware.NewRateLimiter(cfg.SMSSendRateLimit, time.Hour)
-	smsVerifyLimiter := middleware.NewRateLimiter(cfg.SMSVerifyRateLimit, time.Hour)
+	// Per-IP sliding-window rate limiters. The names identify the limiter in
+	// rejection logs.
+	authLimiter := middleware.NewRateLimiter("auth", 20, 60*time.Second)   // brute-force protection
+	oauthLimiter := middleware.NewRateLimiter("oauth", 30, 60*time.Second) // OAuth2
+	userLimiter := middleware.NewRateLimiter("users", 60, 60*time.Second)  // shared by /api/users + /api/teams
+	adminLimiter := middleware.NewRateLimiter("admin", 60, 60*time.Second) // admin
+	smsSendLimiter := middleware.NewRateLimiter("sms_send", cfg.SMSSendRateLimit, time.Hour)
+	smsVerifyLimiter := middleware.NewRateLimiter("sms_verify", cfg.SMSVerifyRateLimit, time.Hour)
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": cfg.AppVersion})
