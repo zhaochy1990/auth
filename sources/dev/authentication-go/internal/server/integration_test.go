@@ -222,7 +222,9 @@ func newTestAppWithRateLimits(t *testing.T, smsSendLimit, smsVerifyLimit int) *t
 		t.Skipf("MySQL unavailable (ClearAllTables): %v", err)
 	}
 
-	smsStore := redisstore.New(testRedisAddr(), "", 0)
+	// Zero limits fall back to the store's package defaults (5 per 60 s
+	// window, 20 per day) — the same values the tests assert against.
+	smsStore := redisstore.New(testRedisAddr(), "", 0, 0, 0)
 	if err := smsStore.Ping(ctx); err != nil {
 		if explicitTestRedisAddr() {
 			t.Fatalf("Redis unavailable (Ping): %v", err)

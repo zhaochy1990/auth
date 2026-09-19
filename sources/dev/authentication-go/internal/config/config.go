@@ -69,6 +69,13 @@ type Config struct {
 	// for the SMS send / verify endpoints.
 	SMSSendRateLimit   int `mapstructure:"sms_send_rate_limit"`
 	SMSVerifyRateLimit int `mapstructure:"sms_verify_rate_limit"`
+	// SMSDailyMax is the per-phone daily cap on verification-code sends (24 h
+	// window). SMSSendWindowMax is the per-phone cap within one 60-second send
+	// window. Both bound cost and annoyance per phone (the IP rate limits
+	// above bound abuse per caller). A non-positive value falls back to the
+	// store's package defaults (20 / 5).
+	SMSDailyMax      int `mapstructure:"sms_daily_max"`
+	SMSSendWindowMax int `mapstructure:"sms_send_window_max"`
 
 	// Tencent Cloud COS object storage (user avatars). Missing values do not
 	// prevent startup; POST /api/users/me/avatar returns cos_not_configured

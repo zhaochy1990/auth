@@ -45,8 +45,9 @@ type smsVerifyRequest struct {
 // account on first use. With login_only the phone must already be bound to a
 // user, otherwise the request is rejected with phone_not_registered and no SMS
 // is sent (the web login form uses this so an unregistered phone is guided to
-// registration). Enforces the 60-second send cooldown and the 10-per-day cap
-// per phone, and fails closed (503) when Redis is unavailable. In
+// registration). Enforces the per-phone send caps — at most
+// sms_send_window_max sends per 60-second window (default 5) and sms_daily_max
+// per day (default 20) — and fails closed (503) when Redis is unavailable. In
 // AUTH_SMS_TEST_MODE the fixed code 123456 is stored and the Tencent Cloud call
 // is skipped.
 //

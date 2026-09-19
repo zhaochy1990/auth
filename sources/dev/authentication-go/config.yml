@@ -69,6 +69,12 @@ tencent_sms_region: "ap-beijing"
 sms_send_rate_limit: 10
 sms_verify_rate_limit: 60
 
+# Per-phone SMS send caps. sms_daily_max bounds verification-code sends per
+# phone per 24 h; sms_send_window_max bounds them per phone within one
+# 60-second window. Non-positive values fall back to the store defaults (20 / 5).
+sms_daily_max: 20
+sms_send_window_max: 5
+
 # --- Tencent Cloud COS (user avatars) ---
 # Empty values don't block startup; POST /api/users/me/avatar returns
 # cos_not_configured until configured. base_url is the public/CDN endpoint
