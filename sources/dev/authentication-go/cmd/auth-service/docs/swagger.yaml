@@ -273,6 +273,13 @@ definitions:
       token_type:
         type: string
     type: object
+  internal_handlers.phoneBindRequest:
+    properties:
+      code:
+        type: string
+      phone:
+        type: string
+    type: object
   internal_handlers.providerLoginRequest:
     properties:
       credential:
@@ -2373,6 +2380,79 @@ paths:
       security:
       - BearerAuth: []
       summary: Upload the current user's avatar
+      tags:
+      - users
+  /api/users/me/phone:
+    delete:
+      description: Removes the phone from the authenticated user. Refused when the
+        phone is the user's last remaining login method.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.StatusResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Unbind the current user's phone
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      description: Verifies a phone + one-time SMS code, then binds the phone to the
+        authenticated user. If the user already has a phone it is replaced (rebind);
+        binding the same phone is a no-op.
+      parameters:
+      - description: Phone and verification code
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.phoneBindRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.StatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Bind (or rebind) the current user's phone
       tags:
       - users
   /api/users/me/teams:

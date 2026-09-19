@@ -286,6 +286,234 @@ func (h *Handler) VerifySmsCode(c *gin.Context) {
 	})
 }
 
+// phoneBindRequest binds a verified phone number to the current user.
+type phoneBindRequest struct {
+	Phone string `json:"phone"`
+	Code  string `json:"code"`
+}
+
+// phoneBindError maps an accounts-row duplicate (the same sms identity raced
+// onto another user) to the phone-specific conflict code, so the client
+// surface stays phone-shaped instead of leaking account_linking vocabulary.
+func phoneBindError(err error) *apperror.Error {
+	ae, ok := apperror.As(err)
+	if ok && ae.Type == "account_already_linked" {
+		return apperror.PhoneAlreadyBound()
+	}
+	return ae
+}
+
+// BindPhone verifies a one-time SMS code and binds (or rebinds) the phone to
+// the authenticated user. The code is issued by POST /api/auth/sms/send with
+// login_only=false (the login-or-register send); this endpoint only consumes
+// it, keyed by phone in the same Redis store. A phone already held by a
+// different account is rejected with phone_already_bound — there is no account
+// merge. Rebinding replaces the user's current phone after the new phone's
+// code is verified (the old phone is not re-verified, matching the "verify the
+// new identifier" convention). Binding the phone the user already owns is an
+// idempotent no-op. Writes users.phone and the sms account row together (with
+// compensating deletes/reverts on a mid-flow failure) so the phone becomes a
+// usable login method immediately.
+//
+// @Summary		Bind (or rebind) the current user's phone
+// @Description	Verifies a phone + one-time SMS code, then binds the phone to the authenticated user. If the user already has a phone it is replaced (rebind); binding the same phone is a no-op.
+// @Tags			users
+// @Accept			json
+// @Produce		json
+// @Param			body	body		phoneBindRequest	true	"Phone and verification code"
+// @Success		200		{object}	StatusResponse
+// @Failure		400		{object}	ErrorResponse
+// @Failure		401		{object}	ErrorResponse
+// @Failure		409		{object}	ErrorResponse
+// @Failure		500		{object}	ErrorResponse
+// @Security		BearerAuth
+// @Router			/api/users/me/phone [post]
+func (h *Handler) BindPhone(c *gin.Context) {
+	var req phoneBindRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		middleware.RespondError(c, apperror.BadRequest("Invalid request body"))
+		return
+	}
+	phone, err := domain.ParsePhoneNumber(req.Phone)
+	if err != nil {
+		middleware.RespondError(c, apperror.BadRequest("Invalid phone number"))
+		return
+	}
+	ctx := c.Request.Context()
+	userID := middleware.UserID(c)
+
+	user, err := h.Repo.Users().FindByID(ctx, userID)
+	if err != nil {
+		middleware.RespondError(c, err)
+		return
+	}
+	if user == nil {
+		middleware.RespondError(c, apperror.UserNotFound())
+		return
+	}
+
+	// A phone held by a different account can never be bound (no merge), and
+	// the user's own phone is already bound — both rejected before the code is
+	// consumed so a doomed attempt does not burn a one-time code.
+	holder, err := h.Repo.Users().FindByPhone(ctx, phone.String())
+	if err != nil {
+		middleware.RespondError(c, err)
+		return
+	}
+	if holder != nil && holder.ID != userID {
+		middleware.RespondError(c, apperror.PhoneAlreadyBound())
+		return
+	}
+	if holder != nil && holder.ID == userID {
+		c.JSON(http.StatusOK, StatusResponse{Status: "ok"})
+		return
+	}
+
+	result, err := h.SMSStore.VerifyCode(ctx, phone.String(), req.Code, smsMaxAttempts)
+	if err != nil {
+		middleware.RespondError(c, err)
+		return
+	}
+	switch result {
+	case repository.SmsVerifyInvalid:
+		middleware.RespondError(c, apperror.SmsCodeInvalid())
+		return
+	case repository.SmsVerifyExpired:
+		middleware.RespondError(c, apperror.SmsCodeExpired())
+		return
+	case repository.SmsVerifyAttemptsExceeded:
+		middleware.RespondError(c, apperror.SmsAttemptsExceeded())
+		return
+	}
+
+	now := time.Now().UTC()
+	phoneStr := phone.String()
+
+	// First bind inserts the sms account then stamps users.phone; rebind
+	// repoints the existing sms account then replaces users.phone. Either way
+	// the account row and the phone column stay consistent, and the
+	// (provider_id, provider_account_id) unique index is the final guard
+	// against a concurrent bind of the same phone by another user.
+	existingAccount, err := h.Repo.Accounts().FindByUserAndProvider(ctx, userID, smsProviderID)
+	if err != nil {
+		middleware.RespondError(c, err)
+		return
+	}
+
+	if existingAccount == nil {
+		account := &domain.Account{
+			ID:                uuid.NewString(),
+			UserID:            userID,
+			ProviderID:        smsProviderID,
+			ProviderAccountID: strPtr(phoneStr),
+			ProviderMetadata:  "{}",
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		}
+		if err := h.Repo.Accounts().Insert(ctx, account); err != nil {
+			middleware.RespondError(c, phoneBindError(err))
+			return
+		}
+		user.Phone = &phoneStr
+		user.UpdatedAt = now
+		if err := h.Repo.Users().Update(ctx, user); err != nil {
+			_ = h.Repo.Accounts().DeleteByID(ctx, account.ID) // compensate
+			middleware.RespondError(c, err)
+			return
+		}
+	} else {
+		oldPhone := existingAccount.ProviderAccountID
+		existingAccount.ProviderAccountID = &phoneStr
+		existingAccount.UpdatedAt = now
+		if err := h.Repo.Accounts().Update(ctx, existingAccount); err != nil {
+			middleware.RespondError(c, phoneBindError(err))
+			return
+		}
+		user.Phone = &phoneStr
+		user.UpdatedAt = now
+		if err := h.Repo.Users().Update(ctx, user); err != nil {
+			existingAccount.ProviderAccountID = oldPhone // compensate
+			_ = h.Repo.Accounts().Update(ctx, existingAccount)
+			middleware.RespondError(c, err)
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{Status: "ok"})
+}
+
+// UnbindPhone removes the phone from the authenticated user. It refuses when
+// the sms account is the user's last remaining login method (mirrors
+// UnlinkAccount's last-account guard), so a phone-only account can never be
+// stranded. No re-verification is required, matching the existing unlink
+// surface. The sms account row is deleted and users.phone cleared together,
+// with a compensating re-insert if the phone clear fails.
+//
+// @Summary		Unbind the current user's phone
+// @Description	Removes the phone from the authenticated user. Refused when the phone is the user's last remaining login method.
+// @Tags			users
+// @Produce		json
+// @Success		200		{object}	StatusResponse
+// @Failure		401		{object}	ErrorResponse
+// @Failure		404		{object}	ErrorResponse
+// @Failure		409		{object}	ErrorResponse
+// @Failure		500		{object}	ErrorResponse
+// @Security		BearerAuth
+// @Router			/api/users/me/phone [delete]
+func (h *Handler) UnbindPhone(c *gin.Context) {
+	ctx := c.Request.Context()
+	userID := middleware.UserID(c)
+
+	user, err := h.Repo.Users().FindByID(ctx, userID)
+	if err != nil {
+		middleware.RespondError(c, err)
+		return
+	}
+	if user == nil {
+		middleware.RespondError(c, apperror.UserNotFound())
+		return
+	}
+	if user.Phone == nil {
+		middleware.RespondError(c, apperror.PhoneNotBound())
+		return
+	}
+
+	account, err := h.Repo.Accounts().FindByUserAndProvider(ctx, userID, smsProviderID)
+	if err != nil {
+		middleware.RespondError(c, err)
+		return
+	}
+
+	if account != nil {
+		count, err := h.Repo.Accounts().CountByUser(ctx, userID)
+		if err != nil {
+			middleware.RespondError(c, err)
+			return
+		}
+		if count <= 1 {
+			middleware.RespondError(c, apperror.CannotUnlinkLastAccount())
+			return
+		}
+		if err := h.Repo.Accounts().DeleteByID(ctx, account.ID); err != nil {
+			middleware.RespondError(c, err)
+			return
+		}
+	}
+
+	now := time.Now().UTC()
+	user.Phone = nil
+	user.UpdatedAt = now
+	if err := h.Repo.Users().Update(ctx, user); err != nil {
+		if account != nil {
+			_ = h.Repo.Accounts().Insert(ctx, account) // compensate
+		}
+		middleware.RespondError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{Status: "ok"})
+}
+
 // randomSixDigits returns a cryptographically random 6-digit decimal string.
 func randomSixDigits() string {
 	b := make([]byte, 6)

@@ -106,6 +106,8 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		users.PATCH("/me", h.UpdateProfile)
 		users.POST("/me/avatar", h.UploadAvatar)
 		users.DELETE("/me", h.DeleteMe)
+		users.POST("/me/phone", h.BindPhone)
+		users.DELETE("/me/phone", h.UnbindPhone)
 		users.GET("/me/accounts", h.ListAccounts)
 		users.POST("/me/accounts/:provider_id/authorize", h.AuthorizeAccount)
 		users.POST("/me/accounts/:provider_id/link", h.LinkAccount)
