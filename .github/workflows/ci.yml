@@ -169,3 +169,18 @@ jobs:
 
       - name: Docker build (dry run)
         run: docker build -t auth-backend:ci .
+
+  # Side-channel to the WeCom group; the action never fails this job. Skipped
+  # jobs (backend untouched) count as success, not an error.
+  notify:
+    name: Notify WeCom
+    needs: [commitlint, changes, backend-check, backend-test, backend-docker]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - uses: zhaochy1990/configurations/notify-wecom@v1
+        with:
+          webhook_url: ${{ secrets.WECOM_WEBHOOK_URL }}
+          needs_json: ${{ toJSON(needs) }}
