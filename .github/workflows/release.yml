@@ -211,3 +211,19 @@ jobs:
           gh workflow run pin-images.yml \
             -R zhaochy1990/stride-devops \
             -f packages="$PACKAGES"
+
+  # ── 6. notify ──────────────────────────────────────────────────────────────
+  # Side-channel to the WeCom group; the action never fails this job. A
+  # skipped test/build chain (no changed packages) counts as success.
+  notify:
+    name: Notify WeCom
+    needs: [bump-versions, test, build, commit-versions, pin-images]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - uses: zhaochy1990/configurations/notify-wecom@v1
+        with:
+          webhook_url: ${{ secrets.WECOM_WEBHOOK_URL }}
+          needs_json: ${{ toJSON(needs) }}
