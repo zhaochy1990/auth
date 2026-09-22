@@ -19,4 +19,21 @@ This is **not** account merging — nothing moves between accounts. A phone numb
 already held by a different account is rejected, and a WeChat identity already
 bound to a different account still returns `409 wechat_already_bound`.
 
+When this grant auto-registers a **手机号账号**, the token response carries
+`registered: true` (an extra field on the otherwise standard response). It is
+the client's signal to enter post-registration onboarding (watch binding) once,
+and is absent when the grant logs an existing phone account in or binds to one.
+
 Status: accepted
+
+Accepted trade-off: the grant still has the **ROPC shape** — user credentials
+(a one-time SMS code) presented directly at the token endpoint — which OAuth 2.1
+dropped, and which OIDC answers with an authorisation-server-owned interaction
+(first-login flow: the AS renders the UI, links or registers, then issues a
+normal authorisation code; the client never sees credentials). Inside a WeChat
+mini-program the AS's UI is the mini-program's own login page, so the standard
+shape means a short-lived interaction session plus a continuation endpoint —
+infrastructure we do not need for one client and two auth methods. The
+session-based flow is the recorded evolution path if clients or auth methods
+proliferate; until then the pragmatic grant wins, and the same trade-off stands
+for the unchanged email + password bind branch on `token_exchange`.
