@@ -15,9 +15,72 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/wechat"
 )
 
+// grantTokenExchange is the RFC 8693 token_exchange grant.
+const grantTokenExchange = "token_exchange"
+
 // wechatSubjectTokenType is the subject_token_type value identifying a WeChat
 // mini-program js_code.
 const wechatSubjectTokenType = "wechat_mini_program"
+
+// resolveWeChatSession resolves the WeChat identity behind a grant request:
+// it validates the subject_token parameters, loads the calling application's
+// WeChat provider config, and exchanges the wx.login() code for a session.
+// Shared by the token_exchange and wechat_phone_bind grants so their request
+// shapes cannot drift. Returns the calling application, its WeChat appid, and
+// the session.
+func (h *Handler) resolveWeChatSession(c *gin.Context, req *tokenRequest) (*domain.Application, string, *wechat.SessionResult, error) {
+	ctx := c.Request.Context()
+	if req.SubjectToken == nil || *req.SubjectToken == "" {
+		return nil, "", nil, apperror.BadRequest("Missing 'subject_token' parameter")
+	}
+	if req.SubjectTokenType == nil {
+		return nil, "", nil, apperror.BadRequest("Missing 'subject_token_type' parameter")
+	}
+	if *req.SubjectTokenType != wechatSubjectTokenType {
+		return nil, "", nil, apperror.BadRequest("Unsupported subject_token_type: " + *req.SubjectTokenType)
+	}
+
+	app, err := h.resolveExchangeApp(c, req)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	wechatCfg, err := h.resolveWeChatProviderConfig(ctx, app)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	client := wechat.NewClient(wechatCfg.AppID, wechatCfg.Secret, h.Cfg.WeChatCode2SessionURL)
+	session, err := client.Code2Session(ctx, *req.SubjectToken)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return app, wechatCfg.AppID, session, nil
+}
+
+// bindWeChatIdentity attaches the exchanged WeChat identity to the account:
+// an existing link for a DIFFERENT identity in this mini-program is refused
+// (no silent rebind — the rebind flow is not designed yet), the user's own
+// identity is an idempotent no-op, and otherwise the link is written.
+// Shared by the email+password bind flow and the wechat_phone_bind grant.
+func (h *Handler) bindWeChatIdentity(ctx context.Context, user *domain.User, wechatAppID string, session *wechat.SessionResult) error {
+	link, err := h.Repo.Users().FindWeChatLink(ctx, user.ID, wechatAppID)
+	if err != nil {
+		return err
+	}
+	if link != nil && link.OpenID != session.OpenID {
+		return apperror.WeChatAlreadyBound()
+	}
+	if link == nil {
+		unionid := session.UnionID
+		if unionid != nil && *unionid == "" {
+			unionid = nil
+		}
+		if err := h.Repo.Users().LinkWeChat(ctx, user.ID, wechatAppID, session.OpenID, unionid); err != nil {
+			return err
+		}
+		user.WeChatBound = true
+	}
+	return nil
+}
 
 // handleTokenExchange implements the RFC 8693 token_exchange grant for WeChat
 // mini-program login. subject_token is the wx.login() code; the WeChat
@@ -26,44 +89,17 @@ const wechatSubjectTokenType = "wechat_mini_program"
 // email+password present the exchanged identity is bound to that account
 // instead (bind flow, which logs the user in directly).
 func (h *Handler) handleTokenExchange(c *gin.Context, req *tokenRequest) {
-	ctx := c.Request.Context()
-	if req.SubjectToken == nil || *req.SubjectToken == "" {
-		middleware.RespondError(c, apperror.BadRequest("Missing 'subject_token' parameter"))
-		return
-	}
-	if req.SubjectTokenType == nil {
-		middleware.RespondError(c, apperror.BadRequest("Missing 'subject_token_type' parameter"))
-		return
-	}
-	if *req.SubjectTokenType != wechatSubjectTokenType {
-		middleware.RespondError(c, apperror.BadRequest("Unsupported subject_token_type: "+*req.SubjectTokenType))
-		return
-	}
-
-	app, err := h.resolveExchangeApp(c, req)
-	if err != nil {
-		middleware.RespondError(c, err)
-		return
-	}
-
-	wechatCfg, err := h.resolveWeChatProviderConfig(ctx, app)
-	if err != nil {
-		middleware.RespondError(c, err)
-		return
-	}
-
-	client := wechat.NewClient(wechatCfg.AppID, wechatCfg.Secret, h.Cfg.WeChatCode2SessionURL)
-	session, err := client.Code2Session(ctx, *req.SubjectToken)
+	app, wechatAppID, session, err := h.resolveWeChatSession(c, req)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
 	}
 
 	if req.Email != nil || req.Password != nil {
-		h.handleWeChatBind(c, req, app, wechatCfg.AppID, session)
+		h.handleWeChatBind(c, req, app, wechatAppID, session)
 		return
 	}
-	h.handleWeChatLogin(c, req, app, wechatCfg.AppID, session)
+	h.handleWeChatLogin(c, req, app, wechatAppID, session)
 }
 
 // resolveExchangeApp determines the calling application: the Basic-authenticated
@@ -181,50 +217,16 @@ func (h *Handler) handleWeChatBind(c *gin.Context, req *tokenRequest, app *domai
 	}
 
 	// The identity must not already belong to another account: openid within
-	// this mini-program, and unionid as the cross-mini-program key.
-	existing, err := h.Repo.Users().FindByWeChatOpenID(ctx, wechatAppID, session.OpenID)
-	if err != nil {
+	// this mini-program, and unionid as the cross-mini-program key. Checked
+	// after the credentials are proven but before anything is written.
+	if err := h.ensureWeChatIdentityFree(ctx, wechatAppID, session, user); err != nil {
 		middleware.RespondError(c, err)
 		return
 	}
-	if existing != nil && existing.ID != user.ID {
-		middleware.RespondError(c, apperror.WeChatAlreadyBound())
-		return
-	}
-	if session.UnionID != nil && *session.UnionID != "" {
-		existing, err = h.Repo.Users().FindByWeChatUnionID(ctx, *session.UnionID)
-		if err != nil {
-			middleware.RespondError(c, err)
-			return
-		}
-		if existing != nil && existing.ID != user.ID {
-			middleware.RespondError(c, apperror.WeChatAlreadyBound())
-			return
-		}
-	}
 
-	// An account already bound to a DIFFERENT WeChat identity in this
-	// mini-program may not silently rebind; the rebind flow is not designed yet.
-	link, err := h.Repo.Users().FindWeChatLink(ctx, user.ID, wechatAppID)
-	if err != nil {
+	if err := h.bindWeChatIdentity(ctx, user, wechatAppID, session); err != nil {
 		middleware.RespondError(c, err)
 		return
-	}
-	if link != nil && link.OpenID != session.OpenID {
-		middleware.RespondError(c, apperror.WeChatAlreadyBound())
-		return
-	}
-
-	if link == nil {
-		unionid := session.UnionID
-		if unionid != nil && *unionid == "" {
-			unionid = nil
-		}
-		if err := h.Repo.Users().LinkWeChat(ctx, user.ID, wechatAppID, session.OpenID, unionid); err != nil {
-			middleware.RespondError(c, err)
-			return
-		}
-		user.WeChatBound = true
 	}
 	h.respondTokenExchange(c, req, user, app, false)
 }

@@ -97,7 +97,7 @@ func (h *Handler) Token(c *gin.Context) {
 	// Only token_exchange and wechat_phone_bind may run as a public client
 	// (client_id in the body); every other grant requires the client to have
 	// authenticated via Basic.
-	if req.GrantType != "token_exchange" && req.GrantType != grantWeChatPhoneBind && middleware.AppID(c) == "" {
+	if req.GrantType != grantTokenExchange && req.GrantType != grantWeChatPhoneBind && middleware.AppID(c) == "" {
 		middleware.RespondError(c, apperror.InvalidCredentials())
 		return
 	}
@@ -110,7 +110,7 @@ func (h *Handler) Token(c *gin.Context) {
 		h.handleRefreshTokenGrant(c, &req)
 	case "password":
 		h.handlePasswordGrant(c, &req)
-	case "token_exchange":
+	case grantTokenExchange:
 		h.handleTokenExchange(c, &req)
 	case grantWeChatPhoneBind:
 		h.handleWeChatPhoneBind(c, &req)

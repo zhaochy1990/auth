@@ -123,7 +123,10 @@ func (h *Handler) SendSmsCode(c *gin.Context) {
 		return
 	}
 	if err := h.SMSStore.ReserveDailyCount(ctx, phone.String()); err != nil {
-		_ = h.SMSStore.ReleaseSend(ctx, phone.String())
+		// The over-limit call leaves the daily counter untouched, so there is
+		// nothing to give back: releasing here would refund quota the phone
+		// never spent, and alternating attempts would dodge the cap entirely.
+		// The reserved cooldown slot simply expires with its window.
 		middleware.RespondError(c, err)
 		return
 	}

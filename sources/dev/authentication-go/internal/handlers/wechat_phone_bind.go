@@ -38,18 +38,6 @@ const grantWeChatPhoneBind = "wechat_phone_bind"
 // the gate is a deployment configuration, not a per-request choice.
 func (h *Handler) handleWeChatPhoneBind(c *gin.Context, req *tokenRequest) {
 	ctx := c.Request.Context()
-	if req.SubjectToken == nil || *req.SubjectToken == "" {
-		middleware.RespondError(c, apperror.BadRequest("Missing 'subject_token' parameter"))
-		return
-	}
-	if req.SubjectTokenType == nil {
-		middleware.RespondError(c, apperror.BadRequest("Missing 'subject_token_type' parameter"))
-		return
-	}
-	if *req.SubjectTokenType != wechatSubjectTokenType {
-		middleware.RespondError(c, apperror.BadRequest("Unsupported subject_token_type: "+*req.SubjectTokenType))
-		return
-	}
 
 	// The phone+code proof and the email+password proof are two different bind
 	// flows on two different grants; a request carrying both is malformed.
@@ -71,18 +59,7 @@ func (h *Handler) handleWeChatPhoneBind(c *gin.Context, req *tokenRequest) {
 		return
 	}
 
-	app, err := h.resolveExchangeApp(c, req)
-	if err != nil {
-		middleware.RespondError(c, err)
-		return
-	}
-	wechatCfg, err := h.resolveWeChatProviderConfig(ctx, app)
-	if err != nil {
-		middleware.RespondError(c, err)
-		return
-	}
-	client := wechat.NewClient(wechatCfg.AppID, wechatCfg.Secret, h.Cfg.WeChatCode2SessionURL)
-	session, err := client.Code2Session(ctx, *req.SubjectToken)
+	app, wechatAppID, session, err := h.resolveWeChatSession(c, req)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -112,7 +89,7 @@ func (h *Handler) handleWeChatPhoneBind(c *gin.Context, req *tokenRequest) {
 	// before the code is consumed so a conflict does not burn it. When the
 	// identity already belongs to the phone's own account the grant is an
 	// idempotent login.
-	if err := h.ensureWeChatIdentityFree(ctx, wechatCfg.AppID, session, user); err != nil {
+	if err := h.ensureWeChatIdentityFree(ctx, wechatAppID, session, user); err != nil {
 		middleware.RespondError(c, err)
 		return
 	}
@@ -149,28 +126,9 @@ func (h *Handler) handleWeChatPhoneBind(c *gin.Context, req *tokenRequest) {
 		registered = true
 	}
 
-	// An account already bound to a DIFFERENT WeChat identity in this
-	// mini-program may not silently rebind; the rebind flow is not designed
-	// yet. A fresh registration has no links, so this only guards logins.
-	link, err := h.Repo.Users().FindWeChatLink(ctx, user.ID, wechatCfg.AppID)
-	if err != nil {
+	if err := h.bindWeChatIdentity(ctx, user, wechatAppID, session); err != nil {
 		middleware.RespondError(c, err)
 		return
-	}
-	if link != nil && link.OpenID != session.OpenID {
-		middleware.RespondError(c, apperror.WeChatAlreadyBound())
-		return
-	}
-	if link == nil {
-		unionid := session.UnionID
-		if unionid != nil && *unionid == "" {
-			unionid = nil
-		}
-		if err := h.Repo.Users().LinkWeChat(ctx, user.ID, wechatCfg.AppID, session.OpenID, unionid); err != nil {
-			middleware.RespondError(c, err)
-			return
-		}
-		user.WeChatBound = true
 	}
 
 	h.respondTokenExchange(c, req, user, app, registered)

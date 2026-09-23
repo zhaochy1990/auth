@@ -250,6 +250,43 @@ func TestWeChatPhoneBindUnionIDCollision(t *testing.T) {
 	}
 }
 
+// An EXISTING phone account binding a WeChat identity that belongs to a
+// different account is refused — the phone identifies the target, and the
+// identity belongs to someone else (issue Testing Decisions: 手机号被其它账号
+// 持有/身份冲突的既有账号分支).
+func TestWeChatPhoneBindExistingPhoneIdentityBoundToOther(t *testing.T) {
+	ta := newTestApp(t)
+	// Account B binds the code-bindable identity via email+password.
+	ta.bindUser(t, "identity-owner@example.com")
+
+	// Account A is an existing phone account with no WeChat link.
+	phone := smsPhone(108)
+	if w := smsSend(t, ta, phone); w.Code != http.StatusOK {
+		t.Fatalf("send status = %d, want 200", w.Code)
+	}
+	accountA := smsVerify(t, ta, phone, "123456", nil)
+
+	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
+	w := ta.phoneBindGrant(t, "code-bindable", url.Values{"phone": {phone}, "code": {"123456"}})
+	mustStatus(t, w, http.StatusConflict)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "wechat_already_bound" {
+		t.Fatalf("error = %v, want wechat_already_bound", body["error"])
+	}
+
+	// Nothing was bound to A.
+	me := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(accountA.AccessToken))
+	mustStatus(t, me, http.StatusOK)
+	var prof struct {
+		WeChatBound bool `json:"wechat_bound"`
+	}
+	decode(t, me, &prof)
+	if prof.WeChatBound {
+		t.Fatalf("conflicting bind must not link the identity to account A")
+	}
+}
+
 // An account already bound to a DIFFERENT WeChat identity in this
 // mini-program may not silently rebind (same guard as the email bind flow).
 func TestWeChatPhoneBindDifferentIdentityRejected(t *testing.T) {
@@ -321,6 +358,20 @@ func TestWeChatPhoneBindInviteGate(t *testing.T) {
 	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 	login := ta.phoneBindGrant(t, "code-bindable", url.Values{"phone": {phone}, "code": {"123456"}, "invite_code": {"STRAY"}})
 	mustStatus(t, login, http.StatusOK)
+
+	// Gate off + brand-new phone + stray invite_code: the parameter is ignored
+	// (ADR 0006) and the auto-register goes through with registered=true.
+	fresh := smsPhone(109)
+	seedCode(t, ta, repository.SmsSceneBindPhone, fresh, "123456")
+	// code-unionid is conflict-free here: code-bindable is already bound to the
+	// login account above.
+	reg := ta.phoneBindGrant(t, "code-unionid", url.Values{"phone": {fresh}, "code": {"123456"}, "invite_code": {"STRAY"}})
+	mustStatus(t, reg, http.StatusOK)
+	var resp phoneBindTokenResp
+	decode(t, reg, &resp)
+	if !resp.Registered {
+		t.Fatalf("expected registered=true on auto-register with gate off, got %+v", resp)
+	}
 }
 
 // Scene isolation on the send side: a bind_phone code cannot be consumed by
@@ -375,6 +426,38 @@ func TestSMSSendUnknownSceneRejected(t *testing.T) {
 	decode(t, w, &body)
 	if body["error"] != "bad_request" {
 		t.Fatalf("error = %v, want bad_request", body["error"])
+	}
+}
+
+// The daily cap is per phone, not per scene (ADR 0010): once the phone's
+// sms:daily budget is spent, sends of EVERY scene are refused.
+func TestSMSSendDailyLimitSharedAcrossScenes(t *testing.T) {
+	ta := newTestApp(t)
+	phone := smsPhone(110)
+
+	// One real send per scene: both increment the same per-phone daily counter.
+	if w := smsSendScene(t, ta, phone, repository.SmsSceneBindPhone); w.Code != http.StatusOK {
+		t.Fatalf("bind send status = %d, want 200", w.Code)
+	}
+	if w := smsSendScene(t, ta, phone, repository.SmsSceneLogin); w.Code != http.StatusOK {
+		t.Fatalf("login send status = %d, want 200", w.Code)
+	}
+	// Fill the rest of the daily budget (cap 20) directly through the store
+	// (setup seam, mirroring seedCode's cooldown bypass).
+	for i := 0; i < 18; i++ {
+		if err := ta.smsStore.ReserveDailyCount(context.Background(), phone); err != nil {
+			t.Fatalf("reserve daily #%d: %v", i+1, err)
+		}
+	}
+
+	var body map[string]any
+	for _, scene := range []repository.SmsScene{repository.SmsSceneBindPhone, repository.SmsSceneLogin} {
+		w := smsSendScene(t, ta, phone, scene)
+		mustStatus(t, w, http.StatusTooManyRequests)
+		decode(t, w, &body)
+		if body["error"] != "sms_daily_limit" {
+			t.Fatalf("scene %s: error = %v, want sms_daily_limit", scene, body["error"])
+		}
 	}
 }
 
