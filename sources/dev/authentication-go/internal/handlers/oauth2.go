@@ -15,7 +15,8 @@ import (
 
 type tokenRequest struct {
 	GrantType string `json:"grant_type" form:"grant_type"`
-	// authorization_code flow
+	// authorization_code flow; also the bind_phone-scene SMS verification code
+	// for the wechat_phone_bind grant.
 	Code         *string `json:"code" form:"code"`
 	RedirectURI  *string `json:"redirect_uri" form:"redirect_uri"`
 	CodeVerifier *string `json:"code_verifier" form:"code_verifier"`
@@ -32,6 +33,10 @@ type tokenRequest struct {
 	// wechat bind: email of the account to bind the exchanged identity to
 	// (with password, above).
 	Email *string `json:"email" form:"email"`
+	// wechat_phone_bind grant: the phone number that identifies (or registers)
+	// the account to bind the exchanged identity to, with the SMS verification
+	// code (Code, above) that proves its ownership.
+	Phone *string `json:"phone" form:"phone"`
 	// common
 	Scope *string `json:"scope" form:"scope"`
 }
@@ -42,6 +47,10 @@ type oauthTokenResponse struct {
 	TokenType    string  `json:"token_type"`
 	ExpiresIn    int64   `json:"expires_in"`
 	Scope        *string `json:"scope,omitempty"`
+	// Registered is set (true) only when the wechat_phone_bind grant created a
+	// new 手机号账号; it is the client's once-only signal to enter
+	// post-registration onboarding. Absent on plain logins and binds.
+	Registered bool `json:"registered,omitempty"`
 }
 
 type revokeRequest struct {
@@ -65,7 +74,7 @@ type introspectResponse struct {
 // Token implements the OAuth2 token endpoint (multiple grant types).
 //
 // @Summary		OAuth2 token endpoint
-// @Description	Issues tokens for the authorization_code, client_credentials, refresh_token, password, and token_exchange (RFC 8693) grant types. The client authenticates with HTTP Basic (client_id:client_secret); token_exchange additionally accepts a public client identified by client_id in the request body. Accepts both application/x-www-form-urlencoded (standard) and application/json bodies.
+// @Description	Issues tokens for the authorization_code, client_credentials, refresh_token, password, token_exchange (RFC 8693), and wechat_phone_bind grant types. The client authenticates with HTTP Basic (client_id:client_secret); token_exchange and wechat_phone_bind additionally accept a public client identified by client_id in the request body. Accepts both application/x-www-form-urlencoded (standard) and application/json bodies.
 // @Tags			oauth
 // @Accept			json
 // @Accept			x-www-form-urlencoded
@@ -85,9 +94,10 @@ func (h *Handler) Token(c *gin.Context) {
 		middleware.RespondError(c, apperror.BadRequest("Invalid request body"))
 		return
 	}
-	// Only token_exchange may run as a public client (client_id in the body);
-	// every other grant requires the client to have authenticated via Basic.
-	if req.GrantType != "token_exchange" && middleware.AppID(c) == "" {
+	// Only token_exchange and wechat_phone_bind may run as a public client
+	// (client_id in the body); every other grant requires the client to have
+	// authenticated via Basic.
+	if req.GrantType != "token_exchange" && req.GrantType != grantWeChatPhoneBind && middleware.AppID(c) == "" {
 		middleware.RespondError(c, apperror.InvalidCredentials())
 		return
 	}
@@ -102,6 +112,8 @@ func (h *Handler) Token(c *gin.Context) {
 		h.handlePasswordGrant(c, &req)
 	case "token_exchange":
 		h.handleTokenExchange(c, &req)
+	case grantWeChatPhoneBind:
+		h.handleWeChatPhoneBind(c, &req)
 	default:
 		middleware.RespondError(c, apperror.BadRequest("Unsupported grant_type: "+req.GrantType))
 	}

@@ -135,7 +135,7 @@ func (h *Handler) handleWeChatLogin(c *gin.Context, req *tokenRequest, app *doma
 		middleware.RespondError(c, apperror.UserDisabled())
 		return
 	}
-	h.respondTokenExchange(c, req, user, app)
+	h.respondTokenExchange(c, req, user, app, false)
 }
 
 // handleWeChatBind verifies email+password, then binds the exchanged WeChat
@@ -226,12 +226,13 @@ func (h *Handler) handleWeChatBind(c *gin.Context, req *tokenRequest, app *domai
 		}
 		user.WeChatBound = true
 	}
-	h.respondTokenExchange(c, req, user, app)
+	h.respondTokenExchange(c, req, user, app, false)
 }
 
 // respondTokenExchange issues the standard token pair for the exchanged user
-// (shared by the login and bind flows).
-func (h *Handler) respondTokenExchange(c *gin.Context, req *tokenRequest, user *domain.User, app *domain.Application) {
+// (shared by the login and bind flows, and by the wechat_phone_bind grant,
+// which passes registered=true when it auto-registered the account).
+func (h *Handler) respondTokenExchange(c *gin.Context, req *tokenRequest, user *domain.User, app *domain.Application, registered bool) {
 	ctx := c.Request.Context()
 
 	_ = h.Repo.Users().RecordLogin(ctx, user.ID, middleware.ClientIP(c, "unknown"))
@@ -266,5 +267,6 @@ func (h *Handler) respondTokenExchange(c *gin.Context, req *tokenRequest, user *
 		TokenType:    "Bearer",
 		ExpiresIn:    h.Cfg.JWTAccessTokenExpirySecs,
 		Scope:        &scopeStr,
+		Registered:   registered,
 	})
 }

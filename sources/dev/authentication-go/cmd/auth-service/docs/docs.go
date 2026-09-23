@@ -3054,7 +3054,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Issues tokens for the authorization_code, client_credentials, refresh_token, password, and token_exchange (RFC 8693) grant types. The client authenticates with HTTP Basic (client_id:client_secret); token_exchange additionally accepts a public client identified by client_id in the request body. Accepts both application/x-www-form-urlencoded (standard) and application/json bodies.",
+                "description": "Issues tokens for the authorization_code, client_credentials, refresh_token, password, token_exchange (RFC 8693), and wechat_phone_bind grant types. The client authenticates with HTTP Basic (client_id:client_secret); token_exchange and wechat_phone_bind additionally accept a public client identified by client_id in the request body. Accepts both application/x-www-form-urlencoded (standard) and application/json bodies.",
                 "consumes": [
                     "application/json",
                     "application/x-www-form-urlencoded"
@@ -3529,6 +3529,10 @@ const docTemplate = `{
                 "refresh_token": {
                     "type": "string"
                 },
+                "registered": {
+                    "description": "Registered is set (true) only when the wechat_phone_bind grant created a\nnew 手机号账号; it is the client's once-only signal to enter\npost-registration onboarding. Absent on plain logins and binds.",
+                    "type": "boolean"
+                },
                 "scope": {
                     "type": "string"
                 },
@@ -3680,10 +3684,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "login_only": {
-                    "description": "LoginOnly restricts the send to already-registered phones (the web login\nform). Omitted (false) keeps the login-or-register behavior for clients\nthat still auto-create the account on first verification.",
+                    "description": "LoginOnly restricts the send to already-registered phones (the web login\nform). Omitted (false) keeps the login-or-register behavior for clients\nthat still auto-create the account on first verification. Only valid\nwith the login scene.",
                     "type": "boolean"
                 },
                 "phone": {
+                    "type": "string"
+                },
+                "scene": {
+                    "description": "Scene selects which flow the code is for (login / bind_phone /\nreset_password). A code can only be consumed by the scene it was sent\nfor (ADR 0010); omitted defaults to login for clients predating scenes.",
                     "type": "string"
                 }
             }
@@ -3767,7 +3775,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "code": {
-                    "description": "authorization_code flow",
+                    "description": "authorization_code flow; also the bind_phone-scene SMS verification code\nfor the wechat_phone_bind grant.",
                     "type": "string"
                 },
                 "code_verifier": {
@@ -3781,6 +3789,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "password": {
+                    "type": "string"
+                },
+                "phone": {
+                    "description": "wechat_phone_bind grant: the phone number that identifies (or registers)\nthe account to bind the exchanged identity to, with the SMS verification\ncode (Code, above) that proves its ownership.",
                     "type": "string"
                 },
                 "redirect_uri": {

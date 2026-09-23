@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zhaochy1990/auth-service/internal/repository"
 	redisstore "github.com/zhaochy1990/auth-service/internal/repository/redis"
 )
 
@@ -53,10 +54,12 @@ func smsVerify(t *testing.T, ta *testApp, phone, code string, invite *string) *s
 }
 
 // seedCode writes a verification code directly through the store (test setup
-// that bypasses the 60s cooldown, as if a fresh send had happened).
-func seedCode(t *testing.T, ta *testApp, phone, code string) {
+// that bypasses the 60s cooldown, as if a fresh send had happened). The code
+// lands under the given scene's key, so a test must consume it with the same
+// scene it seeded.
+func seedCode(t *testing.T, ta *testApp, scene repository.SmsScene, phone, code string) {
 	t.Helper()
-	if err := ta.smsStore.StoreCode(context.Background(), phone, code, 5*time.Minute); err != nil {
+	if err := ta.smsStore.StoreCode(context.Background(), scene, phone, code, 5*time.Minute); err != nil {
 		t.Fatalf("seed code: %v", err)
 	}
 }
@@ -132,7 +135,7 @@ func TestSMSExistingUserLogin(t *testing.T) {
 	mustStatus(t, w, http.StatusOK)
 
 	// A fresh code (bypassing the 60s cooldown) logs the same account in.
-	seedCode(t, ta, phone, "123456")
+	seedCode(t, ta, repository.SmsSceneLogin, phone, "123456")
 	second := smsVerify(t, ta, phone, "123456", nil)
 
 	me := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(second.AccessToken))
@@ -223,7 +226,7 @@ func TestSMSVerifyExpiredCode(t *testing.T) {
 	phone := smsPhone(4)
 
 	// Store a code with a 1-second TTL, then wait past it.
-	if err := ta.smsStore.StoreCode(context.Background(), phone, "123456", time.Second); err != nil {
+	if err := ta.smsStore.StoreCode(context.Background(), repository.SmsSceneLogin, phone, "123456", time.Second); err != nil {
 		t.Fatalf("seed code: %v", err)
 	}
 	time.Sleep(1200 * time.Millisecond)
@@ -379,7 +382,7 @@ func TestSMSVerifyInviteGateOn(t *testing.T) {
 	smsVerify(t, ta, phone, "123456", &code.Code)
 
 	// A returning user logs in without an invite code even while the gate is on.
-	seedCode(t, ta, phone, "123456")
+	seedCode(t, ta, repository.SmsSceneLogin, phone, "123456")
 	smsVerify(t, ta, phone, "123456", nil)
 
 	// A fresh phone with an already-used invite → 409.
@@ -443,11 +446,11 @@ func TestSMSVerifyRateLimit(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		phone := smsPhone(40 + i)
-		seedCode(t, ta, phone, "123456")
+		seedCode(t, ta, repository.SmsSceneLogin, phone, "123456")
 		smsVerify(t, ta, phone, "123456", nil)
 	}
 	phone := smsPhone(50)
-	seedCode(t, ta, phone, "123456")
+	seedCode(t, ta, repository.SmsSceneLogin, phone, "123456")
 	w := ta.do(http.MethodPost, "/api/auth/sms/verify", map[string]any{"phone": phone, "code": "123456"}, ta.clientHeaders())
 	mustStatus(t, w, http.StatusTooManyRequests)
 	var body map[string]any
@@ -516,7 +519,7 @@ func TestPhoneBindSuccess(t *testing.T) {
 		t.Fatalf("fresh email user should have no phone, got %q", *got)
 	}
 
-	seedCode(t, ta, phone, "123456")
+	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 	w := bindPhone(t, ta, token, phone, "123456")
 	mustStatus(t, w, http.StatusOK)
 
@@ -531,7 +534,7 @@ func TestPhoneBindSuccess(t *testing.T) {
 		ID string `json:"id"`
 	}
 	decode(t, me, &before)
-	seedCode(t, ta, phone, "123456")
+	seedCode(t, ta, repository.SmsSceneLogin, phone, "123456")
 	viaSMS := smsVerify(t, ta, phone, "123456", nil)
 	me2 := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(viaSMS.AccessToken))
 	mustStatus(t, me2, http.StatusOK)
@@ -551,10 +554,10 @@ func TestPhoneRebind(t *testing.T) {
 	token := ta.registerUser(t, "rebind@example.com")
 	oldPhone, newPhone := smsPhone(71), smsPhone(72)
 
-	seedCode(t, ta, oldPhone, "123456")
+	seedCode(t, ta, repository.SmsSceneBindPhone, oldPhone, "123456")
 	bindPhone(t, ta, token, oldPhone, "123456")
 
-	seedCode(t, ta, newPhone, "123456")
+	seedCode(t, ta, repository.SmsSceneBindPhone, newPhone, "123456")
 	w := bindPhone(t, ta, token, newPhone, "123456")
 	mustStatus(t, w, http.StatusOK)
 
@@ -564,7 +567,7 @@ func TestPhoneRebind(t *testing.T) {
 
 	// The old phone is released: another user can bind it.
 	other := ta.registerUser(t, "other@example.com")
-	seedCode(t, ta, oldPhone, "123456")
+	seedCode(t, ta, repository.SmsSceneBindPhone, oldPhone, "123456")
 	if w := bindPhone(t, ta, other, oldPhone, "123456"); w.Code != http.StatusOK {
 		t.Fatalf("old phone should be free after rebind, got status %d", w.Code)
 	}
@@ -577,7 +580,7 @@ func TestPhoneBindIdempotentSamePhone(t *testing.T) {
 	token := ta.registerUser(t, "same@example.com")
 	phone := smsPhone(73)
 
-	seedCode(t, ta, phone, "123456")
+	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 	bindPhone(t, ta, token, phone, "123456")
 
 	w := bindPhone(t, ta, token, phone, "000000") // wrong code, but already own
@@ -594,11 +597,11 @@ func TestPhoneBindConflictAnotherUser(t *testing.T) {
 	phone := smsPhone(74)
 
 	first := ta.registerUser(t, "first@example.com")
-	seedCode(t, ta, phone, "123456")
+	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 	bindPhone(t, ta, first, phone, "123456")
 
 	second := ta.registerUser(t, "second@example.com")
-	seedCode(t, ta, phone, "123456")
+	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 	w := bindPhone(t, ta, second, phone, "123456")
 	mustStatus(t, w, http.StatusConflict)
 	var body map[string]any
@@ -608,7 +611,7 @@ func TestPhoneBindConflictAnotherUser(t *testing.T) {
 	}
 
 	fresh := smsPhone(75)
-	seedCode(t, ta, fresh, "123456")
+	seedCode(t, ta, repository.SmsSceneBindPhone, fresh, "123456")
 	if w := bindPhone(t, ta, second, fresh, "123456"); w.Code != http.StatusOK {
 		t.Fatalf("fresh phone should bind, got status %d", w.Code)
 	}
@@ -620,7 +623,7 @@ func TestPhoneBindInvalidCode(t *testing.T) {
 	token := ta.registerUser(t, "code@example.com")
 	phone := smsPhone(76)
 
-	seedCode(t, ta, phone, "123456")
+	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 	w := bindPhone(t, ta, token, phone, "000000")
 	mustStatus(t, w, http.StatusBadRequest)
 	var body map[string]any
@@ -646,7 +649,7 @@ func TestPhoneUnbindSuccess(t *testing.T) {
 	token := ta.registerUser(t, "unbind@example.com")
 	phone := smsPhone(77)
 
-	seedCode(t, ta, phone, "123456")
+	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 	bindPhone(t, ta, token, phone, "123456")
 
 	w := ta.do(http.MethodDelete, "/api/users/me/phone", nil, ta.bearer(token))
@@ -657,7 +660,7 @@ func TestPhoneUnbindSuccess(t *testing.T) {
 	}
 
 	other := ta.registerUser(t, "taker@example.com")
-	seedCode(t, ta, phone, "123456")
+	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 	if w := bindPhone(t, ta, other, phone, "123456"); w.Code != http.StatusOK {
 		t.Fatalf("unbound phone should be reusable, got status %d", w.Code)
 	}

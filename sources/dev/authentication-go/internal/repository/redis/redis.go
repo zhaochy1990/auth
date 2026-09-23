@@ -2,14 +2,19 @@
 // and the repository.OAuthStateStore interface for third-party OAuth2 link
 // state.
 //
-// Verification codes are stored under three keys per phone:
+// Verification codes are stored per phone and per scene (ADR 0010):
 //
-//	sms:code:{phone}     JSON {"hash","attempts"} — SHA-256 of the code plus
-//	                     the failed-attempt counter; single-use, 5-minute TTL
+//	sms:code:{phone}:{scene}
+//	                     JSON {"hash","attempts"} — SHA-256 of the code plus
+//	                     the failed-attempt counter; single-use, 5-minute TTL.
+//	                     A code minted for one scene can never be consumed by
+//	                     another (login / bind_phone / reset_password).
 //	sms:cooldown:{phone} integer send counter — 60-second fixed window; at
-//	                     most SendWindowMax sends per window (default 5)
+//	                     most SendWindowMax sends per window (default 5).
+//	                     Deliberately NOT scoped by scene: the budget is the
+//	                     phone's, not the flow's.
 //	sms:daily:{phone}    integer send counter — 24h TTL; at most DailyMax
-//	                     sends per day (default 20)
+//	                     sends per day (default 20); not scene-scoped either.
 //
 // The window and daily caps come from config (sms_send_window_max /
 // sms_daily_max); New falls back to the package defaults for non-positive
@@ -51,6 +56,11 @@ const (
 )
 
 func key(prefix, phone string) string { return "sms:" + prefix + ":" + phone }
+
+// codeKey is the per-scene verification-code key: sms:code:{phone}:{scene}.
+func codeKey(phone string, scene repository.SmsScene) string {
+	return key("code", phone) + ":" + string(scene)
+}
 
 // Store is the Redis-backed SmsCodeStore.
 type Store struct {
@@ -140,13 +150,13 @@ type codeRecord struct {
 	Attempts int    `json:"attempts"`
 }
 
-func (s *Store) StoreCode(ctx context.Context, phone, code string, ttl time.Duration) error {
+func (s *Store) StoreCode(ctx context.Context, scene repository.SmsScene, phone, code string, ttl time.Duration) error {
 	rec := codeRecord{Hash: hashCode(code)}
 	b, err := json.Marshal(rec)
 	if err != nil {
 		return apperror.Internal()
 	}
-	return redisErr(s.rdb.Set(ctx, key("code", phone), b, ttl).Err())
+	return redisErr(s.rdb.Set(ctx, codeKey(phone, scene), b, ttl).Err())
 }
 
 var verifyScript = redis.NewScript(`
@@ -168,8 +178,8 @@ redis.call('SET', KEYS[1], cjson.encode(t), 'KEEPTTL')
 return 1 -- invalid, attempts remain
 `)
 
-func (s *Store) VerifyCode(ctx context.Context, phone, code string, maxAttempts int) (repository.SmsVerifyResult, error) {
-	n, err := verifyScript.Run(ctx, s.rdb, []string{key("code", phone)}, hashCode(code), maxAttempts).Int64()
+func (s *Store) VerifyCode(ctx context.Context, scene repository.SmsScene, phone, code string, maxAttempts int) (repository.SmsVerifyResult, error) {
+	n, err := verifyScript.Run(ctx, s.rdb, []string{codeKey(phone, scene)}, hashCode(code), maxAttempts).Int64()
 	if err != nil {
 		return 0, redisErr(err)
 	}

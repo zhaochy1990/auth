@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"net/http"
 	"time"
@@ -28,9 +29,14 @@ const (
 
 type smsSendRequest struct {
 	Phone string `json:"phone"`
+	// Scene selects which flow the code is for (login / bind_phone /
+	// reset_password). A code can only be consumed by the scene it was sent
+	// for (ADR 0010); omitted defaults to login for clients predating scenes.
+	Scene string `json:"scene"`
 	// LoginOnly restricts the send to already-registered phones (the web login
 	// form). Omitted (false) keeps the login-or-register behavior for clients
-	// that still auto-create the account on first verification.
+	// that still auto-create the account on first verification. Only valid
+	// with the login scene.
 	LoginOnly bool `json:"login_only"`
 }
 
@@ -73,6 +79,15 @@ func (h *Handler) SendSmsCode(c *gin.Context) {
 	phone, err := domain.ParsePhoneNumber(req.Phone)
 	if err != nil {
 		middleware.RespondError(c, apperror.BadRequest("Invalid phone number"))
+		return
+	}
+	scene, ok := repository.SmsSceneFromRequest(req.Scene)
+	if !ok {
+		middleware.RespondError(c, apperror.BadRequest("Invalid scene: unknown verification-code scene"))
+		return
+	}
+	if req.LoginOnly && scene != repository.SmsSceneLogin {
+		middleware.RespondError(c, apperror.BadRequest("login_only is only valid with the login scene"))
 		return
 	}
 	ctx := c.Request.Context()
@@ -122,7 +137,7 @@ func (h *Handler) SendSmsCode(c *gin.Context) {
 			return
 		}
 	}
-	if err := h.SMSStore.StoreCode(ctx, phone.String(), code, smsCodeLifetime); err != nil {
+	if err := h.SMSStore.StoreCode(ctx, scene, phone.String(), code, smsCodeLifetime); err != nil {
 		_ = h.SMSStore.ReleaseSend(ctx, phone.String())
 		middleware.RespondError(c, err)
 		return
@@ -182,7 +197,7 @@ func (h *Handler) VerifySmsCode(c *gin.Context) {
 		}
 	}
 
-	result, err := h.SMSStore.VerifyCode(ctx, phone.String(), req.Code, smsMaxAttempts)
+	result, err := h.SMSStore.VerifyCode(ctx, repository.SmsSceneLogin, phone.String(), req.Code, smsMaxAttempts)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
@@ -209,48 +224,8 @@ func (h *Handler) VerifySmsCode(c *gin.Context) {
 
 	if user == nil {
 		// First successful verification auto-registers (login-or-register).
-		userID = uuid.NewString()
-		membership, membershipExpires, invitedWith, userType := registrationGrants(inviteRecord, now)
-
-		// Claim a single-use invite code first (ETag-atomic) so a race leaves
-		// no orphan rows.
-		if inviteRecord != nil && inviteRecord.Kind == domain.InviteSingleUse {
-			if err := h.Repo.InviteCodes().MarkUsed(ctx, inviteRecord.Code, userID); err != nil {
-				middleware.RespondError(c, err)
-				return
-			}
-		}
-
-		newUser := &domain.User{
-			ID:                  userID,
-			Phone:               strPtr(phone.String()),
-			EmailVerified:       false,
-			Role:                "user",
-			UserType:            userType,
-			IsActive:            true,
-			CustomAttributes:    map[string]any{},
-			CreatedAt:           now,
-			UpdatedAt:           now,
-			InviteCode:          invitedWith,
-			Membership:          membership,
-			MembershipExpiresAt: membershipExpires,
-		}
-		if err := h.Repo.Users().Insert(ctx, newUser); err != nil {
-			middleware.RespondError(c, err)
-			return
-		}
-		account := &domain.Account{
-			ID:                uuid.NewString(),
-			UserID:            userID,
-			ProviderID:        smsProviderID,
-			ProviderAccountID: strPtr(phone.String()),
-			ProviderMetadata:  "{}",
-			CreatedAt:         now,
-			UpdatedAt:         now,
-		}
-		if err := h.Repo.Accounts().Insert(ctx, account); err != nil {
-			_ = h.Repo.Accounts().DeleteByID(ctx, account.ID)
-			_ = h.Repo.Users().DeleteByID(ctx, userID)
+		userID, err = h.registerPhoneUser(ctx, phone.String(), inviteRecord, now)
+		if err != nil {
 			middleware.RespondError(c, err)
 			return
 		}
@@ -287,6 +262,55 @@ func (h *Handler) VerifySmsCode(c *gin.Context) {
 	})
 }
 
+// registerPhoneUser creates the 手机号账号 for a first-time phone: the user row
+// plus its sms provider account row, claimed invite code first (ETag-atomic,
+// so a race leaves no orphan rows) and compensating deletes when the second
+// insert fails. Shared by the SMS login-or-register flow and the
+// wechat_phone_bind grant so the two auto-registrations cannot drift.
+func (h *Handler) registerPhoneUser(ctx context.Context, phone string, inviteRecord *domain.InviteCode, now time.Time) (string, error) {
+	userID := uuid.NewString()
+	membership, membershipExpires, invitedWith, userType := registrationGrants(inviteRecord, now)
+
+	if inviteRecord != nil && inviteRecord.Kind == domain.InviteSingleUse {
+		if err := h.Repo.InviteCodes().MarkUsed(ctx, inviteRecord.Code, userID); err != nil {
+			return "", err
+		}
+	}
+
+	newUser := &domain.User{
+		ID:                  userID,
+		Phone:               strPtr(phone),
+		EmailVerified:       false,
+		Role:                "user",
+		UserType:            userType,
+		IsActive:            true,
+		CustomAttributes:    map[string]any{},
+		CreatedAt:           now,
+		UpdatedAt:           now,
+		InviteCode:          invitedWith,
+		Membership:          membership,
+		MembershipExpiresAt: membershipExpires,
+	}
+	if err := h.Repo.Users().Insert(ctx, newUser); err != nil {
+		return "", err
+	}
+	account := &domain.Account{
+		ID:                uuid.NewString(),
+		UserID:            userID,
+		ProviderID:        smsProviderID,
+		ProviderAccountID: strPtr(phone),
+		ProviderMetadata:  "{}",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	if err := h.Repo.Accounts().Insert(ctx, account); err != nil {
+		_ = h.Repo.Accounts().DeleteByID(ctx, account.ID) // compensate
+		_ = h.Repo.Users().DeleteByID(ctx, userID)        // compensate
+		return "", err
+	}
+	return userID, nil
+}
+
 // phoneBindRequest binds a verified phone number to the current user.
 type phoneBindRequest struct {
 	Phone string `json:"phone"`
@@ -306,8 +330,8 @@ func phoneBindError(err error) *apperror.Error {
 
 // BindPhone verifies a one-time SMS code and binds (or rebinds) the phone to
 // the authenticated user. The code is issued by POST /api/auth/sms/send with
-// login_only=false (the login-or-register send); this endpoint only consumes
-// it, keyed by phone in the same Redis store. A phone already held by a
+// scene=bind_phone (ADR 0010) and consumed under the same scene key; a login
+// code can never drive a binding. A phone already held by a
 // different account is rejected with phone_already_bound — there is no account
 // merge. Rebinding replaces the user's current phone after the new phone's
 // code is verified (the old phone is not re-verified, matching the "verify the
@@ -370,7 +394,9 @@ func (h *Handler) BindPhone(c *gin.Context) {
 		return
 	}
 
-	result, err := h.SMSStore.VerifyCode(ctx, phone.String(), req.Code, smsMaxAttempts)
+	// The code must have been sent for the bind_phone scene (ADR 0010): a
+	// login code can never drive a binding.
+	result, err := h.SMSStore.VerifyCode(ctx, repository.SmsSceneBindPhone, phone.String(), req.Code, smsMaxAttempts)
 	if err != nil {
 		middleware.RespondError(c, err)
 		return
