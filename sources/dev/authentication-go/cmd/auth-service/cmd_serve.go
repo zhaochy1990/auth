@@ -60,12 +60,14 @@ func runServe() error {
 	// is unreachable, and the SMS endpoints fail closed (503) per request.
 	smsStore := redis.New(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.SMSSendWindowMax, cfg.SMSDailyMax)
 	smsClient := sms.NewClient(sms.Config{
-		SecretID:   cfg.TencentSMSSecretID,
-		SecretKey:  cfg.TencentSMSSecretKey,
-		SDKAppID:   cfg.TencentSMSSDKAppID,
-		SignName:   cfg.TencentSMSSignName,
-		TemplateID: cfg.TencentSMSTemplateID,
-		Region:     cfg.TencentSMSRegion,
+		SecretID:                cfg.TencentSMSSecretID,
+		SecretKey:               cfg.TencentSMSSecretKey,
+		SDKAppID:                cfg.TencentSMSSDKAppID,
+		SignName:                cfg.TencentSMSSignName,
+		TemplateID:              cfg.TencentSMSTemplateID,
+		BindPhoneTemplateID:     cfg.TencentSMSTemplateIDBindPhone,
+		ResetPasswordTemplateID: cfg.TencentSMSTemplateIDResetPassword,
+		Region:                  cfg.TencentSMSRegion,
 	}, "")
 
 	cosClient := cos.NewClient(cos.Config{

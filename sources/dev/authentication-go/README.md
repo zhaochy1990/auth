@@ -196,7 +196,9 @@ values so the same config file works everywhere.
 | `tencent_sms_secret_key` | `TENCENT_SMS_SECRET_KEY` | - |
 | `tencent_sms_sdk_app_id` | `TENCENT_SMS_SDK_APP_ID` | - |
 | `tencent_sms_sign_name` | `TENCENT_SMS_SIGN_NAME` | - |
-| `tencent_sms_template_id` | `TENCENT_SMS_TEMPLATE_ID` | - |
+| `tencent_sms_template_id` | `TENCENT_SMS_TEMPLATE_ID` | - (login scene; also the fallback for a scene with no template of its own) |
+| `tencent_sms_template_id_bind_phone` | `TENCENT_SMS_TEMPLATE_ID_BIND_PHONE` | `2739819` (绑定手机号 scene; empty falls back to `tencent_sms_template_id`) |
+| `tencent_sms_template_id_reset_password` | `TENCENT_SMS_TEMPLATE_ID_RESET_PASSWORD` | `2716981` (找回密码 scene; empty falls back to `tencent_sms_template_id`) |
 | `tencent_sms_region` | `TENCENT_SMS_REGION` | `ap-guangzhou` |
 | `sms_send_rate_limit` | `SMS_SEND_RATE_LIMIT` | `10` (per-IP sends per hour) |
 | `sms_verify_rate_limit` | `SMS_VERIFY_RATE_LIMIT` | `60` (per-IP verifies per hour) |

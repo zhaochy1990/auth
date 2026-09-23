@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/zhaochy1990/auth-service/internal/apperror"
+	"github.com/zhaochy1990/auth-service/internal/repository"
 	"github.com/zhaochy1990/x/logger"
 )
 
@@ -57,12 +58,14 @@ func newCapturingServer(t *testing.T, respond string) (*httptest.Server, *[]capt
 
 func testConfig() Config {
 	return Config{
-		SecretID:   "AKIDtestsecretid",
-		SecretKey:  "testsecretkeyvalue",
-		SDKAppID:   "1400000001",
-		SignName:   "上海砺跑科技",
-		TemplateID: "2716979",
-		Region:     "ap-guangzhou",
+		SecretID:                "AKIDtestsecretid",
+		SecretKey:               "testsecretkeyvalue",
+		SDKAppID:                "1400000001",
+		SignName:                "上海砺跑科技",
+		TemplateID:              "2716979",
+		BindPhoneTemplateID:     "2739819",
+		ResetPasswordTemplateID: "2716981",
+		Region:                  "ap-guangzhou",
 	}
 }
 
@@ -76,13 +79,20 @@ func TestConfigured(t *testing.T) {
 	if (Config{SecretID: "x"}).Configured() {
 		t.Fatal("partial config should report not configured")
 	}
+	// A missing per-scene template must not unconfigure the client: that scene
+	// falls back to the login template.
+	fallback := testConfig()
+	fallback.ResetPasswordTemplateID = ""
+	if !fallback.Configured() {
+		t.Fatal("missing per-scene template should not unconfigure the client")
+	}
 }
 
 func TestSendCodeRequestShapeAndSigning(t *testing.T) {
 	srv, reqs := newCapturingServer(t, `{"Response":{"SendStatusSet":[{"SerialNo":"1","PhoneNumber":"+8613812345678","Code":"Ok","Message":"send success"}],"RequestId":"req-1"}}`)
 
 	c := NewClient(testConfig(), srv.URL)
-	if err := c.SendCode(context.Background(), "13812345678", "123456"); err != nil {
+	if err := c.SendCode(context.Background(), repository.SmsSceneLogin, "13812345678", "123456"); err != nil {
 		t.Fatalf("SendCode: %v", err)
 	}
 
@@ -140,10 +150,70 @@ func TestSendCodeRequestShapeAndSigning(t *testing.T) {
 	}
 }
 
+// The scene picks the template id and the placeholder shape that goes with it.
+// Params follow the template actually selected, because Tencent rejects a
+// request whose param count does not match the template.
+func TestSendCodeSceneTemplates(t *testing.T) {
+	const ok = `{"Response":{"SendStatusSet":[{"SerialNo":"1","PhoneNumber":"+8613812345678","Code":"Ok","Message":"send success"}],"RequestId":"req-1"}}`
+	srv, reqs := newCapturingServer(t, ok)
+	c := NewClient(testConfig(), srv.URL)
+
+	lastBody := func(t *testing.T) (string, []string) {
+		t.Helper()
+		var body struct {
+			TemplateID       string   `json:"TemplateId"`
+			TemplateParamSet []string `json:"TemplateParamSet"`
+		}
+		if err := json.Unmarshal((*reqs)[len(*reqs)-1].body, &body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		return body.TemplateID, body.TemplateParamSet
+	}
+
+	cases := []struct {
+		name     string
+		scene    repository.SmsScene
+		template string
+		params   string
+	}{
+		{"login", repository.SmsSceneLogin, "2716979", "123456,5"},
+		{"empty scene", "", "2716979", "123456,5"},
+		{"bind_phone", repository.SmsSceneBindPhone, "2739819", "123456"},
+		{"reset_password", repository.SmsSceneResetPassword, "2716981", "123456"},
+	}
+	for _, tc := range cases {
+		if err := c.SendCode(context.Background(), tc.scene, "13812345678", "123456"); err != nil {
+			t.Fatalf("%s: SendCode: %v", tc.name, err)
+		}
+		template, params := lastBody(t)
+		if template != tc.template || strings.Join(params, ",") != tc.params {
+			t.Fatalf("%s: sent %s %v, want %s %s", tc.name, template, params, tc.template, tc.params)
+		}
+	}
+
+	// A scene whose template is unset falls back to the login template AND its
+	// two placeholders — sending one param to a two-placeholder template is a
+	// provider rejection, which is the whole reason the params follow the
+	// template rather than the scene.
+	fallback := testConfig()
+	fallback.BindPhoneTemplateID = ""
+	fallback.ResetPasswordTemplateID = ""
+	c = NewClient(fallback, srv.URL)
+	for _, scene := range []repository.SmsScene{repository.SmsSceneBindPhone, repository.SmsSceneResetPassword} {
+		if err := c.SendCode(context.Background(), scene, "13812345678", "123456"); err != nil {
+			t.Fatalf("fallback %s: SendCode: %v", scene, err)
+		}
+		template, params := lastBody(t)
+		if template != "2716979" || strings.Join(params, ",") != "123456,5" {
+			t.Fatalf("fallback %s: sent %s %v, want 2716979 [123456 5]", scene, template, params)
+		}
+	}
+}
+
 func TestSendCodeSuccess(t *testing.T) {
 	srv, _ := newCapturingServer(t, `{"Response":{"SendStatusSet":[{"SerialNo":"1","PhoneNumber":"+8613812345678","Code":"Ok","Message":"send success"}],"RequestId":"req-1"}}`)
 	c := NewClient(testConfig(), srv.URL)
-	if err := c.SendCode(context.Background(), "13812345678", "123456"); err != nil {
+	if err := c.SendCode(context.Background(), repository.SmsSceneLogin, "13812345678", "123456"); err != nil {
 		t.Fatalf("SendCode: %v", err)
 	}
 }
@@ -151,35 +221,35 @@ func TestSendCodeSuccess(t *testing.T) {
 func TestSendCodeProviderRejection(t *testing.T) {
 	srv, _ := newCapturingServer(t, `{"Response":{"SendStatusSet":[{"SerialNo":"1","PhoneNumber":"+8613812345678","Code":"FailedOperation.PhoneNumberInBlacklist","Message":"phone in blacklist"}],"RequestId":"req-1"}}`)
 	c := NewClient(testConfig(), srv.URL)
-	err := c.SendCode(context.Background(), "13812345678", "123456")
+	err := c.SendCode(context.Background(), repository.SmsSceneLogin, "13812345678", "123456")
 	assertSmsProviderError(t, err, "phone in blacklist")
 }
 
 func TestSendCodeResponseError(t *testing.T) {
 	srv, _ := newCapturingServer(t, `{"Response":{"Error":{"Code":"AuthFailure.SignatureFailure","Message":"signature failure"},"RequestId":"req-1"}}`)
 	c := NewClient(testConfig(), srv.URL)
-	err := c.SendCode(context.Background(), "13812345678", "123456")
+	err := c.SendCode(context.Background(), repository.SmsSceneLogin, "13812345678", "123456")
 	assertSmsProviderError(t, err, "signature failure")
 }
 
 func TestSendCodeMalformedResponse(t *testing.T) {
 	srv, _ := newCapturingServer(t, `not json at all`)
 	c := NewClient(testConfig(), srv.URL)
-	err := c.SendCode(context.Background(), "13812345678", "123456")
+	err := c.SendCode(context.Background(), repository.SmsSceneLogin, "13812345678", "123456")
 	assertSmsProviderError(t, err, "")
 }
 
 func TestSendCodeEmptyStatusSet(t *testing.T) {
 	srv, _ := newCapturingServer(t, `{"Response":{"SendStatusSet":[],"RequestId":"req-1"}}`)
 	c := NewClient(testConfig(), srv.URL)
-	err := c.SendCode(context.Background(), "13812345678", "123456")
+	err := c.SendCode(context.Background(), repository.SmsSceneLogin, "13812345678", "123456")
 	assertSmsProviderError(t, err, "")
 }
 
 func TestSendCodeNotConfigured(t *testing.T) {
 	srv, _ := newCapturingServer(t, `{}`)
 	c := NewClient(Config{}, srv.URL)
-	err := c.SendCode(context.Background(), "13812345678", "123456")
+	err := c.SendCode(context.Background(), repository.SmsSceneLogin, "13812345678", "123456")
 	if err == nil {
 		t.Fatal("expected not-configured error")
 	}
@@ -197,7 +267,7 @@ func TestSendCodeNetworkFailure(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 	c := NewClient(testConfig(), url)
-	err := c.SendCode(context.Background(), "13812345678", "123456")
+	err := c.SendCode(context.Background(), repository.SmsSceneLogin, "13812345678", "123456")
 	assertSmsProviderError(t, err, "")
 }
 

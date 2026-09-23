@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/zhaochy1990/auth-service/internal/apperror"
+	"github.com/zhaochy1990/auth-service/internal/repository"
 	"github.com/zhaochy1990/x/logger"
 
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common"
@@ -32,12 +33,25 @@ const (
 
 // Config holds the Tencent Cloud SMS credentials (global, from env).
 type Config struct {
-	SecretID   string
-	SecretKey  string
-	SDKAppID   string
-	SignName   string
+	SecretID  string
+	SecretKey string
+	SDKAppID  string
+	SignName  string
+	// TemplateID is the login template (2716979), and the fallback for a scene
+	// without a template of its own.
 	TemplateID string
-	Region     string
+	// BindPhoneTemplateID is the 绑定手机号 template (2739819). Empty falls back
+	// to TemplateID.
+	BindPhoneTemplateID string
+	// ResetPasswordTemplateID is the 找回密码 template (2716981). Empty falls
+	// back to TemplateID.
+	//
+	// A scene's own template declares {1}=code alone, so it takes one param;
+	// TemplateID's copy adds {2}=validity minutes and takes two. Give a scene a
+	// template only if its copy has that single placeholder — Tencent rejects a
+	// param count that does not match the template.
+	ResetPasswordTemplateID string
+	Region                  string
 }
 
 // Configured reports whether every credential needed to send is present.
@@ -90,9 +104,13 @@ func NewClient(cfg Config, endpoint string) *Client {
 func (c *Client) Configured() bool { return c.cfg.Configured() }
 
 // SendCode delivers a verification code to a mainland-China phone number
-// (bare 11 digits; the client prefixes +86). Template params are
-// {1}=code, {2}=validity minutes (the approved 上海砺跑科技 template 2716979).
-func (c *Client) SendCode(ctx context.Context, phone, code string) error {
+// (bare 11 digits; the client prefixes +86). The scene selects the template
+// (ADR 0010), so the message the user reads agrees with the action the code
+// authorises: bind_phone and reset_password each have their own approved copy,
+// and every other scene — including a scene this client does not know — sends
+// the login template. Template params follow the template actually selected,
+// since Tencent rejects a param count that does not match it.
+func (c *Client) SendCode(ctx context.Context, scene repository.SmsScene, phone, code string) error {
 	if !c.cfg.Configured() {
 		return apperror.SmsNotConfigured()
 	}
@@ -112,11 +130,12 @@ func (c *Client) SendCode(ctx context.Context, phone, code string) error {
 	// 实例化一个请求对象,每个接口都会对应一个request对象
 	request := sms.NewSendSmsRequest()
 
+	templateID, params := c.cfg.templateFor(scene, code)
 	request.PhoneNumberSet = common.StringPtrs([]string{"+86" + phone})
 	request.SmsSdkAppId = common.StringPtr(c.cfg.SDKAppID)
-	request.TemplateId = common.StringPtr(c.cfg.TemplateID)
+	request.TemplateId = common.StringPtr(templateID)
 	request.SignName = common.StringPtr(c.cfg.SignName)
-	request.TemplateParamSet = common.StringPtrs([]string{code, "5"})
+	request.TemplateParamSet = common.StringPtrs(params)
 	// 返回的resp是一个SendSmsResponse的实例，与请求对象对应
 	response, err := client.SendSms(request)
 	if err != nil {
@@ -144,6 +163,26 @@ func (c *Client) SendCode(ctx context.Context, phone, code string) error {
 
 	logger.S().Infof("Get response from tecent sms service %s", response.ToJsonString())
 	return nil
+}
+
+// templateFor returns the approved Tencent Cloud template for a scene and its
+// placeholder values. The scene's own template copy declares {1}=code alone;
+// the login template adds {2}=validity minutes. A scene with no template of its
+// own sends the login copy, so its params must be the login shape — the two are
+// picked together because Tencent rejects a param count that does not match the
+// template.
+func (c Config) templateFor(scene repository.SmsScene, code string) (string, []string) {
+	own := ""
+	switch scene {
+	case repository.SmsSceneBindPhone:
+		own = c.BindPhoneTemplateID
+	case repository.SmsSceneResetPassword:
+		own = c.ResetPasswordTemplateID
+	}
+	if own != "" {
+		return own, []string{code}
+	}
+	return c.TemplateID, []string{code, "5"}
 }
 
 // smsProviderError returns a 502 for any Tencent Cloud SMS failure (network,
