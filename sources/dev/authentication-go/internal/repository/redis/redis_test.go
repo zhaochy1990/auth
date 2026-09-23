@@ -84,7 +84,7 @@ func TestVerifyCodeLifecycle(t *testing.T) {
 	const phone = "13812345678"
 
 	// No code was ever stored.
-	res, err := s.VerifyCode(ctx, phone, "123456", 5)
+	res, err := s.VerifyCode(ctx, repository.SmsSceneLogin, phone, "123456", 5)
 	if err != nil {
 		t.Fatalf("VerifyCode (missing) = %v", err)
 	}
@@ -92,12 +92,12 @@ func TestVerifyCodeLifecycle(t *testing.T) {
 		t.Fatalf("VerifyCode (missing) = %d, want expired", res)
 	}
 
-	if err := s.StoreCode(ctx, phone, "123456", 5*time.Minute); err != nil {
+	if err := s.StoreCode(ctx, repository.SmsSceneLogin, phone, "123456", 5*time.Minute); err != nil {
 		t.Fatalf("StoreCode = %v", err)
 	}
 
 	// Wrong code, attempts remain.
-	res, err = s.VerifyCode(ctx, phone, "000000", 5)
+	res, err = s.VerifyCode(ctx, repository.SmsSceneLogin, phone, "000000", 5)
 	if err != nil {
 		t.Fatalf("VerifyCode (wrong) = %v", err)
 	}
@@ -106,7 +106,7 @@ func TestVerifyCodeLifecycle(t *testing.T) {
 	}
 
 	// Correct code succeeds and is consumed (single-use).
-	res, err = s.VerifyCode(ctx, phone, "123456", 5)
+	res, err = s.VerifyCode(ctx, repository.SmsSceneLogin, phone, "123456", 5)
 	if err != nil {
 		t.Fatalf("VerifyCode (correct) = %v", err)
 	}
@@ -114,7 +114,7 @@ func TestVerifyCodeLifecycle(t *testing.T) {
 		t.Fatalf("VerifyCode (correct) = %d, want ok", res)
 	}
 	// Replay of a consumed code is rejected.
-	res, err = s.VerifyCode(ctx, phone, "123456", 5)
+	res, err = s.VerifyCode(ctx, repository.SmsSceneLogin, phone, "123456", 5)
 	if err != nil {
 		t.Fatalf("VerifyCode (replay) = %v", err)
 	}
@@ -128,11 +128,11 @@ func TestVerifyCodeAttemptCap(t *testing.T) {
 	s, _ := newTestStore(t)
 	const phone = "13812345678"
 
-	if err := s.StoreCode(ctx, phone, "123456", 5*time.Minute); err != nil {
+	if err := s.StoreCode(ctx, repository.SmsSceneLogin, phone, "123456", 5*time.Minute); err != nil {
 		t.Fatalf("StoreCode = %v", err)
 	}
 	for i := 0; i < 4; i++ {
-		res, err := s.VerifyCode(ctx, phone, "000000", 5)
+		res, err := s.VerifyCode(ctx, repository.SmsSceneLogin, phone, "000000", 5)
 		if err != nil {
 			t.Fatalf("VerifyCode wrong #%d = %v", i+1, err)
 		}
@@ -140,7 +140,7 @@ func TestVerifyCodeAttemptCap(t *testing.T) {
 			t.Fatalf("VerifyCode wrong #%d = %d, want invalid", i+1, res)
 		}
 	}
-	res, err := s.VerifyCode(ctx, phone, "000000", 5)
+	res, err := s.VerifyCode(ctx, repository.SmsSceneLogin, phone, "000000", 5)
 	if err != nil {
 		t.Fatalf("VerifyCode 5th wrong = %v", err)
 	}
@@ -148,7 +148,7 @@ func TestVerifyCodeAttemptCap(t *testing.T) {
 		t.Fatalf("VerifyCode 5th wrong = %d, want attempts-exceeded", res)
 	}
 	// The code was invalidated by the cap.
-	res, err = s.VerifyCode(ctx, phone, "123456", 5)
+	res, err = s.VerifyCode(ctx, repository.SmsSceneLogin, phone, "123456", 5)
 	if err != nil {
 		t.Fatalf("VerifyCode after cap = %v", err)
 	}
@@ -162,11 +162,11 @@ func TestStoreCodeExpiry(t *testing.T) {
 	s, mr := newTestStore(t)
 	const phone = "13812345678"
 
-	if err := s.StoreCode(ctx, phone, "123456", 1*time.Second); err != nil {
+	if err := s.StoreCode(ctx, repository.SmsSceneLogin, phone, "123456", 1*time.Second); err != nil {
 		t.Fatalf("StoreCode = %v", err)
 	}
 	mr.FastForward(2 * time.Second)
-	res, err := s.VerifyCode(ctx, phone, "123456", 5)
+	res, err := s.VerifyCode(ctx, repository.SmsSceneLogin, phone, "123456", 5)
 	if err != nil {
 		t.Fatalf("VerifyCode (expired) = %v", err)
 	}

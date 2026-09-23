@@ -184,6 +184,38 @@ const (
 	SmsVerifyAttemptsExceeded
 )
 
+// SmsScene identifies the purpose a verification code was minted for. A code
+// lives under a per-scene key, so a code texted for one action can never drive
+// another (ADR 0010). The send cooldown and daily cap are deliberately NOT
+// scoped by scene — they stay keyed by phone alone.
+type SmsScene string
+
+const (
+	// SmsSceneLogin is the SMS login-or-register flow (/api/auth/sms/verify).
+	SmsSceneLogin SmsScene = "login"
+	// SmsSceneBindPhone proves phone ownership for binding a phone to an
+	// account: POST /api/users/me/phone and the wechat_phone_bind grant.
+	SmsSceneBindPhone SmsScene = "bind_phone"
+	// SmsSceneResetPassword is the 找回密码 set-or-reset flow (endpoint not
+	// built yet; the scene is reserved so its codes are isolated from now on).
+	SmsSceneResetPassword SmsScene = "reset_password"
+)
+
+// SmsSceneFromRequest parses a client-supplied scene value. The empty string
+// defaults to SmsSceneLogin so clients predating scenes keep working; a
+// non-empty unknown value is rejected (ok=false).
+func SmsSceneFromRequest(raw string) (SmsScene, bool) {
+	if raw == "" {
+		return SmsSceneLogin, true
+	}
+	switch SmsScene(raw) {
+	case SmsSceneLogin, SmsSceneBindPhone, SmsSceneResetPassword:
+		return SmsScene(raw), true
+	default:
+		return "", false
+	}
+}
+
 // SmsCodeStore is the backing store for the short-lived, single-use SMS
 // verification codes (Redis). Every method fails — rather than falling back —
 // when Redis is unreachable, so the SMS endpoints fail closed on a Redis
@@ -197,15 +229,16 @@ type SmsCodeStore interface {
 	// (24h window), returning an error when the configured daily cap is
 	// reached. On an over-limit call the counter is left unchanged.
 	ReserveDailyCount(ctx context.Context, phone string) error
-	// StoreCode records a fresh verification code for phone (stored as a
-	// SHA-256 hash, single-use, with the given TTL) and resets the failed
-	// attempt counter.
-	StoreCode(ctx context.Context, phone, code string, ttl time.Duration) error
-	// VerifyCode checks a submitted code against the stored one. On success the
-	// code is consumed atomically (SmsVerifyOK). A mismatch increments the
-	// failed-attempt counter; maxAttempts failed attempts invalidate the code
-	// (SmsVerifyAttemptsExceeded). A missing record is SmsVerifyExpired.
-	VerifyCode(ctx context.Context, phone, code string, maxAttempts int) (SmsVerifyResult, error)
+	// StoreCode records a fresh verification code for phone under the scene's
+	// key (stored as a SHA-256 hash, single-use, with the given TTL) and resets
+	// the failed attempt counter.
+	StoreCode(ctx context.Context, scene SmsScene, phone, code string, ttl time.Duration) error
+	// VerifyCode checks a submitted code against the one stored for the scene.
+	// On success the code is consumed atomically (SmsVerifyOK). A mismatch
+	// increments the failed-attempt counter; maxAttempts failed attempts
+	// invalidate the code (SmsVerifyAttemptsExceeded). A missing record is
+	// SmsVerifyExpired.
+	VerifyCode(ctx context.Context, scene SmsScene, phone, code string, maxAttempts int) (SmsVerifyResult, error)
 	// ReleaseSend undoes a reserved window slot and daily increment when a
 	// send failed before the code was stored (best-effort).
 	ReleaseSend(ctx context.Context, phone string) error
