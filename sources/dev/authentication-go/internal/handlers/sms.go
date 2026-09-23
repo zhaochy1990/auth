@@ -308,6 +308,13 @@ func (h *Handler) registerPhoneUser(ctx context.Context, phone string, inviteRec
 		MembershipExpiresAt: membershipExpires,
 	}
 	if err := h.Repo.Users().Insert(ctx, newUser); err != nil {
+		// A concurrent auto-registration of the same phone (SMS verify vs the
+		// wechat_phone_bind grant) can win the users.phone unique index race.
+		// The winner's account is a perfectly good target: adopt it instead of
+		// surfacing a 500.
+		if winner, findErr := h.Repo.Users().FindByPhone(ctx, phone); findErr == nil && winner != nil {
+			return winner.ID, nil
+		}
 		return "", err
 	}
 	account := &domain.Account{
@@ -322,6 +329,9 @@ func (h *Handler) registerPhoneUser(ctx context.Context, phone string, inviteRec
 	if err := h.Repo.Accounts().Insert(ctx, account); err != nil {
 		_ = h.Repo.Accounts().DeleteByID(ctx, account.ID) // compensate
 		_ = h.Repo.Users().DeleteByID(ctx, userID)        // compensate
+		if winner, findErr := h.Repo.Users().FindByPhone(ctx, phone); findErr == nil && winner != nil {
+			return winner.ID, nil
+		}
 		return "", err
 	}
 	return userID, nil

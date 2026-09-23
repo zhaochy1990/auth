@@ -305,6 +305,12 @@ func TestWeChatPhoneBindDifferentIdentityRejected(t *testing.T) {
 	if body["error"] != "wechat_already_bound" {
 		t.Fatalf("error = %v, want wechat_already_bound", body["error"])
 	}
+
+	// The one-time code survived the rejected bind (the anti-rebind check runs
+	// before consumption): the account's own identity + the same code still
+	// completes as an idempotent login.
+	ok := ta.phoneBindGrant(t, "code-bindable", url.Values{"phone": {phone}, "code": {"123456"}})
+	mustStatus(t, ok, http.StatusOK)
 }
 
 // Parameter validation: missing subject_token / phone / code, an invalid

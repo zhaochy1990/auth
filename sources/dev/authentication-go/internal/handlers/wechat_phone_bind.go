@@ -93,6 +93,21 @@ func (h *Handler) handleWeChatPhoneBind(c *gin.Context, req *tokenRequest) {
 		middleware.RespondError(c, err)
 		return
 	}
+	// The account's own link for this mini-program must not point at a
+	// different identity either (no silent rebind) — also checked before the
+	// code is consumed, so a doomed attempt leaves the one-time code usable.
+	// bindWeChatIdentity re-checks after registration for the general case.
+	if user != nil {
+		link, err := h.Repo.Users().FindWeChatLink(ctx, user.ID, wechatAppID)
+		if err != nil {
+			middleware.RespondError(c, err)
+			return
+		}
+		if link != nil && link.OpenID != session.OpenID {
+			middleware.RespondError(c, apperror.WeChatAlreadyBound())
+			return
+		}
+	}
 
 	result, err := h.SMSStore.VerifyCode(ctx, repository.SmsSceneBindPhone, phone.String(), *req.Code, smsMaxAttempts)
 	if err != nil {
