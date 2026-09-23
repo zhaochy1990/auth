@@ -65,6 +65,7 @@ func runServe() error {
 		SDKAppID:                cfg.TencentSMSSDKAppID,
 		SignName:                cfg.TencentSMSSignName,
 		TemplateID:              cfg.TencentSMSTemplateID,
+		BindPhoneTemplateID:     cfg.TencentSMSTemplateIDBindPhone,
 		ResetPasswordTemplateID: cfg.TencentSMSTemplateIDResetPassword,
 		Region:                  cfg.TencentSMSRegion,
 	}, "")

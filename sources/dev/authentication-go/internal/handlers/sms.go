@@ -142,11 +142,10 @@ func (h *Handler) SendSmsCode(c *gin.Context) {
 	code := "123456"
 	if !h.Cfg.SMSTestMode {
 		code = randomSixDigits()
-		// NOTE(ADR 0010): the scene picks the Tencent template — reset_password
-		// sends its own approved copy (2716981), and a scene without one
-		// (bind_phone, still awaiting approval) falls back to the login
-		// template, so the live bind_phone message is unchanged. Key isolation
-		// is already enforced at the store level.
+		// NOTE(ADR 0010): the scene picks the Tencent template — bind_phone and
+		// reset_password each send their own approved copy, and a scene without
+		// one falls back to the login template. Key isolation is already
+		// enforced at the store level.
 		if err := h.SMSClient.SendCode(ctx, scene, phone.String(), code); err != nil {
 			_ = h.SMSStore.ReleaseSend(ctx, phone.String())
 			middleware.RespondError(c, err)

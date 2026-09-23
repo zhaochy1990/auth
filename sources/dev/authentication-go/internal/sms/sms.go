@@ -40,9 +40,16 @@ type Config struct {
 	// TemplateID is the login template (2716979), and the fallback for a scene
 	// without a template of its own.
 	TemplateID string
-	// ResetPasswordTemplateID is the 找回密码 template (2716981, single
-	// placeholder {1}=code). Empty falls back to TemplateID, whose copy declares
-	// {1}=code and {2}=validity minutes.
+	// BindPhoneTemplateID is the 绑定手机号 template (2739819). Empty falls back
+	// to TemplateID.
+	BindPhoneTemplateID string
+	// ResetPasswordTemplateID is the 找回密码 template (2716981). Empty falls
+	// back to TemplateID.
+	//
+	// A scene's own template declares {1}=code alone, so it takes one param;
+	// TemplateID's copy adds {2}=validity minutes and takes two. Give a scene a
+	// template only if its copy has that single placeholder — Tencent rejects a
+	// param count that does not match the template.
 	ResetPasswordTemplateID string
 	Region                  string
 }
@@ -99,10 +106,10 @@ func (c *Client) Configured() bool { return c.cfg.Configured() }
 // SendCode delivers a verification code to a mainland-China phone number
 // (bare 11 digits; the client prefixes +86). The scene selects the template
 // (ADR 0010), so the message the user reads agrees with the action the code
-// authorises: reset_password has its own approved copy (2716981), and every
-// other scene — including a scene this client does not know — sends the login
-// template. Template params follow the template actually selected, since
-// Tencent rejects a param count that does not match it.
+// authorises: bind_phone and reset_password each have their own approved copy,
+// and every other scene — including a scene this client does not know — sends
+// the login template. Template params follow the template actually selected,
+// since Tencent rejects a param count that does not match it.
 func (c *Client) SendCode(ctx context.Context, scene repository.SmsScene, phone, code string) error {
 	if !c.cfg.Configured() {
 		return apperror.SmsNotConfigured()
@@ -159,14 +166,21 @@ func (c *Client) SendCode(ctx context.Context, scene repository.SmsScene, phone,
 }
 
 // templateFor returns the approved Tencent Cloud template for a scene and its
-// placeholder values: {1}=code, {2}=validity minutes. The 找回密码 copy (2716981)
-// states no expiry and takes {1} alone, so the params follow the template rather
-// than the scene — a scene falling back to the login template needs its two
-// placeholders. A scene with no template of its own (bind_phone, until its copy
-// is approved) sends the login template.
+// placeholder values. The scene's own template copy declares {1}=code alone;
+// the login template adds {2}=validity minutes. A scene with no template of its
+// own sends the login copy, so its params must be the login shape — the two are
+// picked together because Tencent rejects a param count that does not match the
+// template.
 func (c Config) templateFor(scene repository.SmsScene, code string) (string, []string) {
-	if scene == repository.SmsSceneResetPassword && c.ResetPasswordTemplateID != "" {
-		return c.ResetPasswordTemplateID, []string{code}
+	own := ""
+	switch scene {
+	case repository.SmsSceneBindPhone:
+		own = c.BindPhoneTemplateID
+	case repository.SmsSceneResetPassword:
+		own = c.ResetPasswordTemplateID
+	}
+	if own != "" {
+		return own, []string{code}
 	}
 	return c.TemplateID, []string{code, "5"}
 }

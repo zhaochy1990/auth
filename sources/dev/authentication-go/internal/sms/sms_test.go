@@ -63,6 +63,7 @@ func testConfig() Config {
 		SDKAppID:                "1400000001",
 		SignName:                "上海砺跑科技",
 		TemplateID:              "2716979",
+		BindPhoneTemplateID:     "2739819",
 		ResetPasswordTemplateID: "2716981",
 		Region:                  "ap-guangzhou",
 	}
@@ -177,7 +178,7 @@ func TestSendCodeSceneTemplates(t *testing.T) {
 	}{
 		{"login", repository.SmsSceneLogin, "2716979", "123456,5"},
 		{"empty scene", "", "2716979", "123456,5"},
-		{"bind_phone has no template yet", repository.SmsSceneBindPhone, "2716979", "123456,5"},
+		{"bind_phone", repository.SmsSceneBindPhone, "2739819", "123456"},
 		{"reset_password", repository.SmsSceneResetPassword, "2716981", "123456"},
 	}
 	for _, tc := range cases {
@@ -190,19 +191,22 @@ func TestSendCodeSceneTemplates(t *testing.T) {
 		}
 	}
 
-	// An unset reset template falls back to the login template AND its two
-	// placeholders — sending one param to a two-placeholder template is a
+	// A scene whose template is unset falls back to the login template AND its
+	// two placeholders — sending one param to a two-placeholder template is a
 	// provider rejection, which is the whole reason the params follow the
 	// template rather than the scene.
 	fallback := testConfig()
+	fallback.BindPhoneTemplateID = ""
 	fallback.ResetPasswordTemplateID = ""
 	c = NewClient(fallback, srv.URL)
-	if err := c.SendCode(context.Background(), repository.SmsSceneResetPassword, "13812345678", "123456"); err != nil {
-		t.Fatalf("fallback SendCode: %v", err)
-	}
-	template, params := lastBody(t)
-	if template != "2716979" || strings.Join(params, ",") != "123456,5" {
-		t.Fatalf("fallback: sent %s %v, want 2716979 [123456 5]", template, params)
+	for _, scene := range []repository.SmsScene{repository.SmsSceneBindPhone, repository.SmsSceneResetPassword} {
+		if err := c.SendCode(context.Background(), scene, "13812345678", "123456"); err != nil {
+			t.Fatalf("fallback %s: SendCode: %v", scene, err)
+		}
+		template, params := lastBody(t)
+		if template != "2716979" || strings.Join(params, ",") != "123456,5" {
+			t.Fatalf("fallback %s: sent %s %v, want 2716979 [123456 5]", scene, template, params)
+		}
 	}
 }
 
