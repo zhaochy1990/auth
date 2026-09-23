@@ -88,8 +88,8 @@ func (h *Handler) SendSmsCode(c *gin.Context) {
 	}
 	// reset_password is a reserved scene (ADR 0010) with no consuming endpoint
 	// yet — refusing the send keeps anyone from burning SMS budget on codes
-	// that can never be used. Remove this guard when the 找回密码 endpoint
-	// lands.
+	// that can never be used. Its Tencent template is already configured
+	// (2716981), so this guard comes off when the 找回密码 endpoint lands.
 	if scene == repository.SmsSceneResetPassword {
 		middleware.RespondError(c, apperror.BadRequest("reset_password codes cannot be sent yet"))
 		return
@@ -142,12 +142,12 @@ func (h *Handler) SendSmsCode(c *gin.Context) {
 	code := "123456"
 	if !h.Cfg.SMSTestMode {
 		code = randomSixDigits()
-		// NOTE(ADR 0010): per-scene Tencent templates (one per scene, so the
-		// message the user reads agrees with the action it authorises) are a
-		// planned follow-up — the bind_phone / reset_password templates are
-		// still awaiting approval, so every scene currently sends the login
-		// template. Key isolation is already enforced at the store level.
-		if err := h.SMSClient.SendCode(ctx, phone.String(), code); err != nil {
+		// NOTE(ADR 0010): the scene picks the Tencent template — reset_password
+		// sends its own approved copy (2716981), and a scene without one
+		// (bind_phone, still awaiting approval) falls back to the login
+		// template, so the live bind_phone message is unchanged. Key isolation
+		// is already enforced at the store level.
+		if err := h.SMSClient.SendCode(ctx, scene, phone.String(), code); err != nil {
 			_ = h.SMSStore.ReleaseSend(ctx, phone.String())
 			middleware.RespondError(c, err)
 			return

@@ -59,12 +59,19 @@ type Config struct {
 
 	// Tencent Cloud SMS global configuration. Missing values do not prevent
 	// startup; /api/auth/sms/send returns sms_not_configured in that case.
-	TencentSMSSecretID   string `mapstructure:"tencent_sms_secret_id"`
-	TencentSMSSecretKey  string `mapstructure:"tencent_sms_secret_key"`
-	TencentSMSSDKAppID   string `mapstructure:"tencent_sms_sdk_app_id"`
-	TencentSMSSignName   string `mapstructure:"tencent_sms_sign_name"`
+	TencentSMSSecretID  string `mapstructure:"tencent_sms_secret_id"`
+	TencentSMSSecretKey string `mapstructure:"tencent_sms_secret_key"`
+	TencentSMSSDKAppID  string `mapstructure:"tencent_sms_sdk_app_id"`
+	TencentSMSSignName  string `mapstructure:"tencent_sms_sign_name"`
+	// TencentSMSTemplateID is the login scene's template (2716979) and the
+	// fallback for a scene without one of its own.
 	TencentSMSTemplateID string `mapstructure:"tencent_sms_template_id"`
-	TencentSMSRegion     string `mapstructure:"tencent_sms_region"`
+	// TencentSMSTemplateIDResetPassword is the 找回密码 template (2716981),
+	// whose only placeholder is {1}=code. Empty falls back to
+	// TencentSMSTemplateID, so a deployment that never sets it still sends
+	// (with the login copy).
+	TencentSMSTemplateIDResetPassword string `mapstructure:"tencent_sms_template_id_reset_password"`
+	TencentSMSRegion                  string `mapstructure:"tencent_sms_region"`
 	// SMSSendRateLimit / SMSVerifyRateLimit are the per-IP hourly request caps
 	// for the SMS send / verify endpoints.
 	SMSSendRateLimit   int `mapstructure:"sms_send_rate_limit"`

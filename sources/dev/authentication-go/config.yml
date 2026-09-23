@@ -63,6 +63,13 @@ tencent_sms_secret_key: ""
 tencent_sms_sdk_app_id: "1401177585"
 tencent_sms_sign_name: "上海砺跑科技"
 tencent_sms_template_id: "2716979"
+# Per-scene template overrides (ADR 0010): a scene with no override falls back
+# to tencent_sms_template_id above, so bind_phone still sends the login copy
+# until its own template is approved. 2716981 is the 找回密码 template; its copy
+# has ONE placeholder ({1}=code), unlike the login template's {1}=code,
+# {2}=validity minutes — send the shape the template declares or Tencent rejects
+# the request.
+tencent_sms_template_id_reset_password: "2716981"
 tencent_sms_region: "ap-beijing"
 
 # Per-IP hourly request caps for the SMS send / verify endpoints. The send cap
