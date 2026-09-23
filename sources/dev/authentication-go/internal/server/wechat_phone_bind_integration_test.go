@@ -461,6 +461,51 @@ func TestSMSSendDailyLimitSharedAcrossScenes(t *testing.T) {
 	}
 }
 
+// Regression guard for the web bind flow (PhoneBindModal → /api/auth/sms/send
+// → POST /api/users/me/phone): the code the web client sends WITHOUT a scene
+// (defaulting to login) must NOT satisfy the phone-bind endpoint, which
+// consumes the bind_phone scene — only a code sent with scene=bind_phone does.
+// This exercises send→consume scene consistency over the real HTTP endpoints,
+// which seedCode-based tests bypass.
+func TestPhoneBindSendConsumeSceneConsistency(t *testing.T) {
+	ta := newTestApp(t)
+	userTok := ta.registerUser(t, "scene-consistency@example.com")
+	phone := smsPhone(115)
+
+	// Exactly the web client's send payload: no scene field at all.
+	webSend := ta.do(http.MethodPost, "/api/auth/sms/send", map[string]any{"phone": phone, "login_only": false}, ta.clientHeaders())
+	mustStatus(t, webSend, http.StatusOK)
+
+	w := ta.do(http.MethodPost, "/api/users/me/phone", map[string]any{"phone": phone, "code": "123456"}, ta.bearer(userTok))
+	mustStatus(t, w, http.StatusBadRequest)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "sms_code_expired" {
+		t.Fatalf("error = %v, want sms_code_expired (sceneless code must not drive a bind)", body["error"])
+	}
+
+	// The bind_phone-scene send is what makes the bind succeed.
+	if w := smsSendScene(t, ta, phone, repository.SmsSceneBindPhone); w.Code != http.StatusOK {
+		t.Fatalf("bind send status = %d, want 200", w.Code)
+	}
+	w = ta.do(http.MethodPost, "/api/users/me/phone", map[string]any{"phone": phone, "code": "123456"}, ta.bearer(userTok))
+	mustStatus(t, w, http.StatusOK)
+}
+
+// The reset_password scene is reserved (ADR 0010) with no consuming endpoint
+// yet — the send endpoint refuses it so SMS budget cannot be burned on codes
+// that can never be consumed.
+func TestSMSSendResetPasswordSceneRefused(t *testing.T) {
+	ta := newTestApp(t)
+	w := smsSendScene(t, ta, smsPhone(116), repository.SmsSceneResetPassword)
+	mustStatus(t, w, http.StatusBadRequest)
+	var body map[string]any
+	decode(t, w, &body)
+	if body["error"] != "bad_request" {
+		t.Fatalf("error = %v, want bad_request", body["error"])
+	}
+}
+
 // The bind_phone scene also drives the authenticated phone-bind endpoint
 // (POST /api/users/me/phone), which consumes under the same scene key.
 func TestPhoneBindConsumesBindPhoneScene(t *testing.T) {

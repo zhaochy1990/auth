@@ -86,6 +86,14 @@ func (h *Handler) SendSmsCode(c *gin.Context) {
 		middleware.RespondError(c, apperror.BadRequest("Invalid scene: unknown verification-code scene"))
 		return
 	}
+	// reset_password is a reserved scene (ADR 0010) with no consuming endpoint
+	// yet — refusing the send keeps anyone from burning SMS budget on codes
+	// that can never be used. Remove this guard when the 找回密码 endpoint
+	// lands.
+	if scene == repository.SmsSceneResetPassword {
+		middleware.RespondError(c, apperror.BadRequest("reset_password codes cannot be sent yet"))
+		return
+	}
 	if req.LoginOnly && scene != repository.SmsSceneLogin {
 		middleware.RespondError(c, apperror.BadRequest("login_only is only valid with the login scene"))
 		return
@@ -134,6 +142,11 @@ func (h *Handler) SendSmsCode(c *gin.Context) {
 	code := "123456"
 	if !h.Cfg.SMSTestMode {
 		code = randomSixDigits()
+		// NOTE(ADR 0010): per-scene Tencent templates (one per scene, so the
+		// message the user reads agrees with the action it authorises) are a
+		// planned follow-up — the bind_phone / reset_password templates are
+		// still awaiting approval, so every scene currently sends the login
+		// template. Key isolation is already enforced at the store level.
 		if err := h.SMSClient.SendCode(ctx, phone.String(), code); err != nil {
 			_ = h.SMSStore.ReleaseSend(ctx, phone.String())
 			middleware.RespondError(c, err)
