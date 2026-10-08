@@ -28,3 +28,6 @@ docs/.DS_Store
 
 # Agent worktrees
 .worktrees/
+
+# Git worktrees
+.worktrees/
