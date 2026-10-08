@@ -792,6 +792,8 @@ func compareUser(a, b domain.User, sortSpec repository.UserListSort) int {
 	switch sortSpec.By {
 	case repository.UserListSortByLastLoginAt:
 		ak, bk = userLastLoginKey(a), userLastLoginKey(b)
+	case repository.UserListSortByCreatedAt:
+		ak, bk = fmtDT(a.CreatedAt), fmtDT(b.CreatedAt)
 	default:
 		ak, bk = userSortNameKey(a), userSortNameKey(b)
 	}

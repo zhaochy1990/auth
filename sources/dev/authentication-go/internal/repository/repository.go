@@ -18,6 +18,7 @@ type UserListSortBy string
 const (
 	UserListSortByName        UserListSortBy = "name"
 	UserListSortByLastLoginAt UserListSortBy = "last_login_at"
+	UserListSortByCreatedAt   UserListSortBy = "created_at"
 )
 
 // SortOrder is the direction for server-side list ordering.
@@ -42,8 +43,9 @@ func DefaultUserListSort() UserListSort {
 // ParseUserListSort normalizes query values, keeping unknown values backward-compatible.
 func ParseUserListSort(sortBy, sortOrder string) UserListSort {
 	sort := DefaultUserListSort()
-	if sortBy == string(UserListSortByLastLoginAt) {
-		sort.By = UserListSortByLastLoginAt
+	switch UserListSortBy(sortBy) {
+	case UserListSortByLastLoginAt, UserListSortByCreatedAt:
+		sort.By = UserListSortBy(sortBy)
 	}
 	if sortOrder == string(SortOrderDesc) {
 		sort.Order = SortOrderDesc

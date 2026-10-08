@@ -913,6 +913,42 @@ func TestAdminUsersListSortsByLastLogin(t *testing.T) {
 	}
 }
 
+func TestAdminUsersListSortsByCreatedAt(t *testing.T) {
+	ta := newTestApp(t)
+
+	ta.registerUser(t, "older-created@example.com")
+	time.Sleep(5 * time.Millisecond)
+	ta.registerUser(t, "newer-created@example.com")
+
+	list := ta.do(http.MethodGet, "/admin/users?search=-created%40example.com&sort_by=created_at&sort_order=desc", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, list, http.StatusOK)
+	var desc struct {
+		Total uint64 `json:"total"`
+		Users []struct {
+			Email string `json:"email"`
+		} `json:"users"`
+	}
+	decode(t, list, &desc)
+	if desc.Total != 2 {
+		t.Fatalf("unexpected total: %+v", desc)
+	}
+	if len(desc.Users) != 2 || desc.Users[0].Email != "newer-created@example.com" || desc.Users[1].Email != "older-created@example.com" {
+		t.Fatalf("unexpected created-at desc order: %+v", desc)
+	}
+
+	asc := ta.do(http.MethodGet, "/admin/users?search=-created%40example.com&sort_by=created_at&sort_order=asc", nil, ta.bearer(ta.adminToken))
+	mustStatus(t, asc, http.StatusOK)
+	var ascBody struct {
+		Users []struct {
+			Email string `json:"email"`
+		} `json:"users"`
+	}
+	decode(t, asc, &ascBody)
+	if len(ascBody.Users) != 2 || ascBody.Users[0].Email != "older-created@example.com" || ascBody.Users[1].Email != "newer-created@example.com" {
+		t.Fatalf("unexpected created-at asc order: %+v", ascBody)
+	}
+}
+
 func TestInviteCodeGatingAndMembershipGrant(t *testing.T) {
 	ta := newTestApp(t)
 
