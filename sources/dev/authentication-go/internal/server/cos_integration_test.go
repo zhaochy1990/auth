@@ -5,6 +5,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -65,8 +66,18 @@ func TestAvatarUploadSuccess(t *testing.T) {
 	}
 	userID := claims.Sub
 	wantURL := ta.cfg.TencentCosBaseURL + "/avatars/" + userID + ".jpg"
-	if resp.AvatarURL != wantURL {
-		t.Fatalf("avatar_url = %q, want %q", resp.AvatarURL, wantURL)
+	// avatar_url carries a ?v=<unix> cache-busting query (fixed per-user key is
+	// overwritten on every upload), so compare the URL sans query and require v.
+	u, err := url.Parse(resp.AvatarURL)
+	if err != nil {
+		t.Fatalf("parse avatar_url %q: %v", resp.AvatarURL, err)
+	}
+	sansQuery := u.Scheme + "://" + u.Host + u.Path
+	if sansQuery != wantURL {
+		t.Fatalf("avatar_url = %q, want %q (sans query)", sansQuery, wantURL)
+	}
+	if u.Query().Get("v") == "" {
+		t.Fatalf("avatar_url %q missing ?v= cache-busting param", resp.AvatarURL)
 	}
 
 	key, ctype := ta.fakeCos.lastUpload()
