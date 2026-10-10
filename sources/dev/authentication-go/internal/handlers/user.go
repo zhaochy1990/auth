@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -206,10 +208,16 @@ func (h *Handler) UploadAvatar(c *gin.Context) {
 	}
 	key := "avatars/" + middleware.UserID(c) + "." + avatarExt(contentType)
 	if err := h.CosClient.Upload(c.Request.Context(), key, bytes.NewReader(data), contentType); err != nil {
+		log.Printf("[avatar] cos upload failed user=%s size=%d type=%s: %v", middleware.UserID(c), file.Size, contentType, err)
 		middleware.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, avatarUploadResponse{AvatarURL: h.CosClient.PublicURL(key)})
+	log.Printf("[avatar] uploaded user=%s size=%d type=%s key=%s", middleware.UserID(c), file.Size, contentType, key)
+	// key 按用户 UUID 固定（覆盖式上传），URL 不变会导致小程序/浏览器 image
+	// 沿用缓存的旧头像；加版本参数让每次上传产生新 URL，强制各端重新拉取。
+	c.JSON(http.StatusOK, avatarUploadResponse{
+		AvatarURL: h.CosClient.PublicURL(key) + "?v=" + strconv.FormatInt(time.Now().Unix(), 10),
+	})
 }
 
 func avatarExt(contentType string) string {
