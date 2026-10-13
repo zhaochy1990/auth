@@ -101,3 +101,7 @@ Default five-role vocabulary (`needs-triage` · `needs-info` · `ready-for-agent
 ### Domain docs
 
 Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+
+## 分支纪律（HARD）
+
+默认**直接在当前分支上修改**，不要新建分支或 git worktree；仅当用户明确要求时才创建。
