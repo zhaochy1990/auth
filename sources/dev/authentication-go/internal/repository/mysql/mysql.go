@@ -1300,6 +1300,16 @@ func (r *appProviderRepo) FindAllByApp(ctx context.Context, appID string) ([]dom
 	}
 	return out, dbErr(rows.Err())
 }
+func (r *appProviderRepo) FindActiveByProvider(ctx context.Context, providerID string) (*domain.AppProvider, error) {
+	p, err := scanAppProvider(r.db.QueryRowContext(ctx, "SELECT "+appProviderColumns+" FROM auth_app_providers WHERE provider_id = ? AND is_active = 1 ORDER BY created_at ASC LIMIT 1", providerID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, dbErr(err)
+	}
+	return p, nil
+}
 func (r *appProviderRepo) Insert(ctx context.Context, ap *domain.AppProvider) error {
 	_, err := r.db.ExecContext(ctx, `INSERT INTO auth_app_providers (id, app_id, provider_id, config, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?)`, ap.ID, ap.AppID, ap.ProviderID, defaultJSONObj(ap.Config), ap.IsActive, ap.CreatedAt.UTC())
 	return dbErr(err)

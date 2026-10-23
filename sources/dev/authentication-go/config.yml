@@ -49,6 +49,15 @@ oauth_mock_enabled: false
 # Overrides the public jscode2session endpoint (tests only). Appid/secret are
 # configured per application via the admin API, not here.
 wechat_code2session_url: ""
+# Override the stable_token / getwxacodeunlimit endpoints (tests only).
+wechat_stable_token_url: ""
+wechat_wxacode_url: ""
+
+# --- Internal server-to-server plane ---
+# Shared secret required in the X-Internal-Token header on /api/internal/*
+# (e.g. the wxacode endpoint called by the Go backend). Inject per deployment
+# via INTERNAL_API_TOKEN; empty fails every internal request closed (401).
+internal_api_token: ""
 
 # --- Redis (SMS verification codes) ---
 redis_addr: "127.0.0.1:6379"

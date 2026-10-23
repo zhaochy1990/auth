@@ -639,6 +639,37 @@ definitions:
       total:
         type: integer
     type: object
+  internal_handlers.wxacodeRequest:
+    properties:
+      env_version:
+        description: |-
+          EnvVersion optionally selects the mini-program version:
+          release (default) / trial / develop.
+        example: release
+        type: string
+      page:
+        description: |-
+          Page is the mini-program page the code opens (must exist in the
+          published version, else WeChat rejects with 41030).
+        example: pages/coach/index
+        type: string
+      scene:
+        description: |-
+          Scene is the parameter the code carries, read back by the
+          mini-program via wx.getEnterOptions (1-32 visible chars).
+        example: c=abc123
+        type: string
+      width:
+        description: Width optionally sets the code width in px (280-1280, default
+          430).
+        example: 430
+        type: integer
+    type: object
+  internal_handlers.wxacodeResponse:
+    properties:
+      url:
+        type: string
+    type: object
 info:
   contact: {}
   description: HTTP Basic auth (client_id:client_secret) for the /oauth/* endpoints.
@@ -1812,6 +1843,48 @@ paths:
       summary: Verify an SMS code and log in (or auto-register)
       tags:
       - auth
+  /api/internal/wxacode:
+    post:
+      consumes:
+      - application/json
+      description: Renders an unlimited WeChat mini-program code for scene+page, uploads
+        the PNG to Tencent Cloud COS, and returns its public URL. Requires the X-Internal-Token
+        header.
+      parameters:
+      - description: Code parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.wxacodeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.wxacodeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - InternalToken: []
+      summary: Generate a mini-program code (internal)
+      tags:
+      - internal
   /api/system/public-key:
     get:
       description: Returns the RSA public key (PEM, PKIX format) used to verify JWTs.
@@ -2644,5 +2717,10 @@ securityDefinitions:
     description: Application client id for the /api/auth/* endpoints.
     in: header
     name: X-Client-Id
+    type: apiKey
+  InternalToken:
+    description: Shared secret for the server-to-server /api/internal/* plane.
+    in: header
+    name: X-Internal-Token
     type: apiKey
 swagger: "2.0"

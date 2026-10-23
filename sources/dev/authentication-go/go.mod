@@ -19,6 +19,7 @@ require (
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/sms v1.3.155
 	github.com/tencentyun/cos-go-sdk-v5 v0.7.75
 	github.com/zhaochy1990/x v0.0.0-00010101000000-000000000000
+	golang.org/x/sync v0.21.0
 )
 
 require (
@@ -79,7 +80,6 @@ require (
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect

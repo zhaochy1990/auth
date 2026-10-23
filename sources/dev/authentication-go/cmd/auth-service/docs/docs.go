@@ -1843,6 +1843,69 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/internal/wxacode": {
+            "post": {
+                "security": [
+                    {
+                        "InternalToken": []
+                    }
+                ],
+                "description": "Renders an unlimited WeChat mini-program code for scene+page, uploads the PNG to Tencent Cloud COS, and returns its public URL. Requires the X-Internal-Token header.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "internal"
+                ],
+                "summary": "Generate a mini-program code (internal)",
+                "parameters": [
+                    {
+                        "description": "Code parameters",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.wxacodeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.wxacodeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/system/public-key": {
             "get": {
                 "description": "Returns the RSA public key (PEM, PKIX format) used to verify JWTs.",
@@ -4063,6 +4126,39 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "internal_handlers.wxacodeRequest": {
+            "type": "object",
+            "properties": {
+                "env_version": {
+                    "description": "EnvVersion optionally selects the mini-program version:\nrelease (default) / trial / develop.",
+                    "type": "string",
+                    "example": "release"
+                },
+                "page": {
+                    "description": "Page is the mini-program page the code opens (must exist in the\npublished version, else WeChat rejects with 41030).",
+                    "type": "string",
+                    "example": "pages/coach/index"
+                },
+                "scene": {
+                    "description": "Scene is the parameter the code carries, read back by the\nmini-program via wx.getEnterOptions (1-32 visible chars).",
+                    "type": "string",
+                    "example": "c=abc123"
+                },
+                "width": {
+                    "description": "Width optionally sets the code width in px (280-1280, default 430).",
+                    "type": "integer",
+                    "example": 430
+                }
+            }
+        },
+        "internal_handlers.wxacodeResponse": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string"
+                }
+            }
         }
     },
     "securityDefinitions": {
@@ -4079,6 +4175,12 @@ const docTemplate = `{
             "description": "Application client id for the /api/auth/* endpoints.",
             "type": "apiKey",
             "name": "X-Client-Id",
+            "in": "header"
+        },
+        "InternalToken": {
+            "description": "Shared secret for the server-to-server /api/internal/* plane.",
+            "type": "apiKey",
+            "name": "X-Internal-Token",
             "in": "header"
         }
     }
