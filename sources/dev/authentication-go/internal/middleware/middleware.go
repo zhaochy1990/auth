@@ -6,6 +6,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"net/http"
 	"strings"
@@ -339,6 +340,25 @@ func (a *Auth) authenticateAppToken(c *gin.Context, token string) error {
 	c.Set(ctxClientID, app.ClientID)
 	c.Set(ctxAllowedScopes, auth.DecodeStringArray(app.AllowedScopes))
 	return nil
+}
+
+// --- Internal plane (X-Internal-Token) ---
+
+// InternalToken authenticates server-to-server callers via the shared secret
+// in the X-Internal-Token header (constant-time compare; same pattern as the
+// running Go↔coach internal endpoints). The secret is injected per
+// deployment; an empty configured token fails every request closed (401), so
+// a deployment that has not received the secret never exposes the internal
+// plane.
+func InternalToken(token string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		supplied := c.GetHeader("X-Internal-Token")
+		if token == "" || subtle.ConstantTimeCompare([]byte(supplied), []byte(token)) != 1 {
+			RespondError(c, apperror.Unauthorized())
+			return
+		}
+		c.Next()
+	}
 }
 
 // --- Rate limiter (per-key sliding window) ---

@@ -142,6 +142,14 @@ func (h *Handler) resolveWeChatProviderConfig(ctx context.Context, app *domain.A
 	if err != nil {
 		return wechatProviderConfig{}, err
 	}
+	return parseWeChatProviderConfig(provider)
+}
+
+// parseWeChatProviderConfig validates a loaded auth_app_providers row and
+// decodes its JSON config. Shared by the token_exchange flow (row located per
+// app) and the internal wxacode endpoint (row located by provider_id), so
+// their interpretation of the config cannot drift.
+func parseWeChatProviderConfig(provider *domain.AppProvider) (wechatProviderConfig, error) {
 	if provider == nil || !provider.IsActive {
 		return wechatProviderConfig{}, apperror.WeChatNotConfigured()
 	}

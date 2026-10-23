@@ -117,6 +117,11 @@ type AccountRepository interface {
 type AppProviderRepository interface {
 	FindByAppAndProvider(ctx context.Context, appID, providerID string) (*domain.AppProvider, error)
 	FindAllByApp(ctx context.Context, appID string) ([]domain.AppProvider, error)
+	// FindActiveByProvider returns the oldest active provider config row
+	// with providerID regardless of application (nil when none). For the
+	// internal plane, where no calling-application context exists (the
+	// wxacode endpoint reads the WeChat mini-program credentials this way).
+	FindActiveByProvider(ctx context.Context, providerID string) (*domain.AppProvider, error)
 	Insert(ctx context.Context, ap *domain.AppProvider) error
 	DeleteByID(ctx context.Context, id string) error
 }

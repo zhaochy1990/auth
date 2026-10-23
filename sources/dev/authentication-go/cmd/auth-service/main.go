@@ -24,6 +24,10 @@
 //	@description				"Bearer <JWT>" for end-user and admin callers.
 //	@securityDefinitions.basic	BasicAuth
 //	@description				HTTP Basic auth (client_id:client_secret) for the /oauth/* endpoints.
+//	@securityDefinitions.apikey	InternalToken
+//	@in							header
+//	@name						X-Internal-Token
+//	@description				Shared secret for the server-to-server /api/internal/* plane.
 package main
 
 import (

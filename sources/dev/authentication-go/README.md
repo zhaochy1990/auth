@@ -203,6 +203,9 @@ values so the same config file works everywhere.
 | `sms_send_rate_limit` | `SMS_SEND_RATE_LIMIT` | `10` (per-IP sends per hour) |
 | `sms_verify_rate_limit` | `SMS_VERIFY_RATE_LIMIT` | `60` (per-IP verifies per hour) |
 | `wechat_code2session_url` | `WECHAT_CODE2SESSION_URL` | WeChat's public `jscode2session` endpoint (tests) |
+| `wechat_stable_token_url` | `WECHAT_STABLE_TOKEN_URL` | WeChat's public `stable_token` endpoint (tests) |
+| `wechat_wxacode_url` | `WECHAT_WXACODE_URL` | WeChat's public `getwxacodeunlimit` endpoint (tests) |
+| `internal_api_token` | `INTERNAL_API_TOKEN` | Shared secret for `/api/internal/*` (`X-Internal-Token`); empty fails every internal request closed |
 | `app_version` | `APP_VERSION` | `dev` |
 | `log_level` / `log_format` | `LOG_LEVEL` / `LOG_FORMAT` | `debug` / `json` (`log_format` is `json` for structured output or `console` for human-readable; absent/unset falls back to `console`) |
 
@@ -215,6 +218,7 @@ values so the same config file works everywhere.
 | `/api/users/*` | Bearer | `me`, accounts (`link`, `authorize`, unlink), teams |
 | `/api/teams/*` | Bearer | team CRUD, join/leave/transfer-owner, members |
 | `/admin/*` | Bearer admin | app/provider/user/team/invite-code management |
+| `/api/internal/*` | `X-Internal-Token` | server-to-server plane (`wxacode` mini-program code generation) |
 | `/health` | none | health + version |
 | `/swagger/*` | none | Swagger UI (when `SWAGGER_ENABLED=true` + `swagger` build tag) |
 

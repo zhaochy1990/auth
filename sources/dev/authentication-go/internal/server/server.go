@@ -17,6 +17,7 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/middleware"
 	"github.com/zhaochy1990/auth-service/internal/repository"
 	"github.com/zhaochy1990/auth-service/internal/sms"
+	"github.com/zhaochy1990/auth-service/internal/wechat"
 )
 
 // NewRouter builds the fully wired Gin engine. smsStore / smsClient are the
@@ -46,6 +47,9 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	}
 	h.SMSClient = smsClient
 	h.CosClient = cosClient
+	// The wxacode endpoint's stable_token + getwxacodeunlimit client; the
+	// URL overrides in cfg exist for tests and default to the WeChat API.
+	h.WxACode = wechat.NewWxACodeClient(cfg.WeChatStableTokenURL, cfg.WeChatWxACodeURL)
 	am := &middleware.Auth{Repo: repo, JWT: jwt}
 
 	// Per-IP sliding-window rate limiters. The names identify the limiter in
@@ -65,6 +69,15 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	system := r.Group("/api/system")
 	{
 		system.GET("/public-key", h.GetPublicKey)
+	}
+
+	// Internal server-to-server plane, gated by the X-Internal-Token shared
+	// secret (configured per deployment; empty fails every request closed).
+	// Callers are trusted services, so no rate limiter.
+	internalAPI := r.Group("/api/internal")
+	internalAPI.Use(middleware.InternalToken(cfg.InternalAPIToken))
+	{
+		internalAPI.POST("/wxacode", h.GenerateWxACode)
 	}
 
 	// OAuth2 endpoints. /oauth/token uses OptionalAppAuth because token_exchange

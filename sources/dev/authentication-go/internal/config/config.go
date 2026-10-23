@@ -44,6 +44,15 @@ type Config struct {
 	SwaggerEnabled bool `mapstructure:"swagger_enabled"`
 	// WeChatCode2SessionURL overrides the WeChat code2Session endpoint (tests).
 	WeChatCode2SessionURL string `mapstructure:"wechat_code2session_url"`
+	// WeChatStableTokenURL / WeChatWxACodeURL override the stable_token and
+	// getwxacodeunlimit endpoints (tests only), like WeChatCode2SessionURL.
+	WeChatStableTokenURL string `mapstructure:"wechat_stable_token_url"`
+	WeChatWxACodeURL     string `mapstructure:"wechat_wxacode_url"`
+
+	// InternalAPIToken authenticates the server-to-server plane
+	// (X-Internal-Token header on /api/internal/*). Injected per deployment;
+	// empty fails every internal request closed (401).
+	InternalAPIToken string `mapstructure:"internal_api_token"`
 
 	// RedisAddr / RedisPassword / RedisDB configure the Redis connection used
 	// for short-lived SMS verification codes. An unreachable Redis makes the

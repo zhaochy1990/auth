@@ -19,6 +19,7 @@ import (
 	"github.com/zhaochy1990/auth-service/internal/domain"
 	"github.com/zhaochy1990/auth-service/internal/repository"
 	"github.com/zhaochy1990/auth-service/internal/sms"
+	"github.com/zhaochy1990/auth-service/internal/wechat"
 )
 
 // Handler bundles the dependencies shared by all HTTP handlers.
@@ -35,6 +36,10 @@ type Handler struct {
 	// (constructed with the router); an unconfigured client makes the upload
 	// endpoint fail with cos_not_configured.
 	CosClient *cos.Client
+	// WxACode generates WeChat mini-program codes (getwxacodeunlimit) and
+	// owns the stable_token cache. Always present (constructed with the
+	// router).
+	WxACode *wechat.WxACodeClient
 	// OAuthStateStore holds the single-use state handles for third-party
 	// OAuth2 account linking. Always present in production (the Redis store);
 	// a nil store fails the link endpoints closed with 503.
