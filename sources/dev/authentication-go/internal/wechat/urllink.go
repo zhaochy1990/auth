@@ -189,6 +189,17 @@ func (c *urlLinkTokenCache) stableToken(ctx context.Context, appID, secret strin
 // with force_refresh: the cached token may have been invalidated server-side
 // (e.g. secret rotation) and only a forced mint recovers.
 func (c *urlLinkTokenCache) fetchStableToken(ctx context.Context, appID, secret string, forceRefresh bool) (string, error) {
+	// Re-check the cache inside the flight: a caller that missed the cache
+	// just before another flight finished would otherwise mint a second
+	// token — singleflight only collapses Do calls that overlap in time.
+	if !forceRefresh {
+		c.mu.Lock()
+		e, ok := c.tok[appID]
+		c.mu.Unlock()
+		if ok && time.Until(e.expiresAt) > tokenRefreshMargin {
+			return e.token, nil
+		}
+	}
 	send := func(force bool) (string, time.Time, error) {
 		body, _ := json.Marshal(map[string]any{
 			"grant_type":    "client_credential",
