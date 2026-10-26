@@ -538,6 +538,32 @@ definitions:
       user_type:
         $ref: '#/definitions/github_com_zhaochy1990_auth-service_internal_domain.UserType'
     type: object
+  internal_handlers.urllinkRequest:
+    properties:
+      env_version:
+        description: |-
+          EnvVersion optionally selects the mini-program version: release
+          (default) / trial / develop.
+        example: release
+        type: string
+      page:
+        description: |-
+          Page is the published mini-program page the link opens (must be on
+          the share whitelist).
+        example: pages/race-center/detail
+        type: string
+      query:
+        description: |-
+          Query is the parameter string the link carries (k=v&k2=v2 form,
+          ≤256 visible chars, URL-safe charset).
+        example: id=abc123
+        type: string
+    type: object
+  internal_handlers.urllinkResponse:
+    properties:
+      url_link:
+        type: string
+    type: object
   internal_handlers.userAccountResponse:
     properties:
       created_at:
@@ -1843,6 +1869,47 @@ paths:
       summary: Verify an SMS code and log in (or auto-register)
       tags:
       - auth
+  /api/internal/urllink:
+    post:
+      consumes:
+      - application/json
+      description: Mints a WeChat URL Link (generate_urllink) opening the whitelisted
+        page with the given query. Requires the X-Internal-Token header.
+      parameters:
+      - description: Link parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.urllinkRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.urllinkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - InternalToken: []
+      summary: Generate a mini-program URL Link (internal)
+      tags:
+      - internal
   /api/internal/wxacode:
     post:
       consumes:
@@ -1885,6 +1952,41 @@ paths:
       summary: Generate a mini-program code (internal)
       tags:
       - internal
+  /api/public/mp-link:
+    post:
+      consumes:
+      - application/json
+      description: Mints a WeChat URL Link opening the whitelisted page with the given
+        query, for the public share pages. Rate-limited per IP (~10 req/min).
+      parameters:
+      - description: Link parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.urllinkRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.urllinkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Generate a mini-program URL Link (public, rate-limited)
+      tags:
+      - public
   /api/system/public-key:
     get:
       description: Returns the RSA public key (PEM, PKIX format) used to verify JWTs.

@@ -1835,6 +1835,69 @@
                 }
             }
         },
+        "/api/internal/urllink": {
+            "post": {
+                "security": [
+                    {
+                        "InternalToken": []
+                    }
+                ],
+                "description": "Mints a WeChat URL Link (generate_urllink) opening the whitelisted page with the given query. Requires the X-Internal-Token header.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "internal"
+                ],
+                "summary": "Generate a mini-program URL Link (internal)",
+                "parameters": [
+                    {
+                        "description": "Link parameters",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.urllinkRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.urllinkResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/internal/wxacode": {
             "post": {
                 "security": [
@@ -1879,6 +1942,58 @@
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/public/mp-link": {
+            "post": {
+                "description": "Mints a WeChat URL Link opening the whitelisted page with the given query, for the public share pages. Rate-limited per IP (~10 req/min).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public"
+                ],
+                "summary": "Generate a mini-program URL Link (public, rate-limited)",
+                "parameters": [
+                    {
+                        "description": "Link parameters",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.urllinkRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.urllinkResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/internal_handlers.ErrorResponse"
                         }
@@ -3963,6 +4078,34 @@
                 },
                 "user_type": {
                     "$ref": "#/definitions/github_com_zhaochy1990_auth-service_internal_domain.UserType"
+                }
+            }
+        },
+        "internal_handlers.urllinkRequest": {
+            "type": "object",
+            "properties": {
+                "env_version": {
+                    "description": "EnvVersion optionally selects the mini-program version: release\n(default) / trial / develop.",
+                    "type": "string",
+                    "example": "release"
+                },
+                "page": {
+                    "description": "Page is the published mini-program page the link opens (must be on\nthe share whitelist).",
+                    "type": "string",
+                    "example": "pages/race-center/detail"
+                },
+                "query": {
+                    "description": "Query is the parameter string the link carries (k=v\u0026k2=v2 form,\n≤256 visible chars, URL-safe charset).",
+                    "type": "string",
+                    "example": "id=abc123"
+                }
+            }
+        },
+        "internal_handlers.urllinkResponse": {
+            "type": "object",
+            "properties": {
+                "url_link": {
+                    "type": "string"
                 }
             }
         },
