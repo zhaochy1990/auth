@@ -40,6 +40,10 @@ type Handler struct {
 	// owns the stable_token cache. Always present (constructed with the
 	// router).
 	WxACode *wechat.WxACodeClient
+	// URLLink generates WeChat mini-program URL Links (generate_urllink)
+	// for the share pages, with its own stable_token cache. Always present
+	// (constructed with the router).
+	URLLink *wechat.URLLinkClient
 	// OAuthStateStore holds the single-use state handles for third-party
 	// OAuth2 account linking. Always present in production (the Redis store);
 	// a nil store fails the link endpoints closed with 503.

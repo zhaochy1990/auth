@@ -26,10 +26,11 @@ import (
 
 const wxacodeInternalToken = "test-internal-token"
 
-// fakeWxACodeAPI fakes WeChat's stable_token + getwxacodeunlimit endpoints.
-// Response bodies are popped FIFO (tokenBodies / codeBodies); when empty a
-// success token (access_token=TOKEN) / a 1px PNG is served. A code body is
-// served as image/png when it starts with "image:", else as JSON.
+// fakeWxACodeAPI fakes WeChat's stable_token + getwxacodeunlimit +
+// generate_urllink endpoints. Response bodies are popped FIFO (tokenBodies /
+// codeBodies / linkBodies); when empty a success token (access_token=TOKEN)
+// / a 1px PNG / a success url_link is served. A code body is served as
+// image/png when it starts with "image:", else as JSON.
 type fakeWxACodeAPI struct {
 	srv *httptest.Server
 
@@ -38,6 +39,8 @@ type fakeWxACodeAPI struct {
 	tokenReqs   []string // force_refresh values, "true"/"false"
 	codeBodies  []string
 	codeTokens  []string
+	linkBodies  []string
+	linkCalls   int
 }
 
 func newFakeWxACodeAPI(t *testing.T) *fakeWxACodeAPI {
@@ -74,6 +77,17 @@ func newFakeWxACodeAPI(t *testing.T) *fakeWxACodeAPI {
 				_, _ = w.Write([]byte(strings.TrimPrefix(resp, "image:")))
 				return
 			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(resp))
+		case "/wxa/generate_urllink":
+			f.mu.Lock()
+			resp := `{"errcode":0,"errmsg":"ok","url_link":"https://wxaurl.cn/LINK"}`
+			if n := len(f.linkBodies); n > 0 {
+				resp = f.linkBodies[0]
+				f.linkBodies = f.linkBodies[1:]
+			}
+			f.linkCalls++
+			f.mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(resp))
 		default:

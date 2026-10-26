@@ -30,10 +30,17 @@ type codeRequest struct {
 	Body        wxacodeRequestBody
 }
 
-// fakeWxServer fakes stable_token + getwxacodeunlimit. Response bodies are
-// popped FIFO from tokenBodies / codeBodies (defaults: a success token
-// access_token=TOKEN, a 1px PNG). A code body is served as image/png when it
-// starts with "image:", otherwise as application/json.
+// urllinkCall records one generate_urllink call.
+type urllinkCall struct {
+	AccessToken string
+	Body        urllinkRequestBody
+}
+
+// fakeWxServer fakes stable_token + getwxacodeunlimit + generate_urllink.
+// Response bodies are popped FIFO from tokenBodies / codeBodies / linkBodies
+// (defaults: a success token access_token=TOKEN, a 1px PNG, a success
+// url_link). A code body is served as image/png when it starts with
+// "image:", otherwise as application/json.
 type fakeWxServer struct {
 	srv *httptest.Server
 
@@ -42,6 +49,8 @@ type fakeWxServer struct {
 	tokenReqs   []stableTokenRequest
 	codeBodies  []string
 	codeReqs    []codeRequest
+	linkBodies  []string
+	linkReqs    []urllinkCall
 }
 
 func newFakeWxServer(t *testing.T) *fakeWxServer {
@@ -83,6 +92,22 @@ func newFakeWxServer(t *testing.T) *fakeWxServer {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(resp))
+		case "/wxa/generate_urllink":
+			var body urllinkRequestBody
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			f.mu.Lock()
+			resp := `{"errcode":0,"errmsg":"ok","url_link":"https://wxaurl.cn/LINK"}`
+			if n := len(f.linkBodies); n > 0 {
+				resp = f.linkBodies[0]
+				f.linkBodies = f.linkBodies[1:]
+			}
+			f.linkReqs = append(f.linkReqs, urllinkCall{
+				AccessToken: r.URL.Query().Get("access_token"),
+				Body:        body,
+			})
+			f.mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(resp))
 		default:
 			http.NotFound(w, r)
 		}
@@ -110,6 +135,13 @@ func (f *fakeWxServer) codeCalls() []codeRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]codeRequest(nil), f.codeReqs...)
+}
+
+// linkCalls snapshots the recorded generate_urllink requests.
+func (f *fakeWxServer) linkCalls() []urllinkCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]urllinkCall(nil), f.linkReqs...)
 }
 
 func testPNG(t *testing.T) []byte {

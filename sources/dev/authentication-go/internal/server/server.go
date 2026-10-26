@@ -47,9 +47,11 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	}
 	h.SMSClient = smsClient
 	h.CosClient = cosClient
-	// The wxacode endpoint's stable_token + getwxacodeunlimit client; the
-	// URL overrides in cfg exist for tests and default to the WeChat API.
+	// The wxacode / urllink endpoints' WeChat clients (stable_token cache +
+	// getwxacodeunlimit / generate_urllink); the URL overrides in cfg exist
+	// for tests and default to the WeChat API.
 	h.WxACode = wechat.NewWxACodeClient(cfg.WeChatStableTokenURL, cfg.WeChatWxACodeURL)
+	h.URLLink = wechat.NewURLLinkClient(cfg.WeChatStableTokenURL, cfg.WeChatURLLinkURL)
 	am := &middleware.Auth{Repo: repo, JWT: jwt}
 
 	// Per-IP sliding-window rate limiters. The names identify the limiter in
@@ -60,6 +62,7 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	adminLimiter := middleware.NewRateLimiter("admin", 60, 60*time.Second) // admin
 	smsSendLimiter := middleware.NewRateLimiter("sms_send", cfg.SMSSendRateLimit, time.Hour)
 	smsVerifyLimiter := middleware.NewRateLimiter("sms_verify", cfg.SMSVerifyRateLimit, time.Hour)
+	mpLinkLimiter := middleware.NewRateLimiter("mp_link", 10, 60*time.Second) // public URL Link minter
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": cfg.AppVersion})
@@ -71,6 +74,15 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 		system.GET("/public-key", h.GetPublicKey)
 	}
 
+	// Public share-link endpoint (the /s/* browser pages call it): no
+	// credential exists for an anonymous browser, so a dedicated per-IP rate
+	// limiter plus the endpoint's page whitelist carry the abuse protection.
+	publicAPI := r.Group("/api/public")
+	publicAPI.Use(mpLinkLimiter.Middleware())
+	{
+		publicAPI.POST("/mp-link", h.MiniProgramLink)
+	}
+
 	// Internal server-to-server plane, gated by the X-Internal-Token shared
 	// secret (configured per deployment; empty fails every request closed).
 	// Callers are trusted services, so no rate limiter.
@@ -78,6 +90,7 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	internalAPI.Use(middleware.InternalToken(cfg.InternalAPIToken))
 	{
 		internalAPI.POST("/wxacode", h.GenerateWxACode)
+		internalAPI.POST("/urllink", h.GenerateURLLink)
 	}
 
 	// OAuth2 endpoints. /oauth/token uses OptionalAppAuth because token_exchange

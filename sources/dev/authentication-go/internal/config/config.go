@@ -48,6 +48,9 @@ type Config struct {
 	// getwxacodeunlimit endpoints (tests only), like WeChatCode2SessionURL.
 	WeChatStableTokenURL string `mapstructure:"wechat_stable_token_url"`
 	WeChatWxACodeURL     string `mapstructure:"wechat_wxacode_url"`
+	// WeChatURLLinkURL overrides the generate_urllink endpoint (tests only),
+	// like the two above.
+	WeChatURLLinkURL string `mapstructure:"wechat_urllink_url"`
 
 	// InternalAPIToken authenticates the server-to-server plane
 	// (X-Internal-Token header on /api/internal/*). Injected per deployment;
