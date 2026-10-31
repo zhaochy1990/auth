@@ -24,14 +24,17 @@ const grantWeChatPhoneBind = "wechat_phone_bind"
 // handleWeChatPhoneBind implements the wechat_phone_bind grant. The request
 // carries subject_token (the wx.login() code, subject_token_type
 // wechat_mini_program) plus phone + code (a bind_phone-scene SMS verification
-// code). Order matters: the format checks and the WeChat-identity dedup run
-// before the one-time code is consumed, so a doomed request never burns it;
-// the account lookup and invite gate come next (ADR 0006 — the gate rejection
-// happens before the code is consumed too); then the code, then registration
-// via the shared registerPhoneUser, then the WeChat bind checks that need the
-// target account, the link write, and the standard token response. When this
-// grant auto-registers, the response carries registered: true — the client's
-// signal to enter post-registration onboarding once.
+// code). Order matters: the format checks run first, then the account lookup
+// and invite gate come next (ADR 0006 — the gate rejection happens before the
+// code is consumed too); then the code is consumed, then registration via the
+// shared registerPhoneUser, then the WeChat bind — which writes the link only
+// when it cannot collide (bindWeChatIdentityIfFree downgrades a colliding
+// binding state to a login-only session instead of rejecting: proven phone
+// ownership must log the account in even when the WeChat identity is already
+// held elsewhere, as with app-store reviewers whose unionid comes from a
+// sibling app). When this grant auto-registers, the response carries
+// registered: true — the client's signal to enter post-registration onboarding
+// once.
 //
 // The grant accepts no invite_code parameter: when the registration gate is
 // on, a brand-new phone is rejected (invite_code is required), and closing
@@ -84,31 +87,6 @@ func (h *Handler) handleWeChatPhoneBind(c *gin.Context, req *tokenRequest) {
 		}
 	}
 
-	// The identity must not already belong to another account: openid within
-	// this mini-program, and unionid as the cross-mini-program key. Checked
-	// before the code is consumed so a conflict does not burn it. When the
-	// identity already belongs to the phone's own account the grant is an
-	// idempotent login.
-	if err := h.ensureWeChatIdentityFree(ctx, wechatAppID, session, user); err != nil {
-		middleware.RespondError(c, err)
-		return
-	}
-	// The account's own link for this mini-program must not point at a
-	// different identity either (no silent rebind) — also checked before the
-	// code is consumed, so a doomed attempt leaves the one-time code usable.
-	// bindWeChatIdentity re-checks after registration for the general case.
-	if user != nil {
-		link, err := h.Repo.Users().FindWeChatLink(ctx, user.ID, wechatAppID)
-		if err != nil {
-			middleware.RespondError(c, err)
-			return
-		}
-		if link != nil && link.OpenID != session.OpenID {
-			middleware.RespondError(c, apperror.WeChatAlreadyBound())
-			return
-		}
-	}
-
 	result, err := h.SMSStore.VerifyCode(ctx, repository.SmsSceneBindPhone, phone.String(), *req.Code, smsMaxAttempts)
 	if err != nil {
 		middleware.RespondError(c, err)
@@ -141,7 +119,7 @@ func (h *Handler) handleWeChatPhoneBind(c *gin.Context, req *tokenRequest) {
 		registered = true
 	}
 
-	if err := h.bindWeChatIdentity(ctx, user, wechatAppID, session); err != nil {
+	if err := h.bindWeChatIdentityIfFree(ctx, user, wechatAppID, session); err != nil {
 		middleware.RespondError(c, err)
 		return
 	}
@@ -149,27 +127,27 @@ func (h *Handler) handleWeChatPhoneBind(c *gin.Context, req *tokenRequest) {
 	h.respondTokenExchange(c, req, user, app, registered)
 }
 
-// ensureWeChatIdentityFree rejects the grant when the exchanged identity
-// (openid within this mini-program, or the cross-mini-program unionid)
-// already belongs to a different account than the one the phone identifies.
-// target may be nil (brand-new phone); an identity bound to the target itself
-// is fine — the grant then degrades to an idempotent login.
-func (h *Handler) ensureWeChatIdentityFree(ctx context.Context, wechatAppID string, session *wechat.SessionResult, target *domain.User) error {
+// weChatIdentityHeld reports whether the exchanged identity (openid within
+// this mini-program, or the cross-mini-program unionid) already belongs to a
+// different account than target. target may be nil (brand-new phone); an
+// identity bound to the target itself is not held — the bind then degrades to
+// an idempotent no-op.
+func (h *Handler) weChatIdentityHeld(ctx context.Context, wechatAppID string, session *wechat.SessionResult, target *domain.User) (bool, error) {
 	existing, err := h.Repo.Users().FindByWeChatOpenID(ctx, wechatAppID, session.OpenID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if existing != nil && (target == nil || existing.ID != target.ID) {
-		return apperror.WeChatAlreadyBound()
+		return true, nil
 	}
 	if session.UnionID != nil && *session.UnionID != "" {
 		existing, err = h.Repo.Users().FindByWeChatUnionID(ctx, *session.UnionID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if existing != nil && (target == nil || existing.ID != target.ID) {
-			return apperror.WeChatAlreadyBound()
+			return true, nil
 		}
 	}
-	return nil
+	return false, nil
 }

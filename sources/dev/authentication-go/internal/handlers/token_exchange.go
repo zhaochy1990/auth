@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -56,18 +57,35 @@ func (h *Handler) resolveWeChatSession(c *gin.Context, req *tokenRequest) (*doma
 	return app, wechatCfg.AppID, session, nil
 }
 
-// bindWeChatIdentity attaches the exchanged WeChat identity to the account:
-// an existing link for a DIFFERENT identity in this mini-program is refused
-// (no silent rebind — the rebind flow is not designed yet), the user's own
-// identity is an idempotent no-op, and otherwise the link is written.
+// bindWeChatIdentityIfFree attaches the exchanged WeChat identity to the
+// account when that cannot collide with an existing binding: the identity
+// (openid, or unionid as the cross-mini-program key) belonging to a DIFFERENT
+// account, or the account already linked to a different identity in this
+// mini-program, downgrades to a login-only session — correct credentials
+// always log the account in, the binding is simply not written. The hard 409
+// this replaces locked app-store reviewers out entirely (their WeChat
+// identity is often already held via a sibling app's unionid), so a proven
+// credential may no longer be blocked by binding state. No rebinding ever
+// happens silently: conflicting cases leave every existing link untouched.
 // Shared by the email+password bind flow and the wechat_phone_bind grant.
-func (h *Handler) bindWeChatIdentity(ctx context.Context, user *domain.User, wechatAppID string, session *wechat.SessionResult) error {
+func (h *Handler) bindWeChatIdentityIfFree(ctx context.Context, user *domain.User, wechatAppID string, session *wechat.SessionResult) error {
+	held, err := h.weChatIdentityHeld(ctx, wechatAppID, session, user)
+	if err != nil {
+		return err
+	}
+	if held {
+		log.Printf("[auth] wechat bind skipped (identity held by another account) user=%s app=%s openid=%s",
+			user.ID, wechatAppID, session.OpenID)
+		return nil
+	}
 	link, err := h.Repo.Users().FindWeChatLink(ctx, user.ID, wechatAppID)
 	if err != nil {
 		return err
 	}
 	if link != nil && link.OpenID != session.OpenID {
-		return apperror.WeChatAlreadyBound()
+		log.Printf("[auth] wechat bind skipped (account already linked to another identity) user=%s app=%s openid=%s",
+			user.ID, wechatAppID, session.OpenID)
+		return nil
 	}
 	if link == nil {
 		unionid := session.UnionID
@@ -86,8 +104,9 @@ func (h *Handler) bindWeChatIdentity(ctx context.Context, user *domain.User, wec
 // mini-program login. subject_token is the wx.login() code; the WeChat
 // mini-program credentials (appid/secret) are read from the calling
 // application's WeChat provider config (per-app config, never env). With
-// email+password present the exchanged identity is bound to that account
-// instead (bind flow, which logs the user in directly).
+// email+password present the proven credentials log that account in and the
+// exchanged identity is bound to it when free (bind flow — a colliding
+// binding state downgrades to a login-only session, it never rejects).
 func (h *Handler) handleTokenExchange(c *gin.Context, req *tokenRequest) {
 	app, wechatAppID, session, err := h.resolveWeChatSession(c, req)
 	if err != nil {
@@ -224,15 +243,10 @@ func (h *Handler) handleWeChatBind(c *gin.Context, req *tokenRequest, app *domai
 		return
 	}
 
-	// The identity must not already belong to another account: openid within
-	// this mini-program, and unionid as the cross-mini-program key. Checked
-	// after the credentials are proven but before anything is written.
-	if err := h.ensureWeChatIdentityFree(ctx, wechatAppID, session, user); err != nil {
-		middleware.RespondError(c, err)
-		return
-	}
-
-	if err := h.bindWeChatIdentity(ctx, user, wechatAppID, session); err != nil {
+	// Proven credentials log the account in; a colliding binding state only
+	// suppresses the link write (bindWeChatIdentityIfFree), it never blocks
+	// the login — a 409 here locked reviewers out of the account entirely.
+	if err := h.bindWeChatIdentityIfFree(ctx, user, wechatAppID, session); err != nil {
 		middleware.RespondError(c, err)
 		return
 	}

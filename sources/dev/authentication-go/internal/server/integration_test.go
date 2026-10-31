@@ -1531,7 +1531,11 @@ func TestTokenExchangeWeChatBind(t *testing.T) {
 	}
 }
 
-// A WeChat identity already bound to another account → 409.
+// A WeChat identity already bound to another account no longer rejects the
+// email+password login: the proven credentials log the second account in and
+// the link write is skipped (the holder keeps the identity). This mirrors the
+// app-review reality — a reviewer's shared-account login must not be blocked
+// by binding state.
 func TestTokenExchangeWeChatBindAlreadyBoundToAnotherUser(t *testing.T) {
 	ta := newTestApp(t)
 
@@ -1545,15 +1549,29 @@ func TestTokenExchangeWeChatBindAlreadyBoundToAnotherUser(t *testing.T) {
 	w = ta.wechatExchange(t, "code-bindable", url.Values{
 		"email": {"wx-b@example.com"}, "password": {"Password1!"},
 	})
-	mustStatus(t, w, http.StatusConflict)
-	var body map[string]any
-	decode(t, w, &body)
-	if body["error"] != "wechat_already_bound" {
-		t.Fatalf("error = %v, want wechat_already_bound", body["error"])
+	mustStatus(t, w, http.StatusOK)
+	var resp oauthTokenResp
+	decode(t, w, &resp)
+
+	// B logged in but was NOT bound: the identity still belongs to A only.
+	me := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(resp.AccessToken))
+	mustStatus(t, me, http.StatusOK)
+	var prof struct {
+		WeChatBound bool `json:"wechat_bound"`
 	}
+	decode(t, me, &prof)
+	if prof.WeChatBound {
+		t.Fatalf("identity held by another account must not bind to wx-b")
+	}
+
+	// The holder is unaffected: a plain exchange still logs A in.
+	holder := ta.wechatExchange(t, "code-bindable", nil)
+	mustStatus(t, holder, http.StatusOK)
 }
 
-// Two different openids sharing a unionid cannot bind to different accounts.
+// Two different openids sharing a unionid: the second account logs in with
+// proven credentials but is not bound (the unionid stays with the first
+// account) — the former 409 downgraded to a login-only session.
 func TestTokenExchangeWeChatBindUnionIDCollision(t *testing.T) {
 	ta := newTestApp(t)
 
@@ -1567,17 +1585,26 @@ func TestTokenExchangeWeChatBindUnionIDCollision(t *testing.T) {
 	w = ta.wechatExchange(t, "code-unionid", url.Values{ // openid wx_unionids, SAME unionid
 		"email": {"wx-union-b@example.com"}, "password": {"Password1!"},
 	})
-	mustStatus(t, w, http.StatusConflict)
-	var body map[string]any
-	decode(t, w, &body)
-	if body["error"] != "wechat_already_bound" {
-		t.Fatalf("error = %v, want wechat_already_bound", body["error"])
+	mustStatus(t, w, http.StatusOK)
+	var resp oauthTokenResp
+	decode(t, w, &resp)
+
+	me := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(resp.AccessToken))
+	mustStatus(t, me, http.StatusOK)
+	var prof struct {
+		WeChatBound bool `json:"wechat_bound"`
+	}
+	decode(t, me, &prof)
+	if prof.WeChatBound {
+		t.Fatalf("unionid held by another account must not bind to wx-union-b")
 	}
 }
 
-// An already-bound user binding a different WeChat identity → 409 (rebind is
-// out of scope and will be redesigned).
-func TestTokenExchangeWeChatBindDifferentWeChatRejected(t *testing.T) {
+// An already-bound user logging in from a DIFFERENT WeChat (the reviewer
+// scenario: shared account credentials on a reviewer's device) logs in
+// successfully — the account keeps its original identity and no silent rebind
+// happens: the owner's plain openid login still works afterwards.
+func TestTokenExchangeWeChatBindDifferentWeChatLogsInWithoutRebind(t *testing.T) {
 	ta := newTestApp(t)
 
 	ta.bindUser(t, "wx-rebind@example.com") // binds openid wx_bindable
@@ -1585,12 +1612,16 @@ func TestTokenExchangeWeChatBindDifferentWeChatRejected(t *testing.T) {
 	w := ta.wechatExchange(t, "code-bound", url.Values{ // different openid wx_bound
 		"email": {"wx-rebind@example.com"}, "password": {"Password1!"},
 	})
-	mustStatus(t, w, http.StatusConflict)
-	var body map[string]any
-	decode(t, w, &body)
-	if body["error"] != "wechat_already_bound" {
-		t.Fatalf("error = %v, want wechat_already_bound", body["error"])
+	mustStatus(t, w, http.StatusOK)
+	var resp oauthTokenResp
+	decode(t, w, &resp)
+	if resp.AccessToken == "" {
+		t.Fatal("expected access token from login-only bind")
 	}
+
+	// No rebind: the account's own identity still logs it in silently.
+	owner := ta.wechatExchange(t, "code-bindable", nil)
+	mustStatus(t, owner, http.StatusOK)
 }
 
 // A confidential caller may authenticate with Basic auth instead of body

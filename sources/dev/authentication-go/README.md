@@ -281,9 +281,12 @@ grant_type=token_exchange
 ```
 
 - Wrong email/password → `401 invalid_credentials`, nothing is bound.
-- Identity already bound to another account → `409 wechat_already_bound`.
-- Account already bound to a different WeChat identity in this mini-program →
-  `409 wechat_already_bound` (changing a binding is not supported yet).
+- Identity already bound to another account, or account already bound to a
+  different WeChat identity in this mini-program → login-only session: `200`
+  tokens are issued and the link write is skipped (`wechat_bound` unchanged;
+  rebinding is not supported). Binding state never rejects proven credentials —
+  the former `409 wechat_already_bound` locked shared-account logins out
+  entirely (e.g. app reviewers on an account bound to the owner's WeChat).
 
 WeChat identities are stored per mini-program in the `auth_user_wechat_links`
 table (see `docs/adr/0002-user-wechat-links-table.md`); `users` carries only a

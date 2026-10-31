@@ -17,7 +17,10 @@ A verified phone is sufficient authorisation to bind, and this is deliberate:
 the code proves ownership of the number, so the number's account is the target.
 This is **not** account merging — nothing moves between accounts. A phone number
 already held by a different account is rejected, and a WeChat identity already
-bound to a different account still returns `409 wechat_already_bound`.
+bound to a different account downgrades to a login-only session (the phone
+account logs in, the link write is skipped) — the former `409
+wechat_already_bound` could lock a verified phone owner out of their own
+account, so binding state no longer rejects the grant.
 
 When this grant auto-registers a **手机号账号**, the token response carries
 `registered: true` (an extra field on the otherwise standard response). It is

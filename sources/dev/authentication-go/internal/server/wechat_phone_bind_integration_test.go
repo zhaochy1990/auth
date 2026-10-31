@@ -204,10 +204,9 @@ func TestWeChatPhoneBindSceneMismatchRejected(t *testing.T) {
 	}
 }
 
-// The identity is already bound to a different account → 409
-// wechat_already_bound, and the one-time code is NOT consumed (a doomed
-// request must not burn it): a later attempt with a conflict-free identity
-// and the same code succeeds, which only works if the record survived.
+// A WeChat identity already bound to a different account no longer rejects
+// the grant: the phone is verified, its (new) account registers and logs in,
+// and the link write is skipped — the holder keeps the identity.
 func TestWeChatPhoneBindIdentityBoundToAnotherUser(t *testing.T) {
 	ta := newTestApp(t)
 	ta.bindUser(t, "wx-holder@example.com") // openid wx_bindable now bound
@@ -215,20 +214,35 @@ func TestWeChatPhoneBindIdentityBoundToAnotherUser(t *testing.T) {
 	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 
 	w := ta.phoneBindGrant(t, "code-bindable", url.Values{"phone": {phone}, "code": {"123456"}})
-	mustStatus(t, w, http.StatusConflict)
-	var body map[string]any
-	decode(t, w, &body)
-	if body["error"] != "wechat_already_bound" {
-		t.Fatalf("error = %v, want wechat_already_bound", body["error"])
+	mustStatus(t, w, http.StatusOK)
+	var resp struct {
+		AccessToken string `json:"access_token"`
+		Registered  bool   `json:"registered"`
+	}
+	decode(t, w, &resp)
+	if !resp.Registered {
+		t.Fatalf("registered = false, want true (brand-new phone)")
 	}
 
-	// A conflict-free identity + the surviving code completes the flow.
-	ok := ta.phoneBindGrant(t, "code-unionid", url.Values{"phone": {phone}, "code": {"123456"}})
-	mustStatus(t, ok, http.StatusOK)
+	// Logged in but NOT bound to the held identity.
+	me := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(resp.AccessToken))
+	mustStatus(t, me, http.StatusOK)
+	var prof struct {
+		WeChatBound bool `json:"wechat_bound"`
+	}
+	decode(t, me, &prof)
+	if prof.WeChatBound {
+		t.Fatalf("identity held by another account must not bind to the phone account")
+	}
+
+	// The holder is unaffected: a plain exchange still logs them in.
+	holder := ta.wechatExchange(t, "code-bindable", nil)
+	mustStatus(t, holder, http.StatusOK)
 }
 
-// The unionid is the cross-mini-program key: a fresh openid sharing a
-// unionid with another account's identity is still a conflict.
+// The unionid is the cross-mini-program key: a fresh openid sharing a unionid
+// with another account's identity is not bound either — the phone account
+// still logs in (the former 409 downgraded to a login-only session).
 func TestWeChatPhoneBindUnionIDCollision(t *testing.T) {
 	ta := newTestApp(t)
 	// code-bound → openid wx_bound + unionid wx_union_bound.
@@ -242,18 +256,27 @@ func TestWeChatPhoneBindUnionIDCollision(t *testing.T) {
 	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 	// code-unionid → openid wx_unionids, SAME unionid wx_union_bound.
 	w := ta.phoneBindGrant(t, "code-unionid", url.Values{"phone": {phone}, "code": {"123456"}})
-	mustStatus(t, w, http.StatusConflict)
-	var body map[string]any
-	decode(t, w, &body)
-	if body["error"] != "wechat_already_bound" {
-		t.Fatalf("error = %v, want wechat_already_bound", body["error"])
+	mustStatus(t, w, http.StatusOK)
+	var resp struct {
+		AccessToken string `json:"access_token"`
+	}
+	decode(t, w, &resp)
+
+	me := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(resp.AccessToken))
+	mustStatus(t, me, http.StatusOK)
+	var prof struct {
+		WeChatBound bool `json:"wechat_bound"`
+	}
+	decode(t, me, &prof)
+	if prof.WeChatBound {
+		t.Fatalf("unionid held by another account must not bind to the phone account")
 	}
 }
 
-// An EXISTING phone account binding a WeChat identity that belongs to a
-// different account is refused — the phone identifies the target, and the
-// identity belongs to someone else (issue Testing Decisions: 手机号被其它账号
-// 持有/身份冲突的既有账号分支).
+// An EXISTING phone account whose grant carries a WeChat identity that
+// belongs to a different account logs in (proven phone ownership), and
+// nothing is linked to it (issue Testing Decisions: 手机号被其它账号持有/
+// 身份冲突的既有账号分支 — now a login-only session instead of a 409).
 func TestWeChatPhoneBindExistingPhoneIdentityBoundToOther(t *testing.T) {
 	ta := newTestApp(t)
 	// Account B binds the code-bindable identity via email+password.
@@ -268,12 +291,7 @@ func TestWeChatPhoneBindExistingPhoneIdentityBoundToOther(t *testing.T) {
 
 	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 	w := ta.phoneBindGrant(t, "code-bindable", url.Values{"phone": {phone}, "code": {"123456"}})
-	mustStatus(t, w, http.StatusConflict)
-	var body map[string]any
-	decode(t, w, &body)
-	if body["error"] != "wechat_already_bound" {
-		t.Fatalf("error = %v, want wechat_already_bound", body["error"])
-	}
+	mustStatus(t, w, http.StatusOK)
 
 	// Nothing was bound to A.
 	me := ta.do(http.MethodGet, "/api/users/me", nil, ta.bearer(accountA.AccessToken))
@@ -283,13 +301,15 @@ func TestWeChatPhoneBindExistingPhoneIdentityBoundToOther(t *testing.T) {
 	}
 	decode(t, me, &prof)
 	if prof.WeChatBound {
-		t.Fatalf("conflicting bind must not link the identity to account A")
+		t.Fatalf("conflicting identity must not link to account A")
 	}
 }
 
-// An account already bound to a DIFFERENT WeChat identity in this
-// mini-program may not silently rebind (same guard as the email bind flow).
-func TestWeChatPhoneBindDifferentIdentityRejected(t *testing.T) {
+// An account already bound to one WeChat identity logging in from a different
+// one gets a login-only session; the account keeps its FIRST identity (no
+// silent rebind): the owner's plain openid login still works, and the second
+// identity remains unbound.
+func TestWeChatPhoneBindDifferentIdentityNoRebind(t *testing.T) {
 	ta := newTestApp(t)
 	phone := smsPhone(109)
 	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
@@ -299,18 +319,19 @@ func TestWeChatPhoneBindDifferentIdentityRejected(t *testing.T) {
 	seedCode(t, ta, repository.SmsSceneBindPhone, phone, "123456")
 	// code-unionid is a different openid, and its unionid is free here.
 	w := ta.phoneBindGrant(t, "code-unionid", url.Values{"phone": {phone}, "code": {"123456"}})
-	mustStatus(t, w, http.StatusConflict)
-	var body map[string]any
-	decode(t, w, &body)
-	if body["error"] != "wechat_already_bound" {
-		t.Fatalf("error = %v, want wechat_already_bound", body["error"])
-	}
+	mustStatus(t, w, http.StatusOK)
 
-	// The one-time code survived the rejected bind (the anti-rebind check runs
-	// before consumption): the account's own identity + the same code still
-	// completes as an idempotent login.
-	ok := ta.phoneBindGrant(t, "code-bindable", url.Values{"phone": {phone}, "code": {"123456"}})
-	mustStatus(t, ok, http.StatusOK)
+	// No rebind: the account's own identity still logs it in silently, and the
+	// second identity was not linked (its plain exchange still needs binding).
+	owner := ta.wechatExchange(t, "code-bindable", nil)
+	mustStatus(t, owner, http.StatusOK)
+	second := ta.wechatExchange(t, "code-unionid", nil)
+	mustStatus(t, second, http.StatusBadRequest)
+	var body map[string]any
+	decode(t, second, &body)
+	if body["error"] != "wechat_needs_binding" {
+		t.Fatalf("error = %v, want wechat_needs_binding (identity must stay unbound)", body["error"])
+	}
 }
 
 // Parameter validation: missing subject_token / phone / code, an invalid
