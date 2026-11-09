@@ -91,6 +91,7 @@ func NewRouter(repo repository.Repository, jwt *auth.JWTManager, cfg *config.Con
 	{
 		internalAPI.POST("/wxacode", h.GenerateWxACode)
 		internalAPI.POST("/urllink", h.GenerateURLLink)
+		internalAPI.POST("/wechat/code2session", h.WeChatCode2Session)
 	}
 
 	// OAuth2 endpoints. /oauth/token uses OptionalAppAuth because token_exchange
