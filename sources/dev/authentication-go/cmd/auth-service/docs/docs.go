@@ -1906,6 +1906,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/internal/wechat/code2session": {
+            "post": {
+                "security": [
+                    {
+                        "InternalToken": []
+                    }
+                ],
+                "description": "Resolves a miniprogram wx.login() code into the payer openid via WeChat's code2Session, using the configured WeChat provider credentials. Requires the X-Internal-Token header; returns only the openid.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "internal"
+                ],
+                "summary": "Exchange a wx.login code for the openid (internal)",
+                "parameters": [
+                    {
+                        "description": "Login code",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.code2sessionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.code2sessionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/internal/wxacode": {
             "post": {
                 "security": [
@@ -3497,6 +3548,24 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "avatar_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.code2sessionRequest": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code is the miniprogram's one-time wx.login() code the caller (e.g.\nstride-api's prepay) wants resolved into a payer openid.",
+                    "type": "string",
+                    "example": "0a3Xxx000Qwabcd1DxV000"
+                }
+            }
+        },
+        "internal_handlers.code2sessionResponse": {
+            "type": "object",
+            "properties": {
+                "openid": {
                     "type": "string"
                 }
             }

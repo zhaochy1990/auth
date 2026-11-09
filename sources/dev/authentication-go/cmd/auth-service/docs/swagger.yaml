@@ -134,6 +134,20 @@ definitions:
       avatar_url:
         type: string
     type: object
+  internal_handlers.code2sessionRequest:
+    properties:
+      code:
+        description: |-
+          Code is the miniprogram's one-time wx.login() code the caller (e.g.
+          stride-api's prepay) wants resolved into a payer openid.
+        example: 0a3Xxx000Qwabcd1DxV000
+        type: string
+    type: object
+  internal_handlers.code2sessionResponse:
+    properties:
+      openid:
+        type: string
+    type: object
   internal_handlers.createApplicationRequest:
     properties:
       allowed_scopes:
@@ -1908,6 +1922,40 @@ paths:
       security:
       - InternalToken: []
       summary: Generate a mini-program URL Link (internal)
+      tags:
+      - internal
+  /api/internal/wechat/code2session:
+    post:
+      consumes:
+      - application/json
+      description: Resolves a miniprogram wx.login() code into the payer openid via
+        WeChat's code2Session, using the configured WeChat provider credentials. Requires
+        the X-Internal-Token header; returns only the openid.
+      parameters:
+      - description: Login code
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.code2sessionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.code2sessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - InternalToken: []
+      summary: Exchange a wx.login code for the openid (internal)
       tags:
       - internal
   /api/internal/wxacode:
