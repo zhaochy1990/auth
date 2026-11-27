@@ -1,3 +1,7 @@
+## HARD 规则：禁止代码注释
+
+禁止编写或新增任何代码注释；通过清晰命名和结构表达代码意图。
+
 # CLAUDE.md
 
 Guidance for Claude Code when working in the Go auth service
